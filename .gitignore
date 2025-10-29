@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+venv/
+*.db
+*.sqlite
+uploads/
+bulk_import/
+staging/
+*.log
+.env
+.DS_Store
+data/
+logs/
+local_uploads/
+archive/
