@@ -1,9 +1,10 @@
 {
-  "version": "1.10.16",
+  "version": "1.10.17",
   "release_date": "2025-10-31",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "IOC Hunting - Distinctive Terms Strategy for Complex IOCs (v1.10.17)",
     "IOC Hunting - Space Escaping Fix for Complex Command Lines (v1.10.16)",
     "IOC Management - Multi-Line Truncation (3 lines max) (v1.10.15)",
     "IOC Management - Edit Functionality Implemented (v1.10.14)",

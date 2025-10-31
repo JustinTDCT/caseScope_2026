@@ -1077,40 +1077,67 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
             # Use query_string for wildcard searches (supports nested objects)
             # Use simple_query_string for targeted field searches (better performance)
             if search_fields == ["*"]:
-                # Wildcard search - use query_string to search nested objects
-                # IMPORTANT: Must escape special Lucene characters for query_string
-                def escape_lucene_special_chars(text):
-                    """Escape special characters for Lucene query_string syntax
+                # For very long/complex IOCs (e.g., command lines), extract distinctive terms
+                # This avoids "too many nested clauses" errors (maxClauseCount limit)
+                if len(ioc.ioc_value) > 80 or ioc.ioc_value.count('\\') > 5:
+                    # Complex IOC - extract distinctive terms and search for those (no wildcards)
+                    # Example: "powershell.exe -nopROfi -ExEC UnRESTrictED" 
+                    #       -> "nopROfi AND UnRESTrictED AND powershell.exe"
+                    import re
+                    # Extract words that are 5+ characters and look distinctive (mixed case, uncommon)
+                    words = re.findall(r'\b\w{5,}\b', ioc.ioc_value)
+                    # Prioritize mixed-case words (likely obfuscated/distinctive)
+                    distinctive_words = [w for w in words if not w.islower() and not w.isupper()]
+                    if not distinctive_words:
+                        # Fall back to any words
+                        distinctive_words = words[:5]  # Max 5 terms
                     
-                    IMPORTANT: Do NOT escape spaces! Spaces are natural word delimiters in Lucene.
-                    When you escape a space as '\ ', it looks for a literal backslash-space combo.
+                    search_terms = ' AND '.join(distinctive_words[:5])
                     
-                    Example:
-                      - Input: "powershell.exe -noprofile" 
-                      - With space escaping: "*powershell\.exe\ \-noprofile*" ❌ Won't match
-                      - Without space escaping: "*powershell\.exe*-noprofile*" ✅ Will match
-                    """
-                    special_chars = ['\\', '+', '-', '=', '&', '|', '!', '(', ')', '{', '}', 
-                                     '[', ']', '^', '"', '~', '?', ':', '/']
-                    # REMOVED: ' ' (space) from special_chars list
-                    escaped = text
-                    for char in special_chars:
-                        if char != '*':  # Don't escape our wildcard
-                            escaped = escaped.replace(char, f'\\{char}')
-                    return escaped
-                
-                escaped_value = escape_lucene_special_chars(ioc.ioc_value)
-                query = {
-                    "query": {
-                        "query_string": {
-                            "query": f"*{escaped_value}*",
-                            "default_operator": "AND",
-                            "analyze_wildcard": True,
-                            "lenient": True
+                    query = {
+                        "query": {
+                            "query_string": {
+                                "query": search_terms,
+                                "default_operator": "AND",
+                                "lenient": True
+                            }
                         }
                     }
-                }
-                logger.info(f"[HUNT IOCS] Using query_string for wildcard search (nested objects, escaped)")
+                    logger.info(f"[HUNT IOCS] Using distinctive terms for complex IOC: {search_terms}")
+                else:
+                    # Simple IOC - use query_string with wildcards and escaping
+                    def escape_lucene_special_chars(text):
+                        """Escape special characters for Lucene query_string syntax
+                        
+                        IMPORTANT: Do NOT escape spaces! Spaces are natural word delimiters in Lucene.
+                        When you escape a space as '\ ', it looks for a literal backslash-space combo.
+                        
+                        Example:
+                          - Input: "powershell.exe -noprofile" 
+                          - With space escaping: "*powershell\.exe\ \-noprofile*" ❌ Won't match
+                          - Without space escaping: "*powershell\.exe*-noprofile*" ✅ Will match
+                        """
+                        special_chars = ['\\', '+', '-', '=', '&', '|', '!', '(', ')', '{', '}', 
+                                         '[', ']', '^', '"', '~', '?', ':', '/']
+                        # REMOVED: ' ' (space) from special_chars list
+                        escaped = text
+                        for char in special_chars:
+                            if char != '*':  # Don't escape our wildcard
+                                escaped = escaped.replace(char, f'\\{char}')
+                        return escaped
+                    
+                    escaped_value = escape_lucene_special_chars(ioc.ioc_value)
+                    query = {
+                        "query": {
+                            "query_string": {
+                                "query": f"*{escaped_value}*",
+                                "default_operator": "AND",
+                                "analyze_wildcard": True,
+                                "lenient": True
+                            }
+                        }
+                    }
+                    logger.info(f"[HUNT IOCS] Using query_string for wildcard search (nested objects, escaped)")
             else:
                 # Targeted field search - use simple_query_string
                 query = {
