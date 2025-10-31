@@ -95,6 +95,28 @@ def add_ioc(case_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@ioc_bp.route('/case/<int:case_id>/ioc/<int:ioc_id>/get', methods=['GET'])
+@login_required
+def get_ioc(case_id, ioc_id):
+    """Get IOC details for editing"""
+    from main import db, IOC
+    
+    ioc = db.session.get(IOC, ioc_id)
+    if not ioc or ioc.case_id != case_id:
+        return jsonify({'success': False, 'error': 'IOC not found'}), 404
+    
+    return jsonify({
+        'success': True,
+        'ioc': {
+            'id': ioc.id,
+            'ioc_type': ioc.ioc_type,
+            'ioc_value': ioc.ioc_value,
+            'description': ioc.description or '',
+            'threat_level': ioc.threat_level
+        }
+    })
+
+
 @ioc_bp.route('/case/<int:case_id>/ioc/<int:ioc_id>/edit', methods=['POST'])
 @login_required
 def edit_ioc(case_id, ioc_id):

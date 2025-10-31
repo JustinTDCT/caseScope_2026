@@ -265,9 +265,31 @@ async function submitIOC(event) {
     }
 }
 
-function editIOC(iocId) {
-    // TODO: Implement edit functionality
-    alert('Edit functionality coming soon!');
+async function editIOC(iocId) {
+    try {
+        // Fetch IOC details
+        const response = await fetch(`/case/${CASE_ID}/ioc/${iocId}/get`);
+        const data = await response.json();
+        
+        if (!data.success) {
+            alert('Error: ' + (data.error || 'Could not load IOC'));
+            return;
+        }
+        
+        // Populate form with IOC data
+        const ioc = data.ioc;
+        document.getElementById('modalTitle').textContent = '✏️ Edit IOC';
+        document.getElementById('iocId').value = ioc.id;
+        document.getElementById('iocType').value = ioc.ioc_type;
+        document.getElementById('iocValue').value = ioc.ioc_value;
+        document.getElementById('iocDescription').value = ioc.description;
+        document.getElementById('threatLevel').value = ioc.threat_level;
+        
+        // Show modal
+        document.getElementById('iocModal').style.display = 'block';
+    } catch (error) {
+        alert('Error: ' + error.message);
+    }
 }
 
 async function toggleIOC(iocId) {

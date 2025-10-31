@@ -1,9 +1,11 @@
 {
-  "version": "1.10.12",
+  "version": "1.10.14",
   "release_date": "2025-10-31",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "IOC Management - Edit Functionality Implemented (v1.10.14)",
+    "IOC Management - Truncate Long Values in Display (v1.10.13)",
     "Index Name Generation - Standardized Across Codebase (v1.10.12)",
     "IOC Re-Hunt Fix - Clear OpenSearch has_ioc Flags (v1.10.11)",
     "Bulk Import Fix - Missing queue_file_processing Import (v1.10.10)",
