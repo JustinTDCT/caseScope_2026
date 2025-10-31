@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CaseScope 2026 - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/theme.css') }}?t={{ cache_bust }}">
+    <style>
+        /* Login-specific styles */
+        body {
+            background: var(--color-bg-primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .login-box {
+            background: var(--color-bg-secondary);
+            padding: var(--spacing-2xl);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-xl);
+            min-width: 400px;
+        }
+        .logo-container {
+            text-align: center;
+            margin-bottom: var(--spacing-xl);
+        }
+        .logo-main {
+            margin-bottom: var(--spacing-sm);
+        }
+        .logo-text {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        .logo-case {
+            color: #4ade80;
+        }
+        .logo-scope {
+            color: var(--color-text-primary);
+        }
+        .logo-year {
+            color: var(--color-text-primary);
+            margin-left: var(--spacing-sm);
+        }
+        .logo-version {
+            color: var(--color-text-secondary);
+            font-size: 0.875rem;
+        }
+        h2 {
+            text-align: center;
+            color: var(--color-text-secondary);
+            margin-bottom: var(--spacing-xl);
+        }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <div class="logo-container">
+            <div class="logo-main">
+                <span class="logo-text">
+                    <span class="logo-case">case</span><span class="logo-scope">Scope</span>
+                </span>
+                <span class="logo-year">2026</span>
+            </div>
+            <div class="logo-version">v{{ app_version.version }}</div>
+        </div>
+        
+        <h2>Digital Forensics & Incident Response Platform</h2>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        
+        <form method="POST" action="{{ url_for('login') }}">
+            <div class="form-group">
+                <label class="form-label" for="username">Username</label>
+                <input type="text" id="username" name="username" class="form-input" required autofocus>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="password">Password</label>
+                <input type="password" id="password" name="password" class="form-input" required>
+            </div>
+            
+            <button type="submit" class="btn btn-primary w-full">Login</button>
+        </form>
+    </div>
+</body>
+</html>
+

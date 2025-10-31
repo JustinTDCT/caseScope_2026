@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+
+{% block title %}{{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">{{ case.name }}</h1>
+        <p class="text-secondary">{{ case.description or 'No description provided' }}</p>
+    </div>
+    <div class="content-actions">
+        {% if current_user.role == 'admin' or case.created_by == current_user.id %}
+        <a href="{{ url_for('cases.edit_case', case_id=case.id) }}" class="btn" style="background: var(--color-info); color: white;">
+            <span>✏️</span>
+            <span>Edit Case</span>
+        </a>
+        {% endif %}
+        <a href="{{ url_for('upload_files', case_id=case.id) }}" class="btn btn-primary">
+            <span>📤</span>
+            <span>Upload Files</span>
+        </a>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Cases</span>
+        </a>
+    </div>
+</div>
+
+<!-- Case Info Stats -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Total Files</div>
+        <div class="stat-value">{{ files|length }}</div>
+        <div class="stat-subtitle">Uploaded</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Storage</div>
+        <div class="stat-value">
+            {% set total_size = files|sum(attribute='file_size') or 0 %}
+            {{ (total_size / 1024 / 1024)|round(2) }} MB
+        </div>
+        <div class="stat-subtitle">Used space</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Processing</div>
+        <div class="stat-value" id="processingCount">
+            {{ files|selectattr('indexing_status', 'in', ['Queued', 'Indexing', 'SIGMA Testing', 'IOC Hunting'])|list|length }}
+        </div>
+        <div class="stat-subtitle">In progress</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value" id="completedCount">
+            {{ files|selectattr('indexing_status', 'equalto', 'Completed')|list|length }}
+        </div>
+        <div class="stat-subtitle">Processed</div>
+    </div>
+</div>
+
+<!-- Case Details Card -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Case Information</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: var(--spacing-lg);">
+            <div>
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: var(--spacing-xs);">Company</div>
+                <div><strong>{{ case.company or 'N/A' }}</strong></div>
+            </div>
+            <div>
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: var(--spacing-xs);">Created</div>
+                <div><strong>{{ case.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</strong></div>
+            </div>
+            <div>
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: var(--spacing-xs);">Last Updated</div>
+                <div><strong>{{ case.updated_at.strftime('%Y-%m-%d %H:%M:%S') if case.updated_at else 'N/A' }}</strong></div>
+            </div>
+            <div>
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: var(--spacing-xs);">Status</div>
+                <div><span class="status-badge status-success">{{ case.status|title }}</span></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Files Table -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Case Files</h2>
+        <span class="text-secondary">{{ files|length }} file(s)</span>
+    </div>
+    <div class="card-body">
+        {% if files %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Filename</th>
+                        <th>Type</th>
+                        <th>Size</th>
+                        <th>Status</th>
+                        <th>Events</th>
+                        <th>SIGMA</th>
+                        <th>IOCs</th>
+                        <th>Uploaded</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in files %}
+                    <tr data-file-id="{{ file.id }}">
+                        <td>
+                            <strong>{{ file.original_filename }}</strong>
+                            {% if file.file_hash %}
+                            <br><span class="text-muted" style="font-size: 0.75rem;">{{ file.file_hash[:16] }}...</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-info);">
+                                {{ file.file_type or 'UNKNOWN' }}
+                            </span>
+                        </td>
+                        <td>{{ (file.file_size / 1024 / 1024)|round(2) }} MB</td>
+                        <td class="status-cell">
+                            {% if file.indexing_status == 'Completed' %}
+                                <span class="status-badge status-completed">Completed</span>
+                            {% elif file.indexing_status == 'Indexing' %}
+                                <span class="status-badge status-indexing pulsing">Indexing</span>
+                            {% elif file.indexing_status == 'SIGMA Testing' %}
+                                <span class="status-badge status-sigma pulsing">SIGMA Testing</span>
+                            {% elif file.indexing_status == 'IOC Hunting' %}
+                                <span class="status-badge status-ioc pulsing">IOC Hunting</span>
+                            {% elif file.indexing_status == 'Queued' %}
+                                <span class="status-badge status-queued">Queued</span>
+                            {% else %}
+                                <span class="status-badge status-failed">{{ file.indexing_status }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="event-count">{{ '{:,}'.format(file.event_count or 0) }}</td>
+                        <td class="sigma-count">
+                            {% if file.violation_count > 0 %}
+                                <span class="status-badge status-sigma">{{ file.violation_count }}</span>
+                            {% else %}
+                                <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td class="ioc-count">
+                            {% if file.ioc_event_count > 0 %}
+                                <span class="status-badge status-ioc">{{ file.ioc_event_count }}</span>
+                            {% else %}
+                                <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ file.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📄</div>
+            <h3>No files uploaded yet</h3>
+            <p>Upload EVTX, JSON, or ZIP files to start processing</p>
+            <a href="{{ url_for('upload_files', case_id=case.id) }}" class="btn btn-primary" style="margin-top: var(--spacing-lg);">
+                Upload Files
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Live status updates - refresh every 3 seconds
+function updateStatuses() {
+    fetch('/case/{{ case.id }}/status')
+        .then(response => response.json())
+        .then(data => {
+            let processingCount = 0;
+            let completedCount = 0;
+            
+            data.files.forEach(file => {
+                const row = document.querySelector(`tr[data-file-id="${file.id}"]`);
+                if (!row) return;
+                
+                // Update status
+                const statusCell = row.querySelector('.status-cell');
+                const currentStatus = statusCell.textContent.trim();
+                
+                if (currentStatus !== file.status) {
+                    let statusClass = 'status-failed';
+                    let pulsing = '';
+                    
+                    if (file.status === 'Completed') {
+                        statusClass = 'status-completed';
+                        completedCount++;
+                    } else if (file.status === 'Indexing') {
+                        statusClass = 'status-indexing';
+                        pulsing = ' pulsing';
+                        processingCount++;
+                    } else if (file.status === 'SIGMA Testing') {
+                        statusClass = 'status-sigma';
+                        pulsing = ' pulsing';
+                        processingCount++;
+                    } else if (file.status === 'IOC Hunting') {
+                        statusClass = 'status-ioc';
+                        pulsing = ' pulsing';
+                        processingCount++;
+                    } else if (file.status === 'Queued') {
+                        statusClass = 'status-queued';
+                        processingCount++;
+                    }
+                    
+                    statusCell.innerHTML = `<span class="status-badge ${statusClass}${pulsing}">${file.status}</span>`;
+                }
+                
+                // Update counts
+                row.querySelector('.event-count').textContent = file.event_count.toLocaleString();
+                
+                const sigmaCell = row.querySelector('.sigma-count');
+                if (file.violation_count > 0) {
+                    sigmaCell.innerHTML = `<span class="status-badge status-sigma">${file.violation_count}</span>`;
+                } else {
+                    sigmaCell.innerHTML = '<span class="text-muted">0</span>';
+                }
+                
+                const iocCell = row.querySelector('.ioc-count');
+                if (file.ioc_event_count > 0) {
+                    iocCell.innerHTML = `<span class="status-badge status-ioc">${file.ioc_event_count}</span>`;
+                } else {
+                    iocCell.innerHTML = '<span class="text-muted">0</span>';
+                }
+            });
+            
+            // Update summary stats
+            const processingEl = document.getElementById('processingCount');
+            const completedEl = document.getElementById('completedCount');
+            if (processingEl) processingEl.textContent = processingCount;
+            if (completedEl) completedEl.textContent = completedCount;
+        })
+        .catch(err => console.error('Status update failed:', err));
+}
+
+// Update every 3 seconds
+setInterval(updateStatuses, 3000);
+
+// Initial update after 1 second
+setTimeout(updateStatuses, 1000);
+</script>
+{% endblock %}
+

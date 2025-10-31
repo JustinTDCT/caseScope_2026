@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+
+{% block title %}{{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">{{ case.name }}</h1>
+        <p class="text-secondary">Case ID: {{ case.id }} • Created: {{ case.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+    </div>
+    <div class="content-actions">
+        <a href="{{ url_for('upload_files', case_id=case.id) }}" class="btn btn-primary">
+            <span>📤</span>
+            <span>Upload Files</span>
+        </a>
+        <button onclick="confirmClearFiles()" class="btn" style="background: var(--color-error); color: white;">
+            <span>🗑️</span>
+            <span>Clear All Files</span>
+        </button>
+        <button onclick="confirmRehuntIOCs()" class="btn" style="background: var(--color-warning); color: white;">
+            <span>🎯</span>
+            <span>Re-Hunt IOCs</span>
+        </button>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Dashboard</span>
+        </a>
+    </div>
+</div>
+
+<!-- ============================================================================
+     CASE DASHBOARD TILES
+     ROW 1: Tile 1 (Case Details) - Full Width
+     ROW 2: Tiles 2 & 3 (Case Files, Event Stats) - 50/50 Split
+     ============================================================================ -->
+
+<!-- TILE ROW 1: CASE DETAILS (Full Width) -->
+<div style="margin-bottom: var(--spacing-lg);">
+
+<!-- CASE DETAILS TILE -->
+<div class="card" style="margin-bottom: 0; cursor: pointer;" onclick="window.location.href='{{ url_for('cases.edit_case', case_id=case.id) }}'">
+    <div class="card-header">
+        <h2 class="card-title">📋 Case Details</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--spacing-sm) var(--spacing-xl);">
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case Name</div>
+                <div><strong>{{ case.name }}</strong></div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case ID</div>
+                <div><strong>{{ case.id }}</strong></div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case Created Date</div>
+                <div><strong>{{ case.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</strong></div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case Created By</div>
+                <div><strong>{{ case.created_by or 'System' }}</strong></div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case Assigned To User</div>
+                <div><strong>{{ case.assigned_to or 'Unassigned' }}</strong></div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">DFIR-IRIS Sync Status</div>
+                <div><strong>Not Enabled</strong></div>
+            </div>
+            <div style="grid-column: 1 / -1; margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case Description</div>
+                <div><strong>{{ case.description or 'No description provided' }}</strong></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</div>
+<!-- End of Tile Row 1 -->
+
+<!-- TILE ROW 2: CASE FILES & EVENT STATS (50/50 Split) -->
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--spacing-lg); margin-bottom: var(--spacing-lg);">
+
+<!-- CASE FILES TILE -->
+<div class="card" style="margin-bottom: 0; cursor: pointer;" onclick="window.location.href='{{ url_for('file_management') }}';">
+    <div class="card-header">
+        <h2 class="card-title">📁 Case Files</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: flex; flex-direction: column; gap: var(--spacing-md);">
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total Files</div>
+                <div>
+                    <span id="stat-total-files" style="font-size: 1.75rem; font-weight: 700; color: var(--color-primary);">
+                        {{ files|length }}
+                    </span>
+                </div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Indexed Files</div>
+                <div>
+                    <span id="stat-indexed-files" style="font-size: 1.75rem; font-weight: 700; color: var(--color-success);">
+                        {{ files|selectattr('indexing_status', 'equalto', 'Completed')|list|length }}
+                    </span>
+                </div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Files Being Processed</div>
+                <div>
+                    <span id="stat-processing-files" style="font-size: 1.75rem; font-weight: 700; color: var(--color-warning);">
+                        {{ files|selectattr('indexing_status', 'in', ['Queued', 'Indexing', 'SIGMA Testing', 'IOC Hunting'])|list|length }}
+                    </span>
+                </div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Disk Space Used by Case Files</div>
+                <div>
+                    <strong id="stat-disk-space">{{ (files|sum(attribute='file_size') / 1024 / 1024)|round(2) }} MB</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- EVENT STATS TILE -->
+<div class="card" style="margin-bottom: 0; cursor: pointer;" onclick="window.location.href='{{ url_for('event_search', case_id=case.id) }}';">
+    <div class="card-header">
+        <h2 class="card-title">📊 Event Stats</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: flex; flex-direction: column; gap: var(--spacing-md);">
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total Events</div>
+                <div>
+                    <span id="stat-total-events" style="font-size: 1.75rem; font-weight: 700; color: var(--color-primary);">
+                        {% set total_events = files|sum(attribute='event_count') or 0 %}
+                        {{ '{:,}'.format(total_events) }}
+                    </span>
+                </div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total SIGMA Violations</div>
+                <div>
+                    <span id="stat-total-sigma" style="font-size: 1.75rem; font-weight: 700; color: var(--color-warning);">
+                        {% set total_violations = files|sum(attribute='violation_count') or 0 %}
+                        {{ '{:,}'.format(total_violations) }}
+                    </span>
+                </div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Total Events w/IOCs</div>
+                <div>
+                    <span id="stat-total-ioc-events" style="font-size: 1.75rem; font-weight: 700; color: var(--color-error);">
+                        {% set total_ioc_events = files|sum(attribute='ioc_event_count') or 0 %}
+                        {{ '{:,}'.format(total_ioc_events) }}
+                    </span>
+                </div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Number of IOCs Tracked in This Case</div>
+                <div>
+                    <span id="stat-total-iocs" style="font-size: 1.75rem; font-weight: 700; color: var(--color-warning);">{{ total_iocs }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</div>
+<!-- End of Tile Row 2 -->
+<!-- End of Case Dashboard Tiles -->
+
+<!-- ============================================================================
+     FILES TABLE
+     ============================================================================ -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📄 Recent Case Files</h2>
+        <span class="text-secondary">Showing 10 most recent</span>
+    </div>
+    <div class="card-body">
+        {% if files %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Filename</th>
+                        <th>Type</th>
+                        <th>Size</th>
+                        <th>Status</th>
+                        <th>Events</th>
+                        <th>SIGMA</th>
+                        <th>IOCs</th>
+                        <th>Uploaded</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in files %}
+                    <tr data-file-id="{{ file.id }}">
+                        <td>
+                            <strong>{{ file.original_filename }}</strong>
+                            {% if file.file_hash %}
+                            <br><span class="text-muted" style="font-size: 0.75rem;">{{ file.file_hash[:16] }}...</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-info);">
+                                {{ file.file_type or 'UNKNOWN' }}
+                            </span>
+                        </td>
+                        <td>{{ (file.file_size / 1024 / 1024)|round(2) }} MB</td>
+                        <td class="status-cell">
+                            {% if file.indexing_status == 'Completed' %}
+                                <span class="status-badge status-completed">Completed</span>
+                            {% elif file.indexing_status == 'Indexing' %}
+                                <span class="status-badge status-indexing pulsing">Indexing</span>
+                            {% elif file.indexing_status == 'SIGMA Testing' %}
+                                <span class="status-badge status-sigma pulsing">SIGMA Testing</span>
+                            {% elif file.indexing_status == 'IOC Hunting' %}
+                                <span class="status-badge status-ioc pulsing">IOC Hunting</span>
+                            {% elif file.indexing_status == 'Queued' %}
+                                <span class="status-badge status-queued">Queued</span>
+                            {% else %}
+                                <span class="status-badge status-failed">{{ file.indexing_status }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="event-count">{{ '{:,}'.format(file.event_count or 0) }}</td>
+                        <td class="sigma-count">
+                            {% if file.violation_count > 0 %}
+                                <span class="status-badge status-sigma">{{ file.violation_count }}</span>
+                            {% else %}
+                                <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td class="ioc-count">
+                            {% if file.ioc_event_count > 0 %}
+                                <span class="status-badge status-ioc">{{ file.ioc_event_count }}</span>
+                            {% else %}
+                                <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ file.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            {% if file.is_indexed and file.indexing_status == 'Completed' %}
+                            <button onclick="rehuntSingleFile({{ file.id }})" 
+                                    class="btn btn-sm" 
+                                    style="background: var(--color-warning); color: white; padding: 4px 8px; font-size: 0.75rem;"
+                                    title="Re-hunt IOCs for this file">
+                                🎯
+                            </button>
+                            {% else %}
+                            <span class="text-muted" style="font-size: 0.75rem;">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📄</div>
+            <h3>No files uploaded yet</h3>
+            <p>Upload EVTX, JSON, or ZIP files to start processing</p>
+            <a href="{{ url_for('upload_files', case_id=case.id) }}" class="btn btn-primary" style="margin-top: var(--spacing-lg);">
+                Upload Files
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Live status updates - refresh every 3 seconds
+function updateStatuses() {
+    fetch('/case/{{ case.id }}/status')
+        .then(response => response.json())
+        .then(data => {
+            let processingCount = 0;
+            let completedCount = 0;
+            
+            data.files.forEach(file => {
+                const row = document.querySelector(`tr[data-file-id="${file.id}"]`);
+                if (!row) return;
+                
+                // Update status
+                const statusCell = row.querySelector('.status-cell');
+                const currentStatus = statusCell.textContent.trim();
+                
+                if (currentStatus !== file.status) {
+                    let statusClass = 'status-failed';
+                    let pulsing = '';
+                    
+                    if (file.status === 'Completed') {
+                        statusClass = 'status-completed';
+                        completedCount++;
+                    } else if (file.status === 'Indexing') {
+                        statusClass = 'status-indexing';
+                        pulsing = ' pulsing';
+                        processingCount++;
+                    } else if (file.status === 'SIGMA Testing') {
+                        statusClass = 'status-sigma';
+                        pulsing = ' pulsing';
+                        processingCount++;
+                    } else if (file.status === 'IOC Hunting') {
+                        statusClass = 'status-ioc';
+                        pulsing = ' pulsing';
+                        processingCount++;
+                    } else if (file.status === 'Queued') {
+                        statusClass = 'status-queued';
+                        processingCount++;
+                    }
+                    
+                    statusCell.innerHTML = `<span class="status-badge ${statusClass}${pulsing}">${file.status}</span>`;
+                }
+                
+                // Update counts
+                row.querySelector('.event-count').textContent = file.event_count.toLocaleString();
+                
+                const sigmaCell = row.querySelector('.sigma-count');
+                if (file.violation_count > 0) {
+                    sigmaCell.innerHTML = `<span class="status-badge status-sigma">${file.violation_count}</span>`;
+                } else {
+                    sigmaCell.innerHTML = '<span class="text-muted">0</span>';
+                }
+                
+                const iocCell = row.querySelector('.ioc-count');
+                if (file.ioc_event_count > 0) {
+                    iocCell.innerHTML = `<span class="status-badge status-ioc">${file.ioc_event_count}</span>`;
+                } else {
+                    iocCell.innerHTML = '<span class="text-muted">0</span>';
+                }
+            });
+        })
+        .catch(err => console.error('Status update failed:', err));
+}
+
+// Update every 3 seconds
+setInterval(updateStatuses, 3000);
+
+// Initial update after 1 second
+setTimeout(updateStatuses, 1000);
+
+// Update statistics tiles
+function updateStatsTiles() {
+    fetch(`/api/case/{{ case.id }}/stats`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Update file statistics
+                document.getElementById('stat-total-files').textContent = data.file_stats.total_files;
+                document.getElementById('stat-indexed-files').textContent = data.file_stats.indexed_files;
+                document.getElementById('stat-processing-files').textContent = data.file_stats.processing_files;
+                document.getElementById('stat-disk-space').textContent = data.file_stats.disk_space_mb + ' MB';
+                
+                // Update event statistics
+                document.getElementById('stat-total-events').textContent = data.event_stats.total_events.toLocaleString();
+                document.getElementById('stat-total-sigma').textContent = data.event_stats.total_sigma.toLocaleString();
+                document.getElementById('stat-total-ioc-events').textContent = data.event_stats.total_ioc_events.toLocaleString();
+                document.getElementById('stat-total-iocs').textContent = data.event_stats.total_iocs;
+            }
+        })
+        .catch(err => console.error('Stats update failed:', err));
+}
+
+// Update stats every 3 seconds
+setInterval(updateStatsTiles, 3000);
+
+// Initial stats update after 500ms
+setTimeout(updateStatsTiles, 500);
+
+// Clear all files confirmation
+function confirmClearFiles() {
+    if (confirm('⚠️ WARNING: This will permanently delete ALL files from this case!\n\nThis action will:\n• Remove all files from the filesystem\n• Delete all database records (files, SIGMA violations, IOC matches)\n• Remove all data from OpenSearch\n\nThis CANNOT be undone!\n\nAre you absolutely sure?')) {
+        // Create a form and submit it
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("clear_all_files", case_id=case.id) }}';
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function confirmRehuntIOCs() {
+    if (confirm('🎯 Re-Hunt IOCs\n\nThis will:\n• Clear all existing IOC matches for this case\n• Re-scan all completed files for IOC matches\n• Update IOC event counts\n\nThis may take a few minutes depending on file count.\n\nContinue?')) {
+        // Create a form and submit it
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("rehunt_iocs", case_id=case.id) }}';
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function rehuntSingleFile(fileId) {
+    if (confirm('🎯 Re-Hunt IOCs for This File\n\nThis will:\n• Clear existing IOC matches for this file only\n• Re-scan this file for IOC matches\n• Update IOC event count\n\nContinue?')) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/case/{{ case.id }}/file/${fileId}/rehunt_iocs`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+</script>
+{% endblock %}
+

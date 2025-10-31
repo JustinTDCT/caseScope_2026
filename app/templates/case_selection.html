@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Case Selection - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">Case Selection</h1>
+        <p class="text-secondary">Select a case to work on or create a new one</p>
+    </div>
+    <div class="content-actions">
+        <a href="{{ url_for('create_case') }}" class="btn btn-primary">
+            <span>➕</span>
+            <span>Create New Case</span>
+        </a>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>System Dashboard</span>
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📁 Active Cases</h2>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if case_stats %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Case Name</th>
+                        <th>Company</th>
+                        <th>Files</th>
+                        <th>Events</th>
+                        <th>Assigned To</th>
+                        <th>Created On</th>
+                        <th>Created By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for stat in case_stats %}
+                    <tr class="clickable-row" onclick="selectCase({{ stat.case.id }})" style="cursor: pointer;">
+                        <td>
+                            <strong style="color: var(--color-primary);">{{ stat.case.name }}</strong>
+                            {% if stat.case.description %}
+                            <br><span class="text-muted" style="font-size: 0.875rem;">{{ stat.case.description[:80] }}{% if stat.case.description|length > 80 %}...{% endif %}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if stat.case.company %}
+                            <span class="status-badge" style="background: rgba(139, 92, 246, 0.1); color: var(--color-info);">
+                                {{ stat.case.company }}
+                            </span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if stat.file_count > 0 %}
+                            <span class="status-badge status-indexing">{{ stat.file_count }}</span>
+                            {% else %}
+                            <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if stat.total_events > 0 %}
+                            <strong>{{ '{:,}'.format(stat.total_events) }}</strong>
+                            {% else %}
+                            <span class="text-muted">0</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if stat.case.assigned_to %}
+                            <span class="text-muted">User #{{ stat.case.assigned_to }}</span>
+                            {% else %}
+                            <span class="text-muted">Unassigned</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="text-muted">{{ stat.case.created_at.strftime('%Y-%m-%d') }}</span>
+                            <br><span class="text-muted" style="font-size: 0.75rem;">{{ stat.case.created_at.strftime('%H:%M') }}</span>
+                        </td>
+                        <td>
+                            {% if stat.case.created_by %}
+                            <span class="text-muted">User #{{ stat.case.created_by }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📁</div>
+            <h3>No active cases</h3>
+            <p style="margin-bottom: var(--spacing-lg);">Create your first case to get started</p>
+            <a href="{{ url_for('create_case') }}" class="btn btn-primary">
+                <span>➕</span>
+                <span>Create New Case</span>
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function selectCase(caseId) {
+    // Navigate to the select_case route which sets session and redirects to case view
+    window.location.href = `/select_case/${caseId}`;
+}
+
+// Add hover effect styling
+document.addEventListener('DOMContentLoaded', function() {
+    const rows = document.querySelectorAll('.clickable-row');
+    rows.forEach(row => {
+        row.addEventListener('mouseenter', function() {
+            this.style.background = 'var(--color-bg-tertiary)';
+        });
+        row.addEventListener('mouseleave', function() {
+            this.style.background = '';
+        });
+    });
+});
+</script>
+{% endblock %}
+

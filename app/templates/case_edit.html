@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Edit Case - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1 class="content-title">✏️ Edit Case</h1>
+    <div>
+        <a href="javascript:history.back()" class="btn btn-secondary">← Back</a>
+    </div>
+</div>
+
+<div class="dashboard-row-1" style="max-width: 800px; margin: 0 auto;">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Case Details</h2>
+        </div>
+        <div class="card-body">
+            <form method="POST" id="editCaseForm">
+                <input type="hidden" name="return_to" value="{{ request.args.get('return_to', 'case') }}">
+                
+                <div class="form-group">
+                    <label for="name">Case Name *</label>
+                    <input type="text" id="name" name="name" value="{{ case.name }}" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <textarea id="description" name="description" rows="4">{{ case.description or '' }}</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="company">Company/Organization</label>
+                    <input type="text" id="company" name="company" value="{{ case.company or '' }}">
+                </div>
+                
+                <div class="form-group">
+                    <label for="status">Status</label>
+                    <select id="status" name="status">
+                        <option value="active" {% if case.status == 'active' %}selected{% endif %}>Active</option>
+                        <option value="closed" {% if case.status == 'closed' %}selected{% endif %}>Closed</option>
+                    </select>
+                </div>
+                
+                {% if current_user.role == 'admin' %}
+                <div class="form-group">
+                    <label for="assigned_to">Assigned To</label>
+                    <select id="assigned_to" name="assigned_to">
+                        <option value="">Unassigned</option>
+                        {% for user in users %}
+                        <option value="{{ user.id }}" 
+                                {% if case.assigned_to == user.id %}selected{% endif %}>
+                            {{ user.full_name or user.username }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary">
+                        💾 Save Changes
+                    </button>
+                    <button type="button" onclick="history.back()" class="btn btn-secondary">
+                        Cancel
+                    </button>
+                    {% if current_user.role == 'admin' %}
+                    <button type="button" onclick="deleteCase()" class="btn" style="background: var(--color-error); color: white; margin-left: auto;">
+                        🗑️ Delete Case
+                    </button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% if current_user.role == 'admin' %}
+<script>
+function deleteCase() {
+    const caseName = "{{ case.name }}";
+    const caseId = {{ case.id }};
+    
+    const confirmation = prompt(
+        `⚠️ DELETE CASE: "${caseName}"\n\n` +
+        `This will PERMANENTLY delete:\n` +
+        `• All files and their data\n` +
+        `• All OpenSearch indices\n` +
+        `• All SIGMA violations\n` +
+        `• All IOC matches\n` +
+        `• All timeline tags\n\n` +
+        `Type "DELETE" to confirm:`
+    );
+    
+    if (confirmation !== 'DELETE') {
+        return;
+    }
+    
+    fetch(`/case/${caseId}/delete`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('✅ Case deleted successfully');
+            window.location.href = '/admin/cases';
+        } else {
+            alert('❌ Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Network error');
+    });
+}
+</script>
+{% endif %}
+
+<style>
+.form-group {
+    margin-bottom: 16px;
+}
+.form-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+.form-group input[type="text"],
+.form-group textarea,
+.form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--color-background);
+    color: var(--color-text-primary);
+    font-family: inherit;
+}
+.form-group textarea {
+    resize: vertical;
+}
+</style>
+{% endblock %}
+

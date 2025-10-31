@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+
+{% block title %}System Dashboard - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">System Dashboard</h1>
+        <p class="text-secondary">Digital Forensics & Incident Response Platform</p>
+    </div>
+    <div class="content-actions">
+        <a href="{{ url_for('create_case') }}" class="btn btn-primary">
+            <span>+</span>
+            <span>New Case</span>
+        </a>
+    </div>
+</div>
+
+<!-- ============================================================================
+     TILES ROW 1: System Status, CaseScope Status, Events Status, Software Status
+     ============================================================================ -->
+<div class="dashboard-row-4">
+    
+<!-- SYSTEM STATUS TILE -->
+<div class="card card-no-margin">
+    <div class="card-header">
+        <h2 class="card-title">💻 System Status</h2>
+    </div>
+    <div class="card-body">
+        {% if system_status %}
+        <div class="stat-grid-2col">
+            <div class="stat-item">
+                <div class="stat-item-label">OS Name & Version</div>
+                <div class="stat-item-value">{{ system_status.os_name }}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">CPU Cores / Usage</div>
+                <div class="stat-item-value">{{ system_status.cpu_cores }} cores / {{ system_status.cpu_usage }}%</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">Memory Total / Used</div>
+                <div class="stat-item-value">{{ system_status.memory_total_gb }} GB / {{ system_status.memory_used_gb }} GB ({{ system_status.memory_percent|round(1) }}%)</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">Hard Disk Size / Used</div>
+                <div class="stat-item-value">{{ system_status.disk_total_gb }} GB / {{ system_status.disk_used_gb }} GB ({{ system_status.disk_percent|round(1) }}%)</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">Space Consumed by Case Files</div>
+                <div class="stat-item-value">{{ case_files_space_gb }} GB</div>
+            </div>
+        </div>
+        {% else %}
+        <p class="text-muted">Unable to retrieve system status</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- CASESCOPE STATUS TILE -->
+<div class="card card-no-margin">
+    <div class="card-header">
+        <h2 class="card-title">📊 CaseScope Status</h2>
+    </div>
+    <div class="card-body">
+        <div class="stat-grid-2col">
+            <div class="stat-item">
+                <div class="stat-item-label">Number of Cases</div>
+                <div>
+                    <a href="{{ url_for('case_selection') }}" class="stat-item-value-large">
+                        {{ total_cases }}
+                    </a>
+                    <span class="text-muted stat-item-caption">active cases</span>
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">Total Number of Files</div>
+                <div>
+                    <a href="{{ url_for('file_management') }}" class="stat-item-value-large">
+                        {{ total_files }}
+                    </a>
+                    <span class="text-muted stat-item-caption">indexed files</span>
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">Total SIGMA Rules / Enabled</div>
+                <div>
+                    <a href="{{ url_for('sigma_management') }}" class="stat-item-value-large" style="color: var(--color-purple);">
+                        {{ sigma_info.total }} / {{ sigma_info.enabled }}
+                    </a>
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">SIGMA Last Updated</div>
+                <div>
+                    <a href="{{ url_for('sigma_management') }}" class="stat-item-value">
+                        {% if sigma_info.last_updated %}
+                            {{ sigma_info.last_updated.strftime('%Y-%m-%d') }}
+                        {% else %}
+                            Unknown
+                        {% endif %}
+                    </a>
+                </div>
+            </div>
+            
+            <!-- IOCs Section (Spans Full Width) -->
+            <div class="stat-item">
+                <div class="stat-item-label">IOCs Globally Tracked</div>
+                <div>
+                    <span class="stat-item-value-large">{{ total_iocs }}</span>
+                    <span class="text-muted stat-item-caption">indicators</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- EVENTS STATUS TILE -->
+<div class="card card-no-margin">
+    <div class="card-header">
+        <h2 class="card-title">📊 Events Status</h2>
+    </div>
+    <div class="card-body">
+        <div class="stat-grid-2col">
+            <div class="stat-item">
+                <div class="stat-item-label">Total Number of Events</div>
+                <div>
+                    <span class="stat-item-value-large">
+                        {{ "{:,}".format(total_events) }}
+                    </span>
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">Total SIGMA Violations Found</div>
+                <div>
+                    <a href="{{ url_for('sigma_management') }}" class="stat-item-value-large" style="color: var(--color-warning);">
+                        {{ total_sigma_violations }}
+                    </a>
+                </div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-item-label">Total IOC Events Found</div>
+                <div>
+                    <span class="stat-item-value-large" style="color: var(--color-error);">
+                        {{ total_ioc_events }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- SOFTWARE STATUS TILE -->
+<div class="card card-no-margin">
+    <div class="card-header">
+        <h2 class="card-title">🔧 Software Status</h2>
+    </div>
+    <div class="card-body">
+        <div class="stat-grid-2col">
+            {% for software, version in software_versions.items() %}
+            <div class="stat-item">
+                <div class="stat-item-label" style="display: inline;">{{ software }}:</div>
+                <span class="stat-item-value">{{ version }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+</div>
+
+
+<!-- ============================================================================
+     TILES ROW 2: Recent Cases and Recent Files (Side by Side - Equal 50/50)
+     ============================================================================ -->
+<div class="dashboard-row-2">
+
+<!-- RECENT CASES SECTION -->
+<div class="card card-no-margin">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h2 class="card-title">📁 Recent Cases</h2>
+            <span class="text-muted">Last 10 cases</span>
+        </div>
+        <a href="{{ url_for('case_selection') }}" class="btn btn-sm btn-secondary">View All Cases</a>
+    </div>
+    <div class="card-body">
+        {% if recent_cases %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Case Name</th>
+                        <th>Created</th>
+                        <th>Files</th>
+                        <th>Events</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for case in recent_cases %}
+                    <tr onclick="window.location.href='{{ url_for('view_case', case_id=case.id) }}';" style="cursor: pointer;">
+                        <td><strong>{{ case.name }}</strong></td>
+                        <td class="text-muted">{{ case.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            <span class="status-badge status-indexing">
+                                {{ case.files.count() }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="text-primary">
+                                {% set total_events = namespace(count=0) %}
+                                {% for file in case.files %}
+                                    {% if not file.is_deleted and not file.is_hidden %}
+                                        {% set total_events.count = total_events.count + (file.event_count or 0) %}
+                                    {% endif %}
+                                {% endfor %}
+                                {{ "{:,}".format(total_events.count) }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">📁</div>
+            <p>No cases yet</p>
+            <a href="{{ url_for('create_case') }}" class="btn btn-primary">Create Your First Case</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- RECENT FILES SECTION -->
+<div class="card card-no-margin card-clickable" onclick="window.location.href='{{ url_for('file_management') }}';">
+    <div class="card-header">
+        <h2 class="card-title">📄 Recent Files</h2>
+        <span class="text-muted">Last 10 files uploaded</span>
+    </div>
+    <div class="card-body">
+        {% if recent_files %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Filename</th>
+                        <th>Case</th>
+                        <th>Size</th>
+                        <th>Status</th>
+                        <th>Events</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in recent_files %}
+                    <tr onclick="window.location.href='{{ url_for('view_case', case_id=file.case_id) }}';" style="cursor: pointer;">
+                        <td>
+                            <strong>{{ file.original_filename }}</strong>
+                        </td>
+                        <td class="text-muted">
+                            {{ file.case.name if file.case else 'Unknown' }}
+                        </td>
+                        <td class="text-muted">{{ "%.2f"|format(file.file_size / 1024 / 1024) }} MB</td>
+                        <td>
+                            {% if file.indexing_status == 'Completed' %}
+                                <span class="status-badge status-completed">✓ {{ file.indexing_status }}</span>
+                            {% elif file.indexing_status in ['Indexing', 'SIGMA Testing', 'IOC Hunting'] %}
+                                <span class="status-badge status-indexing">⏳ {{ file.indexing_status }}</span>
+                            {% elif file.indexing_status == 'Queued' %}
+                                <span class="status-badge status-queued">⏸ {{ file.indexing_status }}</span>
+                            {% elif file.indexing_status == 'Failed' %}
+                                <span class="status-badge status-failed">✗ {{ file.indexing_status }}</span>
+                            {% else %}
+                                <span class="status-badge status-queued">{{ file.indexing_status }}</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="text-primary">
+                                {{ "{:,}".format(file.event_count or 0) }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">📄</div>
+            <p>No files uploaded yet</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+</div>
+
+{% endblock %}

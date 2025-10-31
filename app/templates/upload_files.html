@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Files - {{ case.name }} - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">Upload Files: {{ case.name }}</h1>
+        <p class="text-secondary">Upload EVTX, JSON, NDJSON files or ZIP archives for processing</p>
+    </div>
+    <div class="content-actions">
+        <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Case</span>
+        </a>
+    </div>
+</div>
+
+<!-- Bulk Import Section -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📁 Bulk Import (Local Directory)</h2>
+    </div>
+    <div class="card-body">
+        <div style="display: grid; gap: var(--spacing-lg);">
+            <!-- Instructions -->
+            <div>
+                <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">📂 How to Use</h3>
+                <ol style="margin-left: var(--spacing-lg); font-size: 0.9rem; color: var(--color-text-secondary); line-height: 1.6;">
+                    <li>Place your files in: <code style="background: var(--color-bg-secondary); padding: 2px 6px; border-radius: 3px; font-family: monospace;">/opt/casescope/bulk_import/</code></li>
+                    <li>Supported formats: <strong>EVTX, JSON, NDJSON, CSV, ZIP</strong></li>
+                    <li>Files will be automatically moved and processed (ZIPs extracted)</li>
+                    <li>Duplicates are skipped, 0-event files are hidden</li>
+                </ol>
+            </div>
+            
+            <!-- Directory Status -->
+            <div id="bulkImportStatus" style="padding: var(--spacing-md); background: var(--color-bg-secondary); border-radius: var(--border-radius); border: 1px solid var(--color-border);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <div style="font-size: 0.875rem; color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">Files Ready</div>
+                        <div id="bulkFileCount" style="font-size: 1.5rem; font-weight: 600;">-</div>
+                    </div>
+                    <button onclick="scanBulkDirectory()" class="btn btn-secondary" style="min-width: 100px;">
+                        <span>🔄</span>
+                        <span>Scan</span>
+                    </button>
+                </div>
+                
+                <!-- File Type Breakdown -->
+                <div id="bulkFileBreakdown" style="display: none; margin-top: var(--spacing-md); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border); font-size: 0.875rem;">
+                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--spacing-sm);">
+                        <div><span class="text-muted">EVTX:</span> <span id="evtxCount">0</span></div>
+                        <div><span class="text-muted">JSON:</span> <span id="jsonCount">0</span></div>
+                        <div><span class="text-muted">NDJSON:</span> <span id="ndjsonCount">0</span></div>
+                        <div><span class="text-muted">CSV:</span> <span id="csvCount">0</span></div>
+                        <div><span class="text-muted">ZIP:</span> <span id="zipCount">0</span></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Start Import Button -->
+            <button onclick="startBulkImport()" class="btn btn-primary" id="bulkImportBtn" disabled>
+                <span>🚀</span>
+                <span>Start Bulk Import</span>
+            </button>
+            
+            <!-- Progress Display -->
+            <div id="bulkImportProgress" style="display: none;">
+                <div style="padding: var(--spacing-md); background: var(--color-bg-secondary); border-radius: var(--border-radius); border: 1px solid var(--color-border);">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-sm);">
+                        <span id="bulkProgressText">Processing...</span>
+                        <span id="bulkProgressPercent">0%</span>
+                    </div>
+                    <div style="background: var(--color-bg-tertiary); height: 20px; border-radius: var(--border-radius); overflow: hidden;">
+                        <div id="bulkProgressBar" style="background: var(--color-primary); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📤 Web Upload</h2>
+    </div>
+    <div class="card-body">
+        <div class="form-group">
+            <label class="form-label" for="fileInput">Select Files</label>
+            <input type="file" id="fileInput" multiple class="form-input" 
+                   accept=".evtx,.json,.jsonl,.ndjson,.csv,.zip">
+            <p class="text-muted" style="margin-top: var(--spacing-sm); font-size: 0.875rem;">
+                Supported formats: EVTX, JSON, NDJSON, CSV, ZIP (auto-decompressed)
+            </p>
+        </div>
+        
+        <button onclick="startUpload()" class="btn btn-primary" id="uploadBtn">
+            <span>⬆️</span>
+            <span>Start Upload</span>
+        </button>
+    </div>
+</div>
+
+<!-- Upload Progress Section -->
+<div id="uploadSection" style="display: none;">
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">📊 Upload Progress</h2>
+        </div>
+        <div class="card-body">
+            <div id="fileList"></div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CASE_ID = {{ case.id }};
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB chunks
+
+async function startUpload() {
+    const fileInput = document.getElementById('fileInput');
+    const files = fileInput.files;
+    
+    if (files.length === 0) {
+        alert('Please select at least one file');
+        return;
+    }
+    
+    document.getElementById('uploadSection').style.display = 'block';
+    document.getElementById('uploadBtn').disabled = true;
+    
+    for (let file of files) {
+        await uploadFileInChunks(file);
+    }
+    
+    document.getElementById('uploadBtn').disabled = false;
+    alert('All uploads complete! Processing files...');
+    window.location.href = '{{ url_for("view_case", case_id=case.id) }}';
+}
+
+async function uploadFileInChunks(file) {
+    const uploadId = Date.now() + '_' + Math.random().toString(36).substring(7);
+    
+    const fileDiv = document.createElement('div');
+    fileDiv.style.marginBottom = 'var(--spacing-lg)';
+    fileDiv.innerHTML = `
+        <div style="margin-bottom: var(--spacing-sm);">
+            <strong>${file.name}</strong>
+            <span class="text-muted"> (${(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+        </div>
+        <div style="background: var(--color-bg-tertiary); height: 24px; border-radius: var(--radius-md); overflow: hidden;">
+            <div id="progress-${file.name}" style="background: var(--color-primary); height: 100%; width: 0%; transition: width 0.3s;"></div>
+        </div>
+        <div id="status-${file.name}" class="text-muted" style="margin-top: var(--spacing-xs); font-size: 0.875rem;">Uploading...</div>
+    `;
+    document.getElementById('fileList').appendChild(fileDiv);
+    
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    let currentChunk = 0;
+    
+    while (currentChunk < totalChunks) {
+        const start = currentChunk * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        
+        const formData = new FormData();
+        formData.append('chunk', chunk);
+        formData.append('filename', file.name);
+        formData.append('upload_id', uploadId);
+        formData.append('chunk_index', currentChunk);
+        formData.append('total_chunks', totalChunks);
+        
+        try {
+            const response = await fetch(`/case/${CASE_ID}/upload_chunk`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) throw new Error('Upload failed');
+            
+            currentChunk++;
+            const progress = (currentChunk / totalChunks) * 100;
+            document.getElementById(`progress-${file.name}`).style.width = progress + '%';
+            document.getElementById(`status-${file.name}`).textContent = 
+                `Uploaded ${currentChunk}/${totalChunks} chunks (${progress.toFixed(1)}%)`;
+        } catch (error) {
+            document.getElementById(`status-${file.name}`).textContent = 'Upload failed!';
+            document.getElementById(`status-${file.name}`).style.color = 'var(--color-error)';
+            return;
+        }
+    }
+    
+    // Show processing status
+    const isZip = file.name.toLowerCase().endsWith('.zip');
+    const statusMsg = isZip ? 'Processing upload (extracting ZIP)...' : 'Processing upload...';
+    document.getElementById(`status-${file.name}`).textContent = statusMsg;
+    document.getElementById(`status-${file.name}`).style.color = 'var(--color-warning)';
+    
+    // Finalize upload
+    try {
+        const finalizeResponse = await fetch(`/case/${CASE_ID}/finalize_upload`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                upload_id: uploadId,
+                filename: file.name
+            })
+        });
+        
+        if (finalizeResponse.ok) {
+            const result = await finalizeResponse.json();
+            document.getElementById(`status-${file.name}`).textContent = '✓ Complete - Processing started';
+            document.getElementById(`status-${file.name}`).style.color = 'var(--color-success)';
+            
+            // Wait a moment to show success, then redirect to case files
+            setTimeout(() => {
+                window.location.href = `/case/${CASE_ID}/files`;
+            }, 1500);
+        } else {
+            document.getElementById(`status-${file.name}`).textContent = '✗ Finalization failed';
+            document.getElementById(`status-${file.name}`).style.color = 'var(--color-error)';
+        }
+    } catch (error) {
+        document.getElementById(`status-${file.name}`).textContent = '✗ Processing failed';
+        document.getElementById(`status-${file.name}`).style.color = 'var(--color-error)';
+    }
+}
+
+// ============================================================================
+// BULK IMPORT FUNCTIONS
+// ============================================================================
+
+let currentBulkTaskId = null;
+let bulkImportInterval = null;
+
+async function scanBulkDirectory() {
+    try {
+        const response = await fetch(`/case/${CASE_ID}/bulk_import/scan`);
+        const stats = await response.json();
+        
+        if (stats.error) {
+            document.getElementById('bulkFileCount').textContent = 'Error';
+            document.getElementById('bulkFileCount').style.color = 'var(--color-error)';
+            return;
+        }
+        
+        const supportedFiles = stats.supported_files || 0;
+        document.getElementById('bulkFileCount').textContent = supportedFiles;
+        document.getElementById('bulkFileCount').style.color = supportedFiles > 0 ? 'var(--color-success)' : 'var(--color-text-secondary)';
+        
+        // Show/hide file type breakdown
+        if (supportedFiles > 0) {
+            document.getElementById('bulkFileBreakdown').style.display = 'block';
+            document.getElementById('evtxCount').textContent = stats.evtx_count || 0;
+            document.getElementById('jsonCount').textContent = stats.json_count || 0;
+            document.getElementById('ndjsonCount').textContent = stats.ndjson_count || 0;
+            document.getElementById('csvCount').textContent = stats.csv_count || 0;
+            document.getElementById('zipCount').textContent = stats.zip_count || 0;
+            
+            // Enable start button
+            document.getElementById('bulkImportBtn').disabled = false;
+        } else {
+            document.getElementById('bulkFileBreakdown').style.display = 'none';
+            document.getElementById('bulkImportBtn').disabled = true;
+        }
+        
+    } catch (error) {
+        console.error('Scan failed:', error);
+        document.getElementById('bulkFileCount').textContent = 'Error';
+        document.getElementById('bulkFileCount').style.color = 'var(--color-error)';
+    }
+}
+
+async function startBulkImport() {
+    if (!confirm('Start importing files from /opt/casescope/bulk_import/?')) {
+        return;
+    }
+    
+    try {
+        // Disable buttons
+        document.getElementById('bulkImportBtn').disabled = true;
+        document.getElementById('bulkImportProgress').style.display = 'block';
+        
+        // Start task
+        const response = await fetch(`/case/${CASE_ID}/bulk_import/start`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok || result.error) {
+            throw new Error(result.error || 'Failed to start bulk import');
+        }
+        
+        currentBulkTaskId = result.task_id;
+        
+        // Start polling for status
+        bulkImportInterval = setInterval(checkBulkImportStatus, 1000);
+        
+    } catch (error) {
+        console.error('Bulk import failed:', error);
+        alert('Failed to start bulk import: ' + error.message);
+        document.getElementById('bulkImportBtn').disabled = false;
+        document.getElementById('bulkImportProgress').style.display = 'none';
+    }
+}
+
+async function checkBulkImportStatus() {
+    if (!currentBulkTaskId) return;
+    
+    try {
+        const response = await fetch(`/case/${CASE_ID}/bulk_import/status/${currentBulkTaskId}`);
+        const status = await response.json();
+        
+        // Update progress
+        const progress = status.progress || 0;
+        document.getElementById('bulkProgressBar').style.width = progress + '%';
+        document.getElementById('bulkProgressPercent').textContent = progress + '%';
+        document.getElementById('bulkProgressText').textContent = status.status || 'Processing...';
+        
+        // Check if complete
+        if (status.state === 'SUCCESS') {
+            clearInterval(bulkImportInterval);
+            document.getElementById('bulkProgressBar').style.background = 'var(--color-success)';
+            document.getElementById('bulkProgressText').textContent = 'Complete! Redirecting...';
+            
+            // Show summary
+            if (status.result) {
+                const r = status.result;
+                console.log('Bulk import complete:', r);
+            }
+            
+            // Redirect to case files page
+            setTimeout(() => {
+                window.location.href = `/case/${CASE_ID}/files`;
+            }, 2000);
+            
+        } else if (status.state === 'FAILURE') {
+            clearInterval(bulkImportInterval);
+            document.getElementById('bulkProgressBar').style.background = 'var(--color-error)';
+            document.getElementById('bulkProgressText').textContent = 'Failed: ' + (status.error || 'Unknown error');
+            document.getElementById('bulkImportBtn').disabled = false;
+        }
+        
+    } catch (error) {
+        console.error('Status check failed:', error);
+    }
+}
+
+// Auto-scan on page load
+window.addEventListener('DOMContentLoaded', () => {
+    scanBulkDirectory();
+});
+</script>
+{% endblock %}
+

@@ -1,0 +1,443 @@
+{% extends "base.html" %}
+
+{% block title %}System Settings{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1 class="content-title">⚙️ System Settings</h1>
+    <p style="color: var(--color-text-muted); margin: 0;">Configure system-wide settings and integrations</p>
+</div>
+
+<div style="max-width: 1200px; margin: 0 auto;">
+    <form method="POST" action="{{ url_for('settings.save') }}">
+        <!-- DFIR-IRIS Integration -->
+        <div class="card" style="margin-bottom: var(--spacing-lg);">
+            <div class="card-header">
+                <h2 class="card-title">🔗 DFIR-IRIS Integration</h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
+                    Sync cases, IOCs, and timeline events with DFIR-IRIS platform
+                </p>
+            </div>
+            
+            <div class="card-body">
+                <!-- Enable DFIR-IRIS -->
+                <div style="margin-bottom: var(--spacing-lg);">
+                    <label style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
+                        <input type="checkbox" 
+                               name="dfir_iris_enabled" 
+                               {% if dfir_iris_enabled %}checked{% endif %}
+                               style="width: 18px; height: 18px; cursor: pointer;">
+                        <span style="font-weight: 500;">Enable DFIR-IRIS Integration</span>
+                    </label>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 26px; font-size: 0.875rem;">
+                        Automatically sync case data, IOCs, and timeline events
+                    </p>
+                </div>
+
+                <!-- DFIR-IRIS URL -->
+                <div class="form-group">
+                    <label for="dfir_iris_url">DFIR-IRIS URL</label>
+                    <input type="url" 
+                           id="dfir_iris_url"
+                           name="dfir_iris_url" 
+                           value="{{ dfir_iris_url }}"
+                           placeholder="https://iris.example.com"
+                           style="width: 100%; max-width: 600px;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                        Full URL to your DFIR-IRIS instance (e.g., https://iris.example.com)
+                    </p>
+                </div>
+
+                <!-- API Key -->
+                <div class="form-group">
+                    <label for="dfir_iris_api_key">API Key</label>
+                    <input type="password" 
+                           id="dfir_iris_api_key"
+                           name="dfir_iris_api_key" 
+                           value="{{ dfir_iris_api_key }}"
+                           placeholder="Enter DFIR-IRIS API key"
+                           style="width: 100%; max-width: 600px; font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                        API key from DFIR-IRIS (User Settings → API Keys)
+                    </p>
+                </div>
+
+                <!-- Action Buttons -->
+                <div style="display: flex; gap: var(--spacing-md); margin-top: var(--spacing-md);">
+                    <button type="button" 
+                            onclick="testIrisConnection()"
+                            class="btn"
+                            style="padding: var(--spacing-sm) var(--spacing-lg); background: var(--color-info); color: white;">
+                        🔌 Test Connection
+                    </button>
+                    <button type="button" 
+                            onclick="syncNow()"
+                            class="btn"
+                            style="padding: var(--spacing-sm) var(--spacing-lg); background: var(--color-success); color: white;">
+                        🔄 Sync Now
+                    </button>
+                </div>
+                
+                <!-- Test/Sync Result -->
+                <div id="test-result" style="margin-top: var(--spacing-sm); display: none;"></div>
+
+                <!-- Sync Behavior Info -->
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-info);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
+                        📋 Sync Behavior
+                    </h3>
+                    <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                        <li>Company check: Creates if missing in DFIR-IRIS</li>
+                        <li>Case sync: Creates if missing, matches open/closed status</li>
+                        <li>IOC sync: Updates existing, creates new</li>
+                        <li>Timeline events: Syncs tagged events, removes untagged
+                            <ul style="margin-top: var(--spacing-xs);">
+                                <li>Event timestamp = actual event time</li>
+                                <li>Title = description + computer name</li>
+                                <li>Source = "Pushed from CaseScope"</li>
+                                <li>Raw data = full JSON/NDJSON</li>
+                                <li>Manual edits in DFIR-IRIS preserved</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- OpenCTI Integration -->
+        <div class="card" style="margin-bottom: var(--spacing-lg);">
+            <div class="card-header">
+                <h2 class="card-title">🧠 OpenCTI Integration</h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
+                    Enrich IOCs with threat intelligence from OpenCTI
+                </p>
+            </div>
+            
+            <div class="card-body">
+                <!-- Enable OpenCTI -->
+                <div style="margin-bottom: var(--spacing-lg);">
+                    <label style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
+                        <input type="checkbox" 
+                               name="opencti_enabled" 
+                               {% if opencti_enabled %}checked{% endif %}
+                               style="width: 18px; height: 18px; cursor: pointer;">
+                        <span style="font-weight: 500;">Enable OpenCTI Integration</span>
+                    </label>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 26px; font-size: 0.875rem;">
+                        Automatically enrich IOCs with threat intelligence data
+                    </p>
+                </div>
+
+                <!-- OpenCTI URL -->
+                <div class="form-group">
+                    <label for="opencti_url">OpenCTI URL</label>
+                    <input type="url" 
+                           id="opencti_url"
+                           name="opencti_url" 
+                           value="{{ opencti_url }}"
+                           placeholder="https://opencti.example.com"
+                           style="width: 100%; max-width: 600px;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                        Full URL to your OpenCTI instance (e.g., https://opencti.example.com)
+                    </p>
+                </div>
+
+                <!-- API Key -->
+                <div class="form-group">
+                    <label for="opencti_api_key">API Key</label>
+                    <input type="password" 
+                           id="opencti_api_key"
+                           name="opencti_api_key" 
+                           value="{{ opencti_api_key }}"
+                           placeholder="Enter OpenCTI API key"
+                           style="width: 100%; max-width: 600px; font-family: monospace;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                        API key from OpenCTI (Profile → API Tokens)
+                    </p>
+                </div>
+
+                <!-- Action Buttons -->
+                <div style="display: flex; gap: var(--spacing-md); margin-top: var(--spacing-md);">
+                    <button type="button" 
+                            onclick="testOpenCTIConnection()"
+                            class="btn"
+                            style="padding: var(--spacing-sm) var(--spacing-lg); background: var(--color-info); color: white;">
+                        🔌 Test Connection
+                    </button>
+                    <button type="button" 
+                            onclick="syncOpenCTI()"
+                            class="btn"
+                            style="padding: var(--spacing-sm) var(--spacing-lg); background: var(--color-success); color: white;">
+                        🔄 Sync Now
+                    </button>
+                </div>
+                
+                <!-- Test/Sync Result -->
+                <div id="opencti-result" style="margin-top: var(--spacing-sm); display: none;"></div>
+
+                <!-- Sync Behavior Info -->
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-info); margin-top: var(--spacing-md);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
+                        📋 Enrichment Behavior
+                    </h3>
+                    <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                        <li>Checks IOCs against OpenCTI threat intelligence database</li>
+                        <li>Returns threat actor, campaign, and malware associations</li>
+                        <li>Provides confidence score and TLP classification</li>
+                        <li>Enrichment data stored with each IOC for reference</li>
+                        <li>IOCs not found in OpenCTI are marked as "clean" (no match)</li>
+                        <li>Re-enrichment updates existing data (useful for new intel)</li>
+                        <li><strong>IOC Types Enriched:</strong> IP, Domain, Hostname, Username, Hash, Email, URL, Registry, Filename</li>
+                        <li><strong>IOC Types Skipped:</strong> Command-line (environment-specific, no threat intel value)</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Save Button -->
+        <div style="display: flex; gap: var(--spacing-md);">
+            <button type="submit" class="btn btn-primary" style="padding: var(--spacing-sm) var(--spacing-xl);">
+                💾 Save Settings
+            </button>
+            <a href="{{ url_for('dashboard') }}" class="btn" style="padding: var(--spacing-sm) var(--spacing-lg);">
+                Cancel
+            </a>
+        </div>
+    </form>
+</div>
+
+<script>
+function testIrisConnection() {
+    const url = document.getElementById('dfir_iris_url').value.trim();
+    const apiKey = document.getElementById('dfir_iris_api_key').value.trim();
+    const resultDiv = document.getElementById('test-result');
+    const button = event.target;
+    
+    if (!url || !apiKey) {
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = 'var(--spacing-sm)';
+        resultDiv.style.borderRadius = 'var(--border-radius)';
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        resultDiv.style.color = 'var(--color-error)';
+        resultDiv.style.fontSize = '0.875rem';
+        resultDiv.textContent = '⚠️ Please enter both URL and API key';
+        return;
+    }
+    
+    button.disabled = true;
+    button.textContent = '⏳ Testing...';
+    
+    fetch('{{ url_for("settings.test_iris") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url: url, api_key: apiKey })
+    })
+    .then(response => response.json())
+    .then(data => {
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = 'var(--spacing-sm)';
+        resultDiv.style.borderRadius = 'var(--border-radius)';
+        resultDiv.style.fontSize = '0.875rem';
+        
+        if (data.success) {
+            resultDiv.style.background = 'rgba(34, 197, 94, 0.1)';
+            resultDiv.style.color = 'var(--color-success)';
+        } else {
+            resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+            resultDiv.style.color = 'var(--color-error)';
+        }
+        
+        resultDiv.textContent = data.message;
+    })
+    .catch(error => {
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = 'var(--spacing-sm)';
+        resultDiv.style.borderRadius = 'var(--border-radius)';
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        resultDiv.style.color = 'var(--color-error)';
+        resultDiv.style.fontSize = '0.875rem';
+        resultDiv.textContent = '✗ Connection test failed: ' + error.message;
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.textContent = '🔌 Test Connection';
+    });
+}
+
+function syncNow() {
+    const resultDiv = document.getElementById('test-result');
+    const button = event.target;
+    
+    if (!confirm('This will sync all active cases, IOCs, and tagged timeline events to DFIR-IRIS. Continue?')) {
+        return;
+    }
+    
+    button.disabled = true;
+    button.textContent = '⏳ Syncing...';
+    
+    resultDiv.style.display = 'block';
+    resultDiv.style.padding = 'var(--spacing-sm)';
+    resultDiv.style.borderRadius = 'var(--border-radius)';
+    resultDiv.style.fontSize = '0.875rem';
+    resultDiv.style.background = 'rgba(59, 130, 246, 0.1)';
+    resultDiv.style.color = 'var(--color-info)';
+    resultDiv.textContent = '⏳ Starting sync process...';
+    
+    fetch('{{ url_for("settings.sync_now") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = 'var(--spacing-sm)';
+        resultDiv.style.borderRadius = 'var(--border-radius)';
+        resultDiv.style.fontSize = '0.875rem';
+        
+        if (data.success) {
+            resultDiv.style.background = 'rgba(34, 197, 94, 0.1)';
+            resultDiv.style.color = 'var(--color-success)';
+        } else {
+            resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+            resultDiv.style.color = 'var(--color-error)';
+        }
+        
+        resultDiv.textContent = data.message;
+    })
+    .catch(error => {
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = 'var(--spacing-sm)';
+        resultDiv.style.borderRadius = 'var(--border-radius)';
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        resultDiv.style.color = 'var(--color-error)';
+        resultDiv.style.fontSize = '0.875rem';
+        resultDiv.textContent = '✗ Sync failed: ' + error.message;
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.textContent = '🔄 Sync Now';
+    });
+}
+
+function testOpenCTIConnection() {
+    const url = document.getElementById('opencti_url').value.trim();
+    const apiKey = document.getElementById('opencti_api_key').value.trim();
+    const resultDiv = document.getElementById('opencti-result');
+    const button = event.target;
+    
+    if (!url || !apiKey) {
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = 'var(--spacing-sm)';
+        resultDiv.style.borderRadius = 'var(--border-radius)';
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        resultDiv.style.color = 'var(--color-error)';
+        resultDiv.style.fontSize = '0.875rem';
+        resultDiv.textContent = '⚠️ Please enter both URL and API key';
+        return;
+    }
+    
+    button.disabled = true;
+    button.textContent = '⏳ Testing...';
+    
+    fetch('{{ url_for("settings.test_opencti") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url: url, api_key: apiKey })
+    })
+    .then(response => response.json())
+    .then(data => {
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = 'var(--spacing-sm)';
+        resultDiv.style.borderRadius = 'var(--border-radius)';
+        resultDiv.style.fontSize = '0.875rem';
+        
+        if (data.success) {
+            resultDiv.style.background = 'rgba(34, 197, 94, 0.1)';
+            resultDiv.style.color = 'var(--color-success)';
+        } else {
+            resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+            resultDiv.style.color = 'var(--color-error)';
+        }
+        
+        resultDiv.textContent = data.message;
+    })
+    .catch(error => {
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = 'var(--spacing-sm)';
+        resultDiv.style.borderRadius = 'var(--border-radius)';
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        resultDiv.style.color = 'var(--color-error)';
+        resultDiv.style.fontSize = '0.875rem';
+        resultDiv.textContent = '✗ Connection test failed: ' + error.message;
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.textContent = '🔌 Test Connection';
+    });
+}
+
+function syncOpenCTI() {
+    const resultDiv = document.getElementById('opencti-result');
+    const button = event.target;
+    
+    if (!confirm('This will enrich all IOCs in all active cases with OpenCTI threat intelligence. Continue?')) {
+        return;
+    }
+    
+    button.disabled = true;
+    button.textContent = '⏳ Enriching...';
+    
+    resultDiv.style.display = 'block';
+    resultDiv.style.padding = 'var(--spacing-sm)';
+    resultDiv.style.borderRadius = 'var(--border-radius)';
+    resultDiv.style.fontSize = '0.875rem';
+    resultDiv.style.background = 'rgba(59, 130, 246, 0.1)';
+    resultDiv.style.color = 'var(--color-info)';
+    resultDiv.textContent = '⏳ Starting enrichment process...';
+    
+    fetch('{{ url_for("settings.sync_opencti") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = 'var(--spacing-sm)';
+        resultDiv.style.borderRadius = 'var(--border-radius)';
+        resultDiv.style.fontSize = '0.875rem';
+        
+        if (data.success) {
+            resultDiv.style.background = 'rgba(34, 197, 94, 0.1)';
+            resultDiv.style.color = 'var(--color-success)';
+        } else {
+            resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+            resultDiv.style.color = 'var(--color-error)';
+        }
+        
+        resultDiv.textContent = data.message;
+    })
+    .catch(error => {
+        resultDiv.style.display = 'block';
+        resultDiv.style.padding = 'var(--spacing-sm)';
+        resultDiv.style.borderRadius = 'var(--border-radius)';
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        resultDiv.style.color = 'var(--color-error)';
+        resultDiv.style.fontSize = '0.875rem';
+        resultDiv.textContent = '✗ Enrichment failed: ' + error.message;
+    })
+    .finally(() => {
+        button.disabled = false;
+        button.textContent = '🔄 Sync Now';
+    });
+}
+</script>
+{% endblock %}
+

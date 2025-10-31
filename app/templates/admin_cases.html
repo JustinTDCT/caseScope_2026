@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Case Management - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <h1 class="content-title">🗂️ Case Management</h1>
+    <div>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">← Back to Dashboard</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">All Cases ({{ case_data|length }})</h2>
+    </div>
+    <div class="card-body">
+        {% if case_data %}
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Case Name</th>
+                        <th>Status</th>
+                        <th>Created By</th>
+                        <th>Assigned To</th>
+                        <th>Files</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in case_data %}
+                    <tr data-case-id="{{ item.case.id }}">
+                        <td>{{ item.case.id }}</td>
+                        <td>
+                            <a href="{{ url_for('view_case', case_id=item.case.id) }}" style="font-weight: 600;">
+                                {{ item.case.name }}
+                            </a>
+                        </td>
+                        <td>
+                            <span class="status-badge status-{{ item.case.status }}">
+                                {{ item.case.status|upper }}
+                            </span>
+                        </td>
+                        <td>{{ item.creator_name }}</td>
+                        <td>{{ item.assignee_name }}</td>
+                        <td>{{ item.file_count }}</td>
+                        <td>{{ item.case.created_at.strftime('%Y-%m-%d') }}</td>
+                        <td>
+                            <div style="display: flex; gap: 4px;">
+                                <button onclick="editCase({{ item.case.id }})" class="btn btn-sm btn-secondary" title="Edit Case">
+                                    ✏️
+                                </button>
+                                <button onclick="toggleStatus({{ item.case.id }}, '{{ item.case.status }}')" 
+                                        class="btn btn-sm" 
+                                        style="background: {% if item.case.status == 'active' %}var(--color-warning){% else %}var(--color-success){% endif %}; color: white;"
+                                        title="{% if item.case.status == 'active' %}Close Case{% else %}Reopen Case{% endif %}">
+                                    {% if item.case.status == 'active' %}🔒{% else %}🔓{% endif %}
+                                </button>
+                                <button onclick="deleteCase({{ item.case.id }}, '{{ item.case.name }}')" 
+                                        class="btn btn-sm" 
+                                        style="background: var(--color-error); color: white;"
+                                        title="Delete Case">
+                                    🗑️
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p>No cases found.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function editCase(caseId) {
+    window.location.href = `/case/${caseId}/edit?return_to=admin`;
+}
+
+function toggleStatus(caseId, currentStatus) {
+    const action = currentStatus === 'active' ? 'close' : 'reopen';
+    if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} this case?`)) {
+        return;
+    }
+    
+    fetch(`/case/${caseId}/toggle_status`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Network error');
+    });
+}
+
+function deleteCase(caseId, caseName) {
+    const confirmation = prompt(
+        `⚠️ DELETE CASE: "${caseName}"\n\n` +
+        `This will PERMANENTLY delete:\n` +
+        `• All files and their data\n` +
+        `• All OpenSearch indices\n` +
+        `• All SIGMA violations\n` +
+        `• All IOC matches\n` +
+        `• All timeline tags\n\n` +
+        `Type "DELETE" to confirm:`
+    );
+    
+    if (confirmation !== 'DELETE') {
+        return;
+    }
+    
+    fetch(`/case/${caseId}/delete`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('✅ Case deleted: ' + data.message);
+            location.reload();
+        } else {
+            alert('❌ Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Network error');
+    });
+}
+</script>
+
+<style>
+.status-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.status-active {
+    background: var(--color-success);
+    color: white;
+}
+.status-closed {
+    background: var(--color-text-secondary);
+    color: white;
+}
+</style>
+{% endblock %}
+

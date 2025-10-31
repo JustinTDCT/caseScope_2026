@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Create Case - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">Create New Case</h1>
+        <p class="text-secondary">Initialize a new forensic investigation case</p>
+    </div>
+    <div class="content-actions">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Dashboard</span>
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📋 Case Information</h2>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('create_case') }}">
+            <div class="form-group">
+                <label class="form-label" for="name">Case Name *</label>
+                <input type="text" id="name" name="name" class="form-input" required autofocus 
+                       placeholder="Enter case name (e.g., 2024-INV-001)">
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="description">Case Description</label>
+                <textarea id="description" name="description" class="form-textarea" rows="4"
+                          placeholder="Describe the case details, incident summary, or investigation scope"></textarea>
+            </div>
+            
+            <div class="form-group mb-0">
+                <button type="submit" class="btn btn-primary">
+                    <span>+</span>
+                    <span>Create Case</span>
+                </button>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+

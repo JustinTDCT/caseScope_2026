@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}EVTX Event Descriptions - CaseScope 2026{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div>
+        <h1 class="content-title">EVTX Event Descriptions</h1>
+        <p class="text-secondary">Manage Windows Event ID descriptions for friendly display</p>
+    </div>
+    <div class="content-actions">
+        {% if current_user.role == 'admin' %}
+        <button onclick="confirmUpdate()" class="btn btn-primary">
+            <span>🔄</span>
+            <span>Update from Sources</span>
+        </button>
+        {% endif %}
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
+            <span>←</span>
+            <span>Back to Dashboard</span>
+        </a>
+    </div>
+</div>
+
+<!-- Single Full-Width Stats & Search Tile -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-body" style="padding: var(--spacing-lg);">
+        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--spacing-xl); align-items: center;">
+            
+            <!-- Total Events -->
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Total Known Event IDs</div>
+                <a href="{{ url_for('evtx_descriptions', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Show all events">
+                    <div style="font-size: 2rem; font-weight: 700; color: {% if not source_filter %}var(--color-primary){% else %}var(--color-text-secondary){% endif %}; line-height: 1;">{{ total_events }}</div>
+                </a>
+            </div>
+            
+            <!-- Source 1 -->
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Ultimate Windows Security</div>
+                <a href="{{ url_for('evtx_descriptions', source='uws', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Ultimate Windows Security">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'uws' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('Ultimate Windows Security', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Source 2 -->
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">GitHub Gist</div>
+                <a href="{{ url_for('evtx_descriptions', source='github', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by GitHub Gist">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'github' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('GitHub Gist', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Source 3 -->
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Infrasos</div>
+                <a href="{{ url_for('evtx_descriptions', source='infrasos', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Infrasos">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'infrasos' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('Infrasos', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Last Updated -->
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Last Updated</div>
+                {% if last_updated %}
+                <div style="font-size: 0.875rem; font-weight: 600; color: var(--color-text-primary);">
+                    {{ last_updated.strftime('%Y-%m-%d') }}
+                </div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted);">{{ last_updated.strftime('%H:%M') }}</div>
+                {% else %}
+                <div style="font-size: 0.875rem; color: var(--color-text-muted);">Never</div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Search Bar -->
+        <div style="margin-top: var(--spacing-lg); padding-top: var(--spacing-lg); border-top: 1px solid var(--color-border);">
+            <form method="GET" action="{{ url_for('evtx_descriptions') }}" style="display: flex; gap: var(--spacing-sm);">
+                {% if source_filter %}
+                <input type="hidden" name="source" value="{{ source_filter }}">
+                {% endif %}
+                <input 
+                    type="text" 
+                    name="q" 
+                    value="{{ search_query or '' }}" 
+                    placeholder="Search by Event ID or friendly name..." 
+                    class="form-input" 
+                    style="flex: 1;"
+                    autofocus
+                >
+                <button type="submit" class="btn btn-primary">
+                    <span>🔍</span>
+                    <span>Search</span>
+                </button>
+                {% if search_query or source_filter %}
+                <a href="{{ url_for('evtx_descriptions') }}" class="btn btn-secondary">
+                    <span>✕</span>
+                    <span>Clear All</span>
+                </a>
+                {% endif %}
+            </form>
+            <div style="margin-top: var(--spacing-sm); font-size: 0.875rem; color: var(--color-text-secondary);">
+                {% if source_filter %}
+                <span style="background: var(--color-primary); color: white; padding: 0.25rem 0.5rem; border-radius: 4px; margin-right: 0.5rem;">
+                    Filtered by: 
+                    {% if source_filter == 'uws' %}Ultimate Windows Security
+                    {% elif source_filter == 'github' %}GitHub Gist
+                    {% elif source_filter == 'infrasos' %}Infrasos
+                    {% endif %}
+                </span>
+                {% endif %}
+                {% if search_query %}
+                Showing results for: <strong>{{ search_query }}</strong>
+                {% endif %}
+                {% if pagination.total == 0 %}
+                    (no matches found)
+                {% elif search_query or source_filter %}
+                    ({{ pagination.total }} match{% if pagination.total != 1 %}es{% endif %})
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Events Table -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">📄 Event Descriptions</h2>
+        {% if pagination.total > 0 %}
+        <span class="text-muted">
+            {% if search_query %}
+                {{ pagination.total }} result{% if pagination.total != 1 %}s{% endif %} • 
+            {% endif %}
+            Page {{ pagination.page }} of {{ pagination.pages }}
+        </span>
+        {% endif %}
+    </div>
+    <div class="card-body" style="padding: 0;">
+        {% if events %}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 100px;">Event ID</th>
+                        <th style="width: 150px;">Source</th>
+                        <th>Title & Description</th>
+                        <th style="width: 120px;">Category</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for event in events %}
+                    <tr>
+                        <td>
+                            {% if event.source_url %}
+                            <a href="{{ event.source_url }}" target="_blank" rel="noopener noreferrer" 
+                               style="text-decoration: none; cursor: pointer;"
+                               onmouseover="this.style.textDecoration='underline'" 
+                               onmouseout="this.style.textDecoration='none'">
+                                <strong style="color: var(--color-primary); font-size: 1.125rem;">{{ event.event_id }}</strong>
+                            </a>
+                            {% else %}
+                            <strong style="color: var(--color-primary); font-size: 1.125rem;">{{ event.event_id }}</strong>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-info); font-size: 0.75rem;">
+                                {{ event.event_source }}
+                            </span>
+                        </td>
+                        <td>
+                            <div style="font-weight: 600; margin-bottom: 0.25rem;">{{ event.title }}</div>
+                            {% if event.description and event.description != event.title %}
+                            <div class="text-muted" style="font-size: 0.875rem;">{{ event.description[:150] }}{% if event.description|length > 150 %}...{% endif %}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if event.category %}
+                            <span class="text-muted" style="font-size: 0.875rem;">{{ event.category }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Pagination Controls -->
+        {% if pagination.pages > 1 %}
+        {% set endpoint = 'evtx_descriptions' %}
+        {% include 'components/pagination.html' %}
+        {% endif %}
+        
+        {% else %}
+        <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
+            {% if search_query %}
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">🔍</div>
+            <h3>No results found</h3>
+            <p style="margin-bottom: var(--spacing-lg);">Try a different search term or clear the filter</p>
+            <a href="{{ url_for('evtx_descriptions') }}" class="btn btn-secondary">
+                <span>✕</span>
+                <span>Clear Search</span>
+            </a>
+            {% else %}
+            <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📄</div>
+            <h3>No event descriptions loaded</h3>
+            <p style="margin-bottom: var(--spacing-lg);">Update from sources to populate the database</p>
+            {% if current_user.role == 'admin' %}
+            <button onclick="confirmUpdate()" class="btn btn-primary">
+                <span>🔄</span>
+                <span>Update from Sources</span>
+            </button>
+            {% endif %}
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function confirmUpdate() {
+    if (confirm('🔄 Update EVTX Event Descriptions\n\nThis will:\n• Fetch event descriptions from 3 data sources\n• Update existing events with new information\n• Add any new events found\n\nThis may take a minute.\n\nContinue?')) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("evtx_descriptions_update") }}';
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+</script>
+{% endblock %}
