@@ -82,11 +82,27 @@
                         <tr>
                             <td><span class="status-badge">{{ ioc.ioc_type|upper }}</span></td>
                             <td>
-                                <code title="{{ ioc.ioc_value }}" style="cursor: help; max-width: 500px; display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                                    {{ ioc.ioc_value[:100] }}{% if ioc.ioc_value|length > 100 %}...{% endif %}
+                                <code title="{{ ioc.ioc_value }}" style="cursor: help; 
+                                      max-width: 120px; 
+                                      display: -webkit-box; 
+                                      -webkit-line-clamp: 3; 
+                                      -webkit-box-orient: vertical; 
+                                      overflow: hidden; 
+                                      word-break: break-all; 
+                                      line-height: 1.4;">
+                                    {{ ioc.ioc_value }}
                                 </code>
                             </td>
-                            <td>{{ ioc.description[:100] }}{% if ioc.description|length > 100 %}...{% endif %}</td>
+                            <td style="max-width: 120px; 
+                                       display: -webkit-box; 
+                                       -webkit-line-clamp: 3; 
+                                       -webkit-box-orient: vertical; 
+                                       overflow: hidden; 
+                                       word-break: break-word; 
+                                       line-height: 1.4;"
+                                title="{{ ioc.description }}">
+                                {{ ioc.description }}
+                            </td>
                             <td>
                                 <span class="status-badge {% if ioc.threat_level == 'critical' %}status-failed{% elif ioc.threat_level == 'high' %}status-indexing{% elif ioc.threat_level == 'medium' %}status-sigma{% else %}status-completed{% endif %}">
                                     {{ ioc.threat_level|upper }}
