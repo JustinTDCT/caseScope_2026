@@ -138,7 +138,9 @@ def delete_case(case_id):
         deleted_indices = 0
         for file in files:
             if file.opensearch_key:
-                index_name = f"case{case_id}_file{file.id}"
+                # IMPORTANT: Use make_index_name() to ensure consistent index name generation
+                from utils import make_index_name
+                index_name = make_index_name(case_id, file.original_filename)
                 try:
                     if opensearch_client.indices.exists(index=index_name):
                         opensearch_client.indices.delete(index=index_name)

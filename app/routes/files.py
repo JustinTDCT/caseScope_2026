@@ -354,7 +354,10 @@ def reindex_single_file(case_id, file_id):
     # Clear OpenSearch index for this file
     if case_file.opensearch_key:
         try:
-            index_name = f"case{case_id}_{case_file.opensearch_key.replace(f'case{case_id}_', '')}"
+            # IMPORTANT: Use make_index_name() to ensure consistent index name generation
+            # (handles lowercase, spaces->underscores, etc.)
+            from utils import make_index_name
+            index_name = make_index_name(case_id, case_file.original_filename)
             opensearch_client.indices.delete(index=index_name, ignore=[400, 404])
             logger.info(f"[REINDEX SINGLE] Deleted index {index_name}")
         except Exception as e:
@@ -484,7 +487,9 @@ def bulk_reindex_selected(case_id):
         # Clear OpenSearch index
         if file.opensearch_key:
             try:
-                index_name = f"case{case_id}_{file.opensearch_key.replace(f'case{case_id}_', '')}"
+                # IMPORTANT: Use make_index_name() to ensure consistent index name generation
+                from utils import make_index_name
+                index_name = make_index_name(case_id, file.original_filename)
                 opensearch_client.indices.delete(index=index_name, ignore=[400, 404])
             except Exception as e:
                 logger.warning(f"[BULK REINDEX SELECTED] Could not delete index for file {file.id}: {e}")

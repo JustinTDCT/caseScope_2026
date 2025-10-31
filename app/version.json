@@ -1,9 +1,10 @@
 {
-  "version": "1.10.11",
+  "version": "1.10.12",
   "release_date": "2025-10-31",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "Index Name Generation - Standardized Across Codebase (v1.10.12)",
     "IOC Re-Hunt Fix - Clear OpenSearch has_ioc Flags (v1.10.11)",
     "Bulk Import Fix - Missing queue_file_processing Import (v1.10.10)",
     "SIGMA Rules - lolrmm Detection Rules Added (v1.10.9)",
