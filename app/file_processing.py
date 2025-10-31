@@ -1080,9 +1080,19 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                 # Wildcard search - use query_string to search nested objects
                 # IMPORTANT: Must escape special Lucene characters for query_string
                 def escape_lucene_special_chars(text):
-                    """Escape special characters for Lucene query_string syntax"""
+                    """Escape special characters for Lucene query_string syntax
+                    
+                    IMPORTANT: Do NOT escape spaces! Spaces are natural word delimiters in Lucene.
+                    When you escape a space as '\ ', it looks for a literal backslash-space combo.
+                    
+                    Example:
+                      - Input: "powershell.exe -noprofile" 
+                      - With space escaping: "*powershell\.exe\ \-noprofile*" ❌ Won't match
+                      - Without space escaping: "*powershell\.exe*-noprofile*" ✅ Will match
+                    """
                     special_chars = ['\\', '+', '-', '=', '&', '|', '!', '(', ')', '{', '}', 
-                                     '[', ']', '^', '"', '~', '*', '?', ':', '/', ' ']
+                                     '[', ']', '^', '"', '~', '?', ':', '/']
+                    # REMOVED: ' ' (space) from special_chars list
                     escaped = text
                     for char in special_chars:
                         if char != '*':  # Don't escape our wildcard
