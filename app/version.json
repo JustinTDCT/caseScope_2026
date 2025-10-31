@@ -1,9 +1,10 @@
 {
-  "version": "1.10.14",
+  "version": "1.10.15",
   "release_date": "2025-10-31",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "IOC Management - Multi-Line Truncation (3 lines max) (v1.10.15)",
     "IOC Management - Edit Functionality Implemented (v1.10.14)",
     "IOC Management - Truncate Long Values in Display (v1.10.13)",
     "Index Name Generation - Standardized Across Codebase (v1.10.12)",
