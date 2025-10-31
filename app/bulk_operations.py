@@ -93,7 +93,13 @@ def clear_case_ioc_flags_in_opensearch(opensearch_client, case_id: int, files: l
             continue
         
         # Generate index name from opensearch_key
-        index_name = case_file.opensearch_key.lower().replace('%4', '4')
+        # opensearch_key format: "case2_ATN76254_filename" or "case2_log_..."
+        # Need to remove the "case2_" prefix and convert to lowercase
+        opensearch_key_clean = case_file.opensearch_key
+        if opensearch_key_clean.lower().startswith(f'case{case_id}_'):
+            opensearch_key_clean = opensearch_key_clean[len(f'case{case_id}_'):]
+        
+        index_name = opensearch_key_clean.lower().replace('%4', '4')
         index_name = f"case_{case_id}_{index_name}"
         
         try:
