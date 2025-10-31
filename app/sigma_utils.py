@@ -27,11 +27,14 @@ def list_sigma_rules(page=1, per_page=50, search_query=''):
     sigma_repo = Path('/opt/casescope/sigma_rules_repo')
     
     # Multiple rule directories to scan
+    lolrmm_repo = Path('/opt/casescope/lolrmm')
+    
     rule_paths = [
         sigma_repo / 'rules' / 'windows',           # Standard Windows detection rules
         sigma_repo / 'rules-dfir',                  # DFIR-specific rules
         sigma_repo / 'rules-emerging-threats',      # Latest emerging threats
         sigma_repo / 'rules-threat-hunting',        # Proactive threat hunting rules
+        lolrmm_repo / 'detections' / 'sigma',       # magicsword-io/lolrmm RMM tool detections
     ]
     
     # Collect all .yml files with metadata
@@ -200,11 +203,14 @@ def get_sigma_stats():
     sigma_repo = Path('/opt/casescope/sigma_rules_repo')
     
     # Multiple rule directories to count
+    lolrmm_repo = Path('/opt/casescope/lolrmm')
+    
     rule_paths = {
         'Windows Rules': sigma_repo / 'rules' / 'windows',
         'DFIR Rules': sigma_repo / 'rules-dfir',
         'Emerging Threats': sigma_repo / 'rules-emerging-threats',
         'Threat Hunting': sigma_repo / 'rules-threat-hunting',
+        'RMM Detections': lolrmm_repo / 'detections' / 'sigma',
     }
     
     total_rules = 0

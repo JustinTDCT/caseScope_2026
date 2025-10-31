@@ -1,9 +1,14 @@
 {
-  "version": "1.10.6",
-  "release_date": "2025-10-30",
+  "version": "1.10.11",
+  "release_date": "2025-10-31",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "IOC Re-Hunt Fix - Clear OpenSearch has_ioc Flags (v1.10.11)",
+    "Bulk Import Fix - Missing queue_file_processing Import (v1.10.10)",
+    "SIGMA Rules - lolrmm Detection Rules Added (v1.10.9)",
+    "IOC Hunting Field Mapping Fix - Search ALL Fields (v1.10.8)",
+    "IOC Hunting Critical Fix - Special Character Escaping + Nested Objects + Cache Management (v1.10.7)",
     "DFIR-IRIS Sync Timeout Fix (v1.10.6)",
     "User SID IOC Type with Smart Field Mapping (v1.10.6)",
     "Custom Favicon Logo (v1.10.5)",

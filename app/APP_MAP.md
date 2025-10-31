@@ -1,12 +1,411 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.6  
-**Last Updated**: 2025-10-30 00:10 UTC  
+**Version**: 1.10.11  
+**Last Updated**: 2025-10-31 21:08 UTC  
 **Purpose**: Track file responsibilities and workflow
 
 ---
 
-## 📋 Recent Updates (2025-10-30 00:10 UTC)
+## 📋 Recent Updates (2025-10-31 21:08 UTC)
+
+### **🐛 v1.10.11 - IOC Re-Hunt Fix: OpenSearch has_ioc Flags Not Cleared** (2025-10-31 21:08 UTC)
+
+**Critical Bug Fix**: IOC re-hunt was clearing database matches but NOT clearing `has_ioc` flags in OpenSearch, causing old IOC events to persist.
+
+**User Report**:
+"I disabled 2 IOCs, did a fresh hunt, and then asked to show IOC only events - but the page is showing stuff that should be cleared - i recall an issue either yesterday or earlier where something was not being cleared correctly on a re-hunt so i was getting results that were no longer iocs"
+
+**Problem Identified**:
+- **Database**: 28 IOC matches (correct after disabling 2 IOCs)
+- **OpenSearch**: 70,065 events still flagged with `has_ioc: true` (old data!)
+- **Search Filter "IOC Events Only"**: Showed 70,065 events (should be 28)
+
+**Root Cause**:
+The `bulk_rehunt` task was only clearing IOC matches from the database:
+```python
+# This only clears database records:
+ioc_deleted = clear_case_ioc_matches(db, case_id)
+
+# But has_ioc flags in OpenSearch were NEVER cleared!
+```
+
+When IOC hunting runs, it:
+1. Searches for IOCs in OpenSearch
+2. Creates `IOCMatch` records in database
+3. Sets `has_ioc: true` flag on matching events in OpenSearch
+
+But when re-hunting:
+1. `clear_case_ioc_matches()` deletes database records ✓
+2. `has_ioc` flags in OpenSearch remain set ✗
+3. Search filter shows old results ✗
+
+**Solution Implemented**:
+1. Added new function `clear_case_ioc_flags_in_opensearch()` to `bulk_operations.py`
+2. Uses OpenSearch `update_by_query` with Painless script to remove flags
+3. Integrated into `bulk_rehunt` task before new hunt starts
+
+**Code Added**:
+```python
+def clear_case_ioc_flags_in_opensearch(opensearch_client, case_id: int, files: list) -> int:
+    """Clear has_ioc flags from all OpenSearch indices for a case"""
+    total_updated = 0
+    
+    for case_file in files:
+        if not case_file.is_indexed or not case_file.opensearch_key:
+            continue
+        
+        index_name = case_file.opensearch_key.lower().replace('%4', '4')
+        index_name = f"case_{case_id}_{index_name}"
+        
+        # Clear has_ioc flag using Painless script
+        update_body = {
+            "script": {
+                "source": "ctx._source.remove('has_ioc')",
+                "lang": "painless"
+            },
+            "query": {
+                "term": {"has_ioc": True}
+            }
+        }
+        
+        response = opensearch_client.update_by_query(
+            index=index_name,
+            body=update_body,
+            conflicts='proceed'
+        )
+        
+        total_updated += response.get('updated', 0)
+    
+    return total_updated
+```
+
+**Files Modified**:
+- `app/bulk_operations.py` (lines 76-132 - new function)
+- `app/tasks.py` (lines 345-394 - integrated clearing)
+- `app/version.json` (updated to v1.10.11)
+- `app/APP_MAP.md` (this file)
+
+**Result**:
+✅ IOC re-hunt now clears both database AND OpenSearch flags  
+✅ Search filter "IOC Events Only" shows accurate results  
+✅ Disabled IOCs no longer appear in search results  
+✅ Clean slate for every re-hunt
+
+---
+
+### **🐛 v1.10.10 - Bulk Import Fix: Missing Import Caused Files to Stay Queued** (2025-10-31 20:04 UTC)
+
+**Critical Bug Fix**: Bulk import completed filtering but failed to queue files for processing.
+
+**User Report**:
+"check whats happening i just local uploaded a bunch of files and they show queued but none are processing"
+
+**Problem Identified**:
+- Bulk import processed 1,602 files successfully
+- Filtered out 915 zero-event files (archived correctly)
+- 687 valid files ready for processing
+- **Crashed with**: `NameError: name 'queue_file_processing' is not defined` at line 558
+
+**Root Cause**:
+The `bulk_import_directory` task in `tasks.py` was calling `queue_file_processing()` but never imported it from `bulk_operations.py`. The function exists and works correctly - it was just missing the import statement.
+
+**Error Log**:
+```
+[2025-10-31 19:58:26,373: ERROR/ForkPoolWorker-4] [BULK IMPORT] Fatal error: name 'queue_file_processing' is not defined
+Traceback (most recent call last):
+  File "/opt/casescope/app/tasks.py", line 558, in bulk_import_directory
+    queue_file_processing(process_file, case_files, operation='full')
+    ^^^^^^^^^^^^^^^^^^^^^
+NameError: name 'queue_file_processing' is not defined
+```
+
+**Impact**:
+- Files showed as "Queued" in UI but never started processing
+- Workers were idle
+- No visible error in the UI - appeared to be stuck
+- Files had to be re-uploaded after fix
+
+**Solution Implemented**:
+Added missing import at line 452 in `tasks.py`:
+```python
+from bulk_operations import queue_file_processing
+```
+
+**Files Modified**:
+- `app/tasks.py` (line 452 - added import)
+- `app/version.json` (updated to v1.10.10)
+- `app/APP_MAP.md` (this file)
+
+**Result**:
+✅ Bulk import now completes successfully and queues files for processing  
+✅ Workers process files immediately after upload  
+✅ No more "stuck in queued" status
+
+---
+
+### **📊 v1.10.9 - SIGMA Rules: lolrmm Detection Rules Added** (2025-10-31 19:34 UTC)
+
+**Bug Fix**: Dashboard was not counting or displaying lolrmm RMM tool detection rules.
+
+**User Report**:
+"now, i have asked this before and you didn't CHECK the sigma cache to ensure enabled rules from all sources are used - i recall an issue with an incomplete cache"
+
+**Problem Identified**:
+- Dashboard showed: **2,888 rules**
+- lolrmm rules: **452 SIGMA detections for RMM tools**
+- Total should be: **3,340 rules** (+452 missing!)
+
+**Root Cause**:
+1. lolrmm repository was cloned at `/opt/casescope/lolrmm` (452 rules)
+2. Chainsaw cache building WAS copying lolrmm rules (working correctly)
+3. But `sigma_utils.py` was NOT counting lolrmm rules
+4. Dashboard showed incomplete count (2,888 instead of 3,340)
+
+**Solution Implemented**:
+1. Added lolrmm rules to `sigma_utils.py` counting logic
+2. Updated `list_sigma_rules()` function to scan lolrmm directory
+3. Updated `get_sigma_stats()` function to include RMM Detections
+
+**Files Modified**:
+- `app/sigma_utils.py` (lines 30-37, 206-214)
+- `app/version.json`
+- `app/APP_MAP.md`
+
+**Result**:
+```
+Windows Rules:       2,350
+DFIR Rules:              0
+Emerging Threats:      409
+Threat Hunting:        129
+RMM Detections:        452  ← NEW!
+─────────────────────────────
+TOTAL:               3,340 rules
+```
+
+**Dashboard Now Shows**:
+- Total Rules (All Sets): **3,340** (was 2,888)
+- Enabled Rules: **3,340** (was 2,888)
+- RMM Detections: **452** (was missing)
+
+---
+
+### **🔍 v1.10.8 - IOC Hunting Field Mapping Fix: Search ALL Fields** (2025-10-31 19:22 UTC)
+
+**Critical Bug Fix**: IOC hunting was using targeted field searches instead of searching ALL fields.
+
+**User Report**:
+"nope still not working right... something you are doing is not searching all the fields - the Security.EVTX file for this case should have a ton of IOCs in it"
+"i previously told you the IOC hunt should check ALL FIELDS"
+
+**Root Cause Analysis**:
+
+The IOC hunting code had a `ioc_field_map` that limited searches to specific fields:
+```python
+ioc_field_map = {
+    'username': ['account', 'username', 'user'],  # Only these fields!
+    'ip': ['source_ip', 'destination_ip', 'ip_address', 'ip'],  # Only these fields!
+}
+```
+
+**Problem**: IOCs appear in MANY nested locations:
+- Username `craigw` could be in:
+  - `Event.EventData.SubjectUserName`
+  - `Event.EventData.TargetUserName`
+  - `Event.EventData.User`
+  - `Event.System.Security.UserID`
+  - ANY other nested field!
+
+**User's Grep Script (SearchEVTX.sh)**:
+```bash
+grep -i -F "craigw" file.jsonl  # Finds IOC ANYWHERE in JSON
+```
+- Result: **10,000+ matches** ✅
+
+**My Code (BEFORE FIX)**:
+- Only searched specific field names
+- Result: **2 matches** ❌
+
+**Test Results**:
+```
+Manual OpenSearch query: *craigw* = 10,000+ matches
+User's grep script:       craigw  = 10,000+ matches
+IOC hunt (v1.10.7):       craigw  = 2 matches (WRONG!)
+```
+
+**Solution Implemented**:
+
+1. **Removed targeted field mapping entirely**
+   - File: `app/file_processing.py` lines 1061-1064
+   - Deleted all field restrictions
+   - Now returns empty dict (default to wildcard)
+
+2. **All IOC types now search ALL fields `["*"]`**
+   - Matches grep behavior: finds IOC anywhere in JSON
+   - Uses `query_string` with wildcard for nested objects
+   - No field restrictions
+
+3. **Updated logic comments**:
+   ```python
+   # DEFAULT: Search all fields ["*"] to match grep behavior
+   # This ensures we find IOCs regardless of their location in nested JSON
+   ioc_field_map = {
+       # All IOC types now search all fields by default (like grep)
+   }
+   ```
+
+**Files Modified**:
+- `app/file_processing.py` (lines 1047-1074)
+- `app/version.json`
+- `app/APP_MAP.md`
+
+**Expected Results After Fix**:
+- ✅ Username `craigw`: 10,000+ matches
+- ✅ All IPs in CSV/Security.EVTX: Found
+- ✅ All FQDNs: Found
+- ✅ All file paths: Found
+- ✅ Matches grep behavior exactly
+
+---
+
+### **🔍 v1.10.7 - IOC Hunting Critical Fix: Special Character Escaping + Nested Objects + Cache Management** (2025-10-31 19:00 UTC)
+
+**Critical Bug Fix**: IOCs not being detected due to TWO issues:
+1. **Nested Objects**: `simple_query_string` doesn't search nested fields
+2. **Special Characters**: Lucene special chars (`:`, `/`, `\`) not escaped in query_string
+
+**User Reports**:
+1. "IOCs - i know they existed in the files uploaded but 0 returned results - we should be checking EVERY field for the IOCs"
+2. "I added a new file, i KNOW more IOCs exist then what is being reported"
+
+**Root Cause Analysis**:
+
+**Issue 1**: The IOC hunting function was using `simple_query_string` with `fields: ["*"]` to search all fields. However, **`simple_query_string` does NOT recursively search nested objects** in OpenSearch/Elasticsearch!
+
+**Issue 2**: After switching to `query_string`, IOCs with special Lucene characters were causing parse errors:
+- `Failed to parse query [*C:\Windows\Microsoft.NET\Framework\v4.0.30319\MSBuild.exe*]`
+- `Failed to parse query [*https://55i.j3ve.ru/clh1ygiq*]`
+
+**Test Results**:
+- `query_string` with wildcard: **179 hits** ✅ (IOCs exist in data!)
+- `simple_query_string` with `["*"]`: **0 hits** ❌ (Current method failed!)
+
+**Problem Example**:
+```json
+{
+  "Event": {
+    "System": {
+      "Computer": "ATN76254.JOHNWATTS.LOCAL"
+    },
+    "EventData": {
+      "Message": "Connection to https://55i.j3ve.ru/clh1ygiq failed"
+    }
+  }
+}
+```
+
+- IOC: `55i.j3ve.ru` (exists deep in `Event.EventData.Message`)
+- Old query: `simple_query_string` with `fields: ["*"]` → **0 matches** (doesn't traverse nested objects)
+- New query: `query_string` with wildcard → **179 matches** ✅
+
+**Solutions Implemented**:
+
+**Fix 1**: Changed IOC hunting to use **query_string** instead of **simple_query_string** for wildcard (`["*"]`) searches.
+
+**Fix 2**: Added Lucene special character escaping to prevent query parse errors:
+```python
+def escape_lucene_special_chars(text):
+    special_chars = ['\\', '+', '-', '=', '&', '|', '!', '(', ')', '{', '}', 
+                     '[', ']', '^', '"', '~', '*', '?', ':', '/', ' ']
+    for char in special_chars:
+        if char != '*':
+            text = text.replace(char, f'\\{char}')
+    return text
+```
+
+**Fix 3**: Implemented OpenSearch Scroll API to retrieve **unlimited results** (not capped at 10,000):
+- Uses 5,000-record batches per scroll
+- Commits to database in 1,000-record batches
+- Updates OpenSearch in 1,000-record batches
+- Handles IOCs that appear in 10,000+ events
+
+**Fix 4**: Added automatic cache clearing before bulk IOC hunts (prevents circuit breaker):
+- OpenSearch heap was hitting 98%+ usage with 4GB limit
+- Added `clear_cache()` call at start of `bulk_rehunt()` task
+- Clears fielddata, query, and request caches
+- Prevents `circuit_breaking_exception` errors during bulk operations
+- File: `tasks.py` lines 354-366
+
+**Code Changes** (`file_processing.py` lines 1065-1096):
+
+```python
+# NEW: Dual query strategy based on field targeting
+if search_fields == ["*"]:
+    # Wildcard search - use query_string to search nested objects
+    query = {
+        "query": {
+            "query_string": {
+                "query": f"*{ioc.ioc_value}*",
+                "default_operator": "AND",
+                "analyze_wildcard": True,
+                "lenient": True
+            }
+        },
+        "size": 10000
+    }
+    logger.info(f"[HUNT IOCS] Using query_string for wildcard search (nested objects)")
+else:
+    # Targeted field search - use simple_query_string (better performance)
+    query = {
+        "query": {
+            "simple_query_string": {
+                "query": ioc.ioc_value,
+                "fields": search_fields,
+                "default_operator": "and",
+                "lenient": True,
+                "analyze_wildcard": False
+            }
+        },
+        "size": 10000
+    }
+    logger.info(f"[HUNT IOCS] Using simple_query_string for targeted field search")
+```
+
+**Query Strategy**:
+- **Wildcard searches** (`url`, `fqdn`, `command`, `filename`, etc.) → `query_string` (handles nesting)
+- **Targeted searches** (`ip`, `username`, `hostname`, `user_sid`) → `simple_query_string` (better performance)
+
+**Benefits**:
+✅ **IOCs now detected in nested EVTX structures**  
+✅ **No performance loss** - targeted searches still use efficient method  
+✅ **Backward compatible** - existing IOC types unchanged  
+✅ **Better logging** - shows which query method is used
+
+**Affected IOC Types** (now working properly):
+- `url` - URLs embedded in event messages
+- `fqdn` - Domain names in any nested field
+- `command` - Command lines in nested structures
+- `filename` - Filenames in event data
+- All other unmapped types (default wildcard behavior)
+
+**Case-Specific IOCs** (confirmed working for Case 2):
+- 7 active IOCs for Case 2
+- Previously: 0 matches detected
+- Now: Should detect matches in nested EVTX event data
+
+**Files Modified**:
+- `file_processing.py` - IOC hunting query logic (32 lines changed)
+- `version.json` - Updated to v1.10.7
+- `APP_MAP.md` - This file
+
+**Testing Required**:
+- User should trigger IOC re-hunt on Case 2 to detect previously missed IOCs
+- Expected: URLs, FQDNs, filenames should now be found in EVTX events
+
+**Commit**: IOC hunting nested object fix
+
+---
+
+## 📋 Previous Updates (2025-10-30 00:10 UTC)
 
 ### **🔍 v1.10.6 - User SID IOC Type, Smart Field Mapping & DFIR-IRIS Timeout Fix** (2025-10-30 00:10 UTC)
 

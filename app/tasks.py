@@ -345,21 +345,39 @@ def bulk_rechainsaw(self, case_id):
 @celery_app.task(bind=True, name='tasks.bulk_rehunt')
 def bulk_rehunt(self, case_id):
     """Re-hunt IOCs on all files in a case (clears old matches first)"""
-    from main import app, db
+    from main import app, db, opensearch_client
     from bulk_operations import (
-        get_case_files, clear_case_ioc_matches, queue_file_processing
+        get_case_files, clear_case_ioc_matches, clear_case_ioc_flags_in_opensearch, queue_file_processing
     )
     
     with app.app_context():
-        # Clear all existing IOC matches for this case
-        ioc_deleted = clear_case_ioc_matches(db, case_id)
+        # IMPORTANT: Clear OpenSearch caches before bulk IOC hunting
+        # This prevents circuit breaker errors due to high heap usage
+        try:
+            logger.info(f"[BULK REHUNT] Clearing OpenSearch caches before IOC hunt...")
+            opensearch_client.indices.clear_cache(
+                index='*',
+                fielddata=True,
+                query=True,
+                request=True
+            )
+            logger.info(f"[BULK REHUNT] ✓ OpenSearch caches cleared successfully")
+        except Exception as e:
+            logger.warning(f"[BULK REHUNT] Failed to clear OpenSearch cache: {e}")
         
-        # Get indexed files only (exclude deleted and hidden files)
+        # Get files first (needed for clearing OpenSearch flags)
         files = get_case_files(db, case_id, include_deleted=False, include_hidden=False)
         files = [f for f in files if f.is_indexed]
         
         if not files:
             return {'status': 'success', 'message': 'No indexed files to process', 'files_queued': 0}
+        
+        # Clear all existing IOC matches for this case (database)
+        ioc_deleted = clear_case_ioc_matches(db, case_id)
+        
+        # CRITICAL: Clear has_ioc flags from OpenSearch indices
+        # This ensures old IOC flags don't persist after re-hunt
+        flags_cleared = clear_case_ioc_flags_in_opensearch(opensearch_client, case_id, files)
         
         # Reset ioc_event_count and set status to Queued for all files
         for f in files:
@@ -373,7 +391,7 @@ def bulk_rehunt(self, case_id):
         # Queue re-hunt tasks
         queued = queue_file_processing(process_file, files, operation='ioc_only')
         
-        return {'status': 'success', 'files_queued': queued, 'matches_cleared': ioc_deleted}
+        return {'status': 'success', 'files_queued': queued, 'matches_cleared': ioc_deleted, 'flags_cleared': flags_cleared}
 
 
 @celery_app.task(bind=True, name='tasks.single_file_rehunt')
@@ -435,6 +453,7 @@ def bulk_import_directory(self, case_id):
         get_staging_path,
         clear_staging
     )
+    from bulk_operations import queue_file_processing
     
     with app.app_context():
         try:

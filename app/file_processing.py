@@ -1045,13 +1045,22 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
         total_matches = 0
         
         # IOC Type to Field Mapping (for targeted searches)
-        # Maps IOC types to specific OpenSearch fields for more precise matching
+        # IMPORTANT: Most IOC types should search ALL fields (like grep does)
+        # Only use targeted field searches for very specific cases where performance matters
+        # 
+        # SearchEVTX.sh does: grep -i -F "keyword" file.jsonl
+        # This finds the IOC ANYWHERE in the JSON, not just specific fields!
+        # 
+        # Example: username "craigw" can appear in:
+        #   - Event.EventData.SubjectUserName
+        #   - Event.EventData.TargetUserName  
+        #   - Event.EventData.User
+        #   - Many other nested locations
+        #
+        # DEFAULT: Search all fields ["*"] to match grep behavior
         ioc_field_map = {
-            'user_sid': ['account', 'user_sid', 'sid'],
-            'username': ['account', 'username', 'user'],
-            'hostname': ['computer_name', 'hostname', 'host'],
-            'ip': ['source_ip', 'destination_ip', 'ip_address', 'ip'],
-            # Other types search all fields (default behavior)
+            # All IOC types now search all fields by default (like grep)
+            # This ensures we find IOCs regardless of their location in nested JSON
         }
         
         # Process each IOC
@@ -1059,66 +1068,136 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
             logger.info(f"[HUNT IOCS] Processing IOC {idx}/{len(iocs)}: {ioc.ioc_type}={ioc.ioc_value}")
             
             # Determine search fields based on IOC type
+            # DEFAULT: Always search all fields ["*"] to match grep behavior
+            # This ensures IOCs are found regardless of their location in nested JSON
             search_fields = ioc_field_map.get(ioc.ioc_type, ["*"])
-            logger.info(f"[HUNT IOCS] Search fields for {ioc.ioc_type}: {search_fields}")
+            logger.info(f"[HUNT IOCS] Search fields for {ioc.ioc_type}: {search_fields} (using wildcard search for all nested fields)")
             
             # GREP-LIKE SEARCH: Case-insensitive, targeted or all fields
-            query = {
-                "query": {
-                    "simple_query_string": {
-                        "query": ioc.ioc_value,
-                        "fields": search_fields,
-                        "default_operator": "and",
-                        "lenient": True,
-                        "analyze_wildcard": False
+            # Use query_string for wildcard searches (supports nested objects)
+            # Use simple_query_string for targeted field searches (better performance)
+            if search_fields == ["*"]:
+                # Wildcard search - use query_string to search nested objects
+                # IMPORTANT: Must escape special Lucene characters for query_string
+                def escape_lucene_special_chars(text):
+                    """Escape special characters for Lucene query_string syntax"""
+                    special_chars = ['\\', '+', '-', '=', '&', '|', '!', '(', ')', '{', '}', 
+                                     '[', ']', '^', '"', '~', '*', '?', ':', '/', ' ']
+                    escaped = text
+                    for char in special_chars:
+                        if char != '*':  # Don't escape our wildcard
+                            escaped = escaped.replace(char, f'\\{char}')
+                    return escaped
+                
+                escaped_value = escape_lucene_special_chars(ioc.ioc_value)
+                query = {
+                    "query": {
+                        "query_string": {
+                            "query": f"*{escaped_value}*",
+                            "default_operator": "AND",
+                            "analyze_wildcard": True,
+                            "lenient": True
+                        }
                     }
-                },
-                "size": 10000
-            }
+                }
+                logger.info(f"[HUNT IOCS] Using query_string for wildcard search (nested objects, escaped)")
+            else:
+                # Targeted field search - use simple_query_string
+                query = {
+                    "query": {
+                        "simple_query_string": {
+                            "query": ioc.ioc_value,
+                            "fields": search_fields,
+                            "default_operator": "and",
+                            "lenient": True,
+                            "analyze_wildcard": False
+                        }
+                    }
+                }
+                logger.info(f"[HUNT IOCS] Using simple_query_string for targeted field search")
             
             try:
-                response = opensearch_client.search(index=index_name, body=query)
-                hits = response['hits']['hits']
+                # Use scroll API to get ALL results (not limited to 10,000)
+                # Initial search with scroll context
+                scroll_query = query.copy()
+                scroll_query['size'] = 5000  # Batch size per scroll
                 
-                if hits:
-                    logger.info(f"[HUNT IOCS] Found {len(hits)} matches for IOC: {ioc.ioc_value}")
+                response = opensearch_client.search(
+                    index=index_name, 
+                    body=scroll_query,
+                    scroll='5m'  # Keep scroll context alive for 5 minutes
+                )
+                
+                scroll_id = response.get('_scroll_id')
+                all_hits = response['hits']['hits']
+                total_hits = response['hits']['total']['value']
+                
+                # Continue scrolling if there are more results
+                while len(all_hits) < total_hits and scroll_id:
+                    response = opensearch_client.scroll(
+                        scroll_id=scroll_id,
+                        scroll='5m'
+                    )
+                    scroll_id = response.get('_scroll_id')
+                    batch_hits = response['hits']['hits']
+                    if not batch_hits:
+                        break
+                    all_hits.extend(batch_hits)
+                
+                # Clear scroll context
+                if scroll_id:
+                    try:
+                        opensearch_client.clear_scroll(scroll_id=scroll_id)
+                    except:
+                        pass
+                
+                if all_hits:
+                    logger.info(f"[HUNT IOCS] Found {len(all_hits)} matches for IOC: {ioc.ioc_value} (total: {total_hits})")
                     
-                    # Create IOCMatch records
-                    for hit in hits:
-                        event_id = hit['_id']
-                        event_source = hit['_source']
+                    # Create IOCMatch records in batches
+                    import json
+                    batch_size = 1000
+                    for i in range(0, len(all_hits), batch_size):
+                        batch = all_hits[i:i+batch_size]
                         
-                        # Store full event data as JSON
-                        import json
-                        event_data_json = json.dumps(event_source)
+                        for hit in batch:
+                            event_id = hit['_id']
+                            event_source = hit['_source']
+                            
+                            # Store full event data as JSON
+                            event_data_json = json.dumps(event_source)
+                            
+                            ioc_match = IOCMatch(
+                                ioc_id=ioc.id,
+                                case_id=case_file.case_id,
+                                file_id=file_id,
+                                event_id=event_id,
+                                index_name=index_name,
+                                matched_field=f'auto_detected_{ioc.ioc_type}',
+                                event_data=event_data_json
+                            )
+                            db.session.add(ioc_match)
+                            total_matches += 1
                         
-                        ioc_match = IOCMatch(
-                            ioc_id=ioc.id,
-                            case_id=case_file.case_id,
-                            file_id=file_id,
-                            event_id=event_id,
-                            index_name=index_name,
-                            matched_field=f'auto_detected_{ioc.ioc_type}',
-                            event_data=event_data_json
-                        )
-                        db.session.add(ioc_match)
-                        total_matches += 1
+                        commit_with_retry(db.session, logger_instance=logger)
+                        logger.info(f"[HUNT IOCS] Committed batch {i//batch_size + 1} ({len(batch)} matches)")
                     
-                    commit_with_retry(db.session, logger_instance=logger)
-                    
-                    # Update OpenSearch events with has_ioc flag
+                    # Update OpenSearch events with has_ioc flag in batches
                     from opensearchpy.helpers import bulk as opensearch_bulk
-                    bulk_updates = []
-                    for hit in hits:
-                        bulk_updates.append({
-                            '_op_type': 'update',
-                            '_index': index_name,
-                            '_id': hit['_id'],
-                            'doc': {'has_ioc': True}
-                        })
-                    
-                    if bulk_updates:
-                        opensearch_bulk(opensearch_client, bulk_updates)
+                    for i in range(0, len(all_hits), batch_size):
+                        batch = all_hits[i:i+batch_size]
+                        bulk_updates = []
+                        for hit in batch:
+                            bulk_updates.append({
+                                '_op_type': 'update',
+                                '_index': index_name,
+                                '_id': hit['_id'],
+                                'doc': {'has_ioc': True}
+                            })
+                        
+                        if bulk_updates:
+                            opensearch_bulk(opensearch_client, bulk_updates)
+                            logger.info(f"[HUNT IOCS] Updated OpenSearch batch {i//batch_size + 1} ({len(bulk_updates)} events)")
             
             except Exception as e:
                 logger.error(f"[HUNT IOCS] Error searching for IOC {ioc.ioc_value}: {e}")
