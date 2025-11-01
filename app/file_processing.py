@@ -1077,9 +1077,9 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
             # Use query_string for wildcard searches (supports nested objects)
             # Use simple_query_string for targeted field searches (better performance)
             if search_fields == ["*"]:
-                # For very long/complex IOCs (e.g., command lines), extract distinctive terms
+                # For command_complex type, extract distinctive terms (obfuscated PowerShell, etc.)
                 # This avoids "too many nested clauses" errors (maxClauseCount limit)
-                if len(ioc.ioc_value) > 80 or ioc.ioc_value.count('\\') > 5:
+                if ioc.ioc_type == 'command_complex':
                     # Complex IOC - extract distinctive terms and search for those (no wildcards)
                     # Example: "powershell.exe -nopROfi -ExEC UnRESTrictED" 
                     #       -> "nopROfi AND UnRESTrictED AND powershell.exe"
@@ -1103,7 +1103,7 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                             }
                         }
                     }
-                    logger.info(f"[HUNT IOCS] Using distinctive terms for complex IOC: {search_terms}")
+                    logger.info(f"[HUNT IOCS] Using distinctive terms for command_complex: {search_terms}")
                 else:
                     # Simple IOC - use query_string with wildcards and escaping
                     def escape_lucene_special_chars(text):
