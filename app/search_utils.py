@@ -589,7 +589,7 @@ def extract_event_fields(event_source: Dict[str, Any]) -> Dict[str, Any]:
         # Last resort: show first few meaningful fields
         skip_fields = {
             'opensearch_key', '_id', '_index', '_score', 
-            'has_sigma', 'has_ioc',
+            'has_sigma', 'has_ioc', 'ioc_count',  # Skip IOC metadata fields
             'normalized_timestamp', 'normalized_computer', 'normalized_event_id',  # Skip normalized fields
             'source_file_type'  # Skip this metadata field
         }

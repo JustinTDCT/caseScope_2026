@@ -1,9 +1,10 @@
 {
-  "version": "1.10.20",
+  "version": "1.10.21",
   "release_date": "2025-11-01",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "Event Display - Hide ioc_count Metadata Field (v1.10.21)",
     "Event Search - 2+ and 3+ IOC Filters (v1.10.20)",
     "IOC Hunting - Phrase Matching for Simple Commands (v1.10.19)",
     "IOC Management - Command Complex Type for Obfuscated Commands (v1.10.18)",
