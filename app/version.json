@@ -1,9 +1,10 @@
 {
-  "version": "1.10.18",
-  "release_date": "2025-10-31",
+  "version": "1.10.19",
+  "release_date": "2025-11-01",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "IOC Hunting - Phrase Matching for Simple Commands (v1.10.19)",
     "IOC Management - Command Complex Type for Obfuscated Commands (v1.10.18)",
     "IOC Hunting - Distinctive Terms Strategy for Complex IOCs (v1.10.17)",
     "IOC Hunting - Space Escaping Fix for Complex Command Lines (v1.10.16)",

@@ -1105,39 +1105,20 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                     }
                     logger.info(f"[HUNT IOCS] Using distinctive terms for command_complex: {search_terms}")
                 else:
-                    # Simple IOC - use query_string with wildcards and escaping
-                    def escape_lucene_special_chars(text):
-                        """Escape special characters for Lucene query_string syntax
-                        
-                        IMPORTANT: Do NOT escape spaces! Spaces are natural word delimiters in Lucene.
-                        When you escape a space as '\ ', it looks for a literal backslash-space combo.
-                        
-                        Example:
-                          - Input: "powershell.exe -noprofile" 
-                          - With space escaping: "*powershell\.exe\ \-noprofile*" ❌ Won't match
-                          - Without space escaping: "*powershell\.exe*-noprofile*" ✅ Will match
-                        """
-                        special_chars = ['\\', '+', '-', '=', '&', '|', '!', '(', ')', '{', '}', 
-                                         '[', ']', '^', '"', '~', '?', ':', '/']
-                        # REMOVED: ' ' (space) from special_chars list
-                        escaped = text
-                        for char in special_chars:
-                            if char != '*':  # Don't escape our wildcard
-                                escaped = escaped.replace(char, f'\\{char}')
-                        return escaped
-                    
-                    escaped_value = escape_lucene_special_chars(ioc.ioc_value)
+                    # Simple IOC - use simple_query_string for phrase matching (no wildcards)
+                    # This searches for the exact phrase across all fields
+                    # More precise than query_string with wildcards which breaks into terms
                     query = {
                         "query": {
-                            "query_string": {
-                                "query": f"*{escaped_value}*",
-                                "default_operator": "AND",
-                                "analyze_wildcard": True,
+                            "simple_query_string": {
+                                "query": f'"{ioc.ioc_value}"',  # Quote for phrase matching
+                                "fields": ["*"],
+                                "default_operator": "and",
                                 "lenient": True
                             }
                         }
                     }
-                    logger.info(f"[HUNT IOCS] Using query_string for wildcard search (nested objects, escaped)")
+                    logger.info(f"[HUNT IOCS] Using simple_query_string with phrase matching for simple IOC")
             else:
                 # Targeted field search - use simple_query_string
                 query = {
