@@ -47,9 +47,11 @@
                     <label class="form-label">Event Type</label>
                     <select name="filter" class="form-input" onchange="resetToPageOne()">
                         <option value="all" {% if filter_type == 'all' %}selected{% endif %}>All Events</option>
-                        <option value="sigma" {% if filter_type == 'sigma' %}selected{% endif %}>SIGMA Events Only</option>
+                        <option value="sigma" {% if filter_type == 'sigma' %}selected{% endif %}>SIGMA Violations Only</option>
                         <option value="ioc" {% if filter_type == 'ioc' %}selected{% endif %}>IOC Events Only</option>
-                        <option value="sigma_and_ioc" {% if filter_type == 'sigma_and_ioc' %}selected{% endif %}>SIGMA or IOC Events</option>
+                        <option value="ioc_2plus" {% if filter_type == 'ioc_2plus' %}selected{% endif %}>2+ IOC Events Only</option>
+                        <option value="ioc_3plus" {% if filter_type == 'ioc_3plus' %}selected{% endif %}>3+ IOC Events Only</option>
+                        <option value="sigma_and_ioc" {% if filter_type == 'sigma_and_ioc' %}selected{% endif %}>IOC + SIGMA Events Only</option>
                         <option value="tagged" {% if filter_type == 'tagged' %}selected{% endif %}>Tagged Events Only</option>
                     </select>
                 </div>

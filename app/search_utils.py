@@ -26,7 +26,7 @@ def build_search_query(
     
     Args:
         search_text: Free-text search query
-        filter_type: 'all', 'sigma', 'ioc', 'sigma_and_ioc', 'tagged'
+        filter_type: 'all', 'sigma', 'ioc', 'ioc_2plus', 'ioc_3plus', 'sigma_and_ioc', 'tagged'
         date_range: '24h', '7d', '30d', 'custom', 'all'
         custom_date_start: Custom start date
         custom_date_end: Custom end date
@@ -59,6 +59,12 @@ def build_search_query(
         query["bool"]["filter"].append({"term": {"has_sigma": True}})
     elif filter_type == "ioc":
         query["bool"]["filter"].append({"term": {"has_ioc": True}})
+    elif filter_type == "ioc_2plus":
+        # Events with 2 or more IOC matches
+        query["bool"]["filter"].append({"range": {"ioc_count": {"gte": 2}}})
+    elif filter_type == "ioc_3plus":
+        # Events with 3 or more IOC matches
+        query["bool"]["filter"].append({"range": {"ioc_count": {"gte": 3}}})
     elif filter_type == "sigma_and_ioc":
         query["bool"]["filter"].append({
             "bool": {
