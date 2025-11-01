@@ -108,16 +108,16 @@ def clear_case_ioc_flags_in_opensearch(opensearch_client, case_id: int, files: l
             if not opensearch_client.indices.exists(index=index_name):
                 continue
             
-                   # Clear has_ioc flag and ioc_count for all events in this index
-                    update_body = {
-                        "script": {
-                            "source": "ctx._source.remove('has_ioc'); ctx._source.remove('ioc_count')",
-                            "lang": "painless"
-                        },
-                        "query": {
-                            "term": {"has_ioc": True}
-                        }
-                    }
+            # Clear has_ioc flag and ioc_count for all events in this index
+            update_body = {
+                "script": {
+                    "source": "ctx._source.remove('has_ioc'); ctx._source.remove('ioc_count')",
+                    "lang": "painless"
+                },
+                "query": {
+                    "term": {"has_ioc": True}
+                }
+            }
             
             response = opensearch_client.update_by_query(
                 index=index_name,
