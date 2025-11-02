@@ -74,7 +74,7 @@ def check_ollama_status():
         }
 
 
-def generate_case_report_prompt(case, iocs, tagged_events, sigma_violations=None, ioc_matches=None):
+def generate_case_report_prompt(case, iocs, tagged_events):
     """
     Build the prompt for AI report generation following proven DFIR report structure
     
@@ -82,8 +82,6 @@ def generate_case_report_prompt(case, iocs, tagged_events, sigma_violations=None
         case: Case object
         iocs: List of IOC objects
         tagged_events: List of tagged event dicts from OpenSearch
-        sigma_violations: List of (SigmaViolation, SigmaRule) tuples (optional)
-        ioc_matches: List of (IOCMatch, IOC) tuples (optional)
         
     Returns:
         str: Formatted prompt for the LLM
@@ -172,72 +170,6 @@ Three brief sub-sections:
             if len(ioc_list) > 10:
                 prompt += f"... and {len(ioc_list) - 10} more\n"
     
-    # Add SIGMA detections (before tagged events for context)
-    if sigma_violations and len(sigma_violations) > 0:
-        prompt += f"\n# SIGMA Rule Detections ({len(sigma_violations)} detections shown)\n\n"
-        prompt += "Automated threat detections from SIGMA rules (ordered by severity):\n\n"
-        
-        # Group by rule for summary
-        rule_groups = {}
-        for violation, rule in sigma_violations:
-            rule_title = rule.title if rule else "Unknown Rule"
-            if rule_title not in rule_groups:
-                rule_groups[rule_title] = {
-                    'count': 0,
-                    'rule': rule,
-                    'severity': violation.severity if violation else 'unknown'
-                }
-            rule_groups[rule_title]['count'] += 1
-        
-        # Show top rules
-        for rule_title, data in sorted(rule_groups.items(), key=lambda x: x[1]['count'], reverse=True)[:20]:
-            rule_obj = data['rule']
-            count = data['count']
-            severity = data['severity']
-            
-            prompt += f"## {rule_title} ({count} hits, Severity: {severity.upper() if severity else 'UNKNOWN'})\n"
-            if rule_obj and rule_obj.description:
-                desc = rule_obj.description[:200]
-                prompt += f"Description: {desc}\n"
-            prompt += "\n"
-        
-        if len(rule_groups) > 20:
-            prompt += f"\n... and {len(rule_groups) - 20} more SIGMA rule types\n"
-    
-    # Add IOC matches (before tagged events for context)
-    if ioc_matches and len(ioc_matches) > 0:
-        prompt += f"\n# IOC Detection Matches ({len(ioc_matches)} detections shown)\n\n"
-        prompt += "Actual detections of IOCs in event logs (ordered by most recent):\n\n"
-        
-        # Group by IOC
-        ioc_groups = {}
-        for match, ioc in ioc_matches:
-            ioc_value = ioc.ioc_value if ioc else "Unknown IOC"
-            if ioc_value not in ioc_groups:
-                ioc_groups[ioc_value] = {
-                    'count': 0,
-                    'ioc': ioc,
-                    'type': ioc.ioc_type if ioc else 'unknown',
-                    'threat_level': ioc.threat_level if ioc else 'unknown'
-                }
-            ioc_groups[ioc_value]['count'] += 1
-        
-        # Show top IOC matches
-        for ioc_value, data in sorted(ioc_groups.items(), key=lambda x: x[1]['count'], reverse=True)[:20]:
-            ioc_obj = data['ioc']
-            count = data['count']
-            ioc_type = data['type']
-            threat_level = data['threat_level']
-            
-            prompt += f"## IOC: `{ioc_value}` ({ioc_type.upper()}) - {count} matches\n"
-            prompt += f"Threat Level: {threat_level.upper() if threat_level else 'UNKNOWN'}\n"
-            if ioc_obj and ioc_obj.description:
-                prompt += f"Description: {ioc_obj.description}\n"
-            prompt += "\n"
-        
-        if len(ioc_groups) > 20:
-            prompt += f"\n... and {len(ioc_groups) - 20} more IOCs detected\n"
-    
     # Add tagged events (PRIMARY DATA SOURCE FOR TIMELINE)
     if tagged_events:
         prompt += f"\n# **Tagged Events for Timeline** ({len(tagged_events)} events)\n\n"
@@ -276,7 +208,7 @@ Three brief sub-sections:
         if len(tagged_events) > 50:
             prompt += f"\n... and {len(tagged_events) - 50} more tagged events\n"
     else:
-        prompt += "\n⚠️ **No tagged events available.** Generate timeline from IOCs, SIGMA detections, and IOC matches.\n"
+        prompt += "\n⚠️ **No tagged events available.** Use IOC information to infer timeline and attack progression.\n"
     
     # Add instructions - following the proven structure
     prompt += """

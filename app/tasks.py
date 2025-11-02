@@ -695,66 +695,16 @@ def generate_ai_report(self, report_id):
                 logger.warning(f"[AI REPORT] Error fetching tagged events: {e}")
                 # Continue without tagged events
             
-            # Get SIGMA violations (top 100 by severity)
+            # Generate prompt (only tagged events and IOCs - no SIGMA noise)
             report.progress_percent = 40
-            report.progress_message = 'Fetching SIGMA detections...'
+            report.progress_message = f'Building report prompt ({len(iocs)} IOCs, {len(tagged_events)} tagged events)...'
             db.session.commit()
             
-            sigma_violations = []
-            try:
-                from models import SigmaViolation, SigmaRule
-                # Get SIGMA violations with their rules (top 100)
-                sigma_violations = db.session.query(
-                    SigmaViolation, SigmaRule
-                ).join(
-                    SigmaRule, SigmaViolation.rule_id == SigmaRule.id
-                ).filter(
-                    SigmaViolation.case_id == case.id
-                ).order_by(
-                    db.case(
-                        (SigmaViolation.severity == 'critical', 1),
-                        (SigmaViolation.severity == 'high', 2),
-                        (SigmaViolation.severity == 'medium', 3),
-                        (SigmaViolation.severity == 'low', 4),
-                        else_=5
-                    )
-                ).limit(100).all()
-                logger.info(f"[AI REPORT] Found {len(sigma_violations)} SIGMA violations")
-            except Exception as e:
-                logger.warning(f"[AI REPORT] Error fetching SIGMA violations: {e}")
-                
-            # Get IOC matches (top 100)
-            report.progress_percent = 50
-            report.progress_message = 'Fetching IOC detections...'
-            db.session.commit()
-            
-            ioc_matches = []
-            try:
-                from models import IOCMatch
-                # Get IOC matches with their IOC details (top 100)
-                ioc_matches = db.session.query(
-                    IOCMatch, IOC
-                ).join(
-                    IOC, IOCMatch.ioc_id == IOC.id
-                ).filter(
-                    IOCMatch.case_id == case.id
-                ).order_by(
-                    IOCMatch.created_at.desc()
-                ).limit(100).all()
-                logger.info(f"[AI REPORT] Found {len(ioc_matches)} IOC matches")
-            except Exception as e:
-                logger.warning(f"[AI REPORT] Error fetching IOC matches: {e}")
-            
-            # Generate prompt
-            report.progress_percent = 60
-            report.progress_message = f'Building report prompt ({len(iocs)} IOCs, {len(tagged_events)} events, {len(sigma_violations)} SIGMA, {len(ioc_matches)} matches)...'
-            db.session.commit()
-            
-            prompt = generate_case_report_prompt(case, iocs, tagged_events, sigma_violations, ioc_matches)
+            prompt = generate_case_report_prompt(case, iocs, tagged_events)
             logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters)")
             
             # Generate report with Ollama
-            report.progress_percent = 65
+            report.progress_percent = 50
             report.progress_message = 'Generating report with AI (this may take 3-5 minutes)...'
             db.session.commit()
             
