@@ -41,7 +41,7 @@
                     </select>
                 </div>
                 
-                {% if current_user.role == 'admin' %}
+                {% if current_user.role == 'administrator' %}
                 <div class="form-group">
                     <label for="assigned_to">Assigned To</label>
                     <select id="assigned_to" name="assigned_to">
@@ -63,7 +63,7 @@
                     <button type="button" onclick="history.back()" class="btn btn-secondary">
                         Cancel
                     </button>
-                    {% if current_user.role == 'admin' %}
+                    {% if current_user.role == 'administrator' %}
                     <button type="button" onclick="deleteCase()" class="btn" style="background: var(--color-error); color: white; margin-left: auto;">
                         🗑️ Delete Case
                     </button>
@@ -74,7 +74,7 @@
     </div>
 </div>
 
-{% if current_user.role == 'admin' %}
+{% if current_user.role == 'administrator' %}
 <script>
 function deleteCase() {
     const caseName = "{{ case.name }}";

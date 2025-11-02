@@ -9,7 +9,7 @@
         <p class="text-secondary">{{ case.description or 'No description provided' }}</p>
     </div>
     <div class="content-actions">
-        {% if current_user.role == 'admin' or case.created_by == current_user.id %}
+        {% if current_user.role == 'administrator' or case.created_by == current_user.id %}
         <a href="{{ url_for('cases.edit_case', case_id=case.id) }}" class="btn" style="background: var(--color-info); color: white;">
             <span>✏️</span>
             <span>Edit Case</span>

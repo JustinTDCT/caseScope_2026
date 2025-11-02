@@ -721,7 +721,7 @@ def evtx_descriptions_update():
     from evtx_descriptions import update_all_descriptions
     
     # Admin check
-    if current_user.role != 'admin':
+    if current_user.role != 'administrator':
         flash('Only administrators can update EVTX descriptions', 'error')
         return redirect(url_for('evtx_descriptions'))
     
@@ -1227,7 +1227,7 @@ def untag_timeline_event(case_id):
         return jsonify({'error': 'Tag not found'}), 404
     
     # Only allow creator or admin to remove
-    if tag.user_id != current_user.id and current_user.role != 'admin':
+    if tag.user_id != current_user.id and current_user.role != 'administrator':
         return jsonify({'error': 'Unauthorized'}), 403
     
     db.session.delete(tag)
@@ -1964,7 +1964,7 @@ def bulk_delete_files(case_id):
     )
     
     # Admin check
-    if current_user.role != 'admin':
+    if current_user.role != 'administrator':
         flash('Only administrators can delete all files', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     

@@ -71,7 +71,7 @@ def edit_case(case_id):
         return redirect(url_for('dashboard'))
     
     # Check permissions: admin or case creator
-    if current_user.role != 'admin' and case.created_by != current_user.id:
+    if current_user.role != 'administrator' and case.created_by != current_user.id:
         flash('Permission denied', 'error')
         return redirect(url_for('dashboard'))
     
@@ -100,7 +100,7 @@ def edit_case(case_id):
             changes['status'] = {'from': old_status, 'to': case.status}
         
         # Only admin can change assignment
-        if current_user.role == 'admin':
+        if current_user.role == 'administrator':
             assigned_to = request.form.get('assigned_to')
             case.assigned_to = int(assigned_to) if assigned_to and assigned_to != '' else None
             if old_assigned_to != case.assigned_to:
