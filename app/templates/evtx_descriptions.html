@@ -25,7 +25,8 @@
 <!-- Single Full-Width Stats & Search Tile -->
 <div class="card" style="margin-bottom: var(--spacing-lg);">
     <div class="card-body" style="padding: var(--spacing-lg);">
-        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--spacing-xl); align-items: center;">
+        <!-- Row 1: Total + Original 3 Sources + Last Updated -->
+        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--spacing-xl); align-items: center; margin-bottom: var(--spacing-lg); padding-bottom: var(--spacing-lg); border-bottom: 1px solid var(--color-border);">
             
             <!-- Total Events -->
             <div style="text-align: center;">
@@ -35,7 +36,7 @@
                 </a>
             </div>
             
-            <!-- Source 1 -->
+            <!-- Source 1: Ultimate Windows Security -->
             <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
                 <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Ultimate Windows Security</div>
                 <a href="{{ url_for('evtx_descriptions', source='uws', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Ultimate Windows Security">
@@ -45,7 +46,7 @@
                 </a>
             </div>
             
-            <!-- Source 2 -->
+            <!-- Source 2: GitHub Gist -->
             <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
                 <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">GitHub Gist</div>
                 <a href="{{ url_for('evtx_descriptions', source='github', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by GitHub Gist">
@@ -55,7 +56,7 @@
                 </a>
             </div>
             
-            <!-- Source 3 -->
+            <!-- Source 3: Infrasos -->
             <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
                 <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Infrasos</div>
                 <a href="{{ url_for('evtx_descriptions', source='infrasos', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Infrasos">
@@ -76,6 +77,49 @@
                 {% else %}
                 <div style="font-size: 0.875rem; color: var(--color-text-muted);">Never</div>
                 {% endif %}
+            </div>
+        </div>
+        
+        <!-- Row 2: New Enhanced Sources -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-xl); align-items: center;">
+            
+            <!-- Source 4: MyEventLog.com -->
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">
+                    <span style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.625rem; font-weight: 600; margin-right: 0.25rem;">NEW</span>
+                    MyEventLog.com
+                </div>
+                <a href="{{ url_for('evtx_descriptions', source='myeventlog', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by MyEventLog.com">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'myeventlog' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('MyEventLog.com', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Source 5: Microsoft Sysmon -->
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">
+                    <span style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.625rem; font-weight: 600; margin-right: 0.25rem;">NEW</span>
+                    Microsoft Sysmon
+                </div>
+                <a href="{{ url_for('evtx_descriptions', source='ms_sysmon', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Microsoft Sysmon">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'ms_sysmon' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('Microsoft Sysmon', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Source 6: Microsoft Security Auditing -->
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">
+                    <span style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.625rem; font-weight: 600; margin-right: 0.25rem;">NEW</span>
+                    Microsoft Security
+                </div>
+                <a href="{{ url_for('evtx_descriptions', source='ms_security', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Microsoft Security Auditing">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'ms_security' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                        {{ source_stats.get('Microsoft Security Auditing', 0) }}
+                    </div>
+                </a>
             </div>
         </div>
         
@@ -112,6 +156,9 @@
                     {% if source_filter == 'uws' %}Ultimate Windows Security
                     {% elif source_filter == 'github' %}GitHub Gist
                     {% elif source_filter == 'infrasos' %}Infrasos
+                    {% elif source_filter == 'myeventlog' %}MyEventLog.com
+                    {% elif source_filter == 'ms_sysmon' %}Microsoft Sysmon
+                    {% elif source_filter == 'ms_security' %}Microsoft Security Auditing
                     {% endif %}
                 </span>
                 {% endif %}
@@ -229,7 +276,7 @@
 {% block extra_js %}
 <script>
 function confirmUpdate() {
-    if (confirm('🔄 Update EVTX Event Descriptions\n\nThis will:\n• Fetch event descriptions from 3 data sources\n• Update existing events with new information\n• Add any new events found\n\nThis may take a minute.\n\nContinue?')) {
+    if (confirm('🔄 Update EVTX Event Descriptions\n\nThis will fetch from 6 data sources:\n• Ultimate Windows Security\n• GitHub Gist\n• Infrasos\n• MyEventLog.com\n• Microsoft Sysmon (29 events)\n• Microsoft Security Auditing (50+ events)\n\nThe system will:\n• Update existing events with new information\n• Add any new events found\n\nThis may take 1-2 minutes.\n\nContinue?')) {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = '{{ url_for("evtx_descriptions_update") }}';

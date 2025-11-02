@@ -1,9 +1,10 @@
 {
-  "version": "1.10.29",
+  "version": "1.10.30",
   "release_date": "2025-11-02",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "Enhanced EVTX UI - Added 3 New Sources with Statistics (v1.10.30)",
     "Event Search - Fixed Hide/Unhide Button & Added Bulk Untag (v1.10.25)",
     "Event Search - Enhanced Visibility Filter & Bulk Unhide (v1.10.24)",
     "Event Search - Bulk Operations & Hide Events (v1.10.23)",

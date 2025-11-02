@@ -628,6 +628,27 @@ def evtx_descriptions():
     if infrasos_count > 0:
         source_stats['Infrasos'] = infrasos_count
     
+    # Count MyEventLog.com events
+    myeventlog_count = db.session.query(EventDescription).filter(
+        EventDescription.source_url.like('%myeventlog%')
+    ).count()
+    if myeventlog_count > 0:
+        source_stats['MyEventLog.com'] = myeventlog_count
+    
+    # Count Microsoft Sysmon events
+    ms_sysmon_count = db.session.query(EventDescription).filter(
+        EventDescription.source_url.like('%learn.microsoft.com/en-us/sysinternals%')
+    ).count()
+    if ms_sysmon_count > 0:
+        source_stats['Microsoft Sysmon'] = ms_sysmon_count
+    
+    # Count Microsoft Security Auditing events
+    ms_security_count = db.session.query(EventDescription).filter(
+        EventDescription.source_url.like('%learn.microsoft.com/en-us/previous-versions%')
+    ).count()
+    if ms_security_count > 0:
+        source_stats['Microsoft Security Auditing'] = ms_security_count
+    
     # Get last updated
     last_updated = db.session.query(
         db.func.max(EventDescription.last_updated)
@@ -644,6 +665,12 @@ def evtx_descriptions():
             events_query = events_query.filter(EventDescription.source_url.like('%github%'))
         elif source_filter == 'infrasos':
             events_query = events_query.filter(EventDescription.source_url.like('%infrasos%'))
+        elif source_filter == 'myeventlog':
+            events_query = events_query.filter(EventDescription.source_url.like('%myeventlog%'))
+        elif source_filter == 'ms_sysmon':
+            events_query = events_query.filter(EventDescription.source_url.like('%learn.microsoft.com/en-us/sysinternals%'))
+        elif source_filter == 'ms_security':
+            events_query = events_query.filter(EventDescription.source_url.like('%learn.microsoft.com/en-us/previous-versions%'))
     
     # Apply search filter
     if search_query:
