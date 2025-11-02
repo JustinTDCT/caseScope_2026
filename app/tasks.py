@@ -590,3 +590,159 @@ def bulk_import_directory(self, case_id):
             except:
                 pass
             return {'status': 'error', 'message': str(e)}
+
+
+# ============================================================================
+# AI REPORT GENERATION
+# ============================================================================
+
+@celery_app.task(bind=True, name='tasks.generate_ai_report')
+def generate_ai_report(self, report_id):
+    """
+    Generate AI report for a case using Ollama + Phi-3 14B
+    
+    Args:
+        report_id: ID of the AIReport database record
+        
+    Returns:
+        dict: Status and results
+    """
+    from flask import Flask
+    from models import db, AIReport, Case, IOC
+    from opensearch_config import OpenSearchManager
+    from ai_report import generate_case_report_prompt, generate_report_with_ollama, format_report_title
+    from datetime import datetime
+    import time
+    
+    logger.info(f"[AI REPORT] Starting generation for report_id={report_id}")
+    
+    # Initialize Flask app context
+    app = Flask(__name__)
+    app.config.from_object('config.Config')
+    db.init_app(app)
+    
+    with app.app_context():
+        try:
+            # Get report record
+            report = db.session.get(AIReport, report_id)
+            if not report:
+                logger.error(f"[AI REPORT] Report {report_id} not found")
+                return {'status': 'error', 'message': 'Report not found'}
+            
+            # Update status to generating
+            report.status = 'generating'
+            db.session.commit()
+            
+            # Get case data
+            case = db.session.get(Case, report.case_id)
+            if not case:
+                report.status = 'failed'
+                report.error_message = 'Case not found'
+                db.session.commit()
+                return {'status': 'error', 'message': 'Case not found'}
+            
+            logger.info(f"[AI REPORT] Gathering data for case '{case.name}'")
+            
+            # Get IOCs for the case
+            iocs = IOC.query.filter_by(case_id=case.id, deleted_at=None).all()
+            logger.info(f"[AI REPORT] Found {len(iocs)} IOCs")
+            
+            # Get tagged events from OpenSearch
+            tagged_events = []
+            try:
+                os_manager = OpenSearchManager()
+                
+                # Search for tagged events in this case's indices
+                # Get all indices for this case
+                from models import CaseFile
+                case_files = CaseFile.query.filter_by(case_id=case.id).all()
+                indices = [f.index_name for f in case_files if f.index_name]
+                
+                if indices:
+                    # Search for events with tag field (tagged events)
+                    search_body = {
+                        "query": {
+                            "exists": {
+                                "field": "tag"
+                            }
+                        },
+                        "size": 100,  # Limit to 100 tagged events
+                        "sort": [{"timestamp": {"order": "asc"}}]
+                    }
+                    
+                    results = os_manager.search(
+                        index=','.join(indices),
+                        body=search_body
+                    )
+                    
+                    if results and 'hits' in results:
+                        tagged_events = results['hits']['hits']
+                        logger.info(f"[AI REPORT] Found {len(tagged_events)} tagged events")
+                
+            except Exception as e:
+                logger.warning(f"[AI REPORT] Error fetching tagged events: {e}")
+                # Continue without tagged events
+            
+            # Generate prompt
+            prompt = generate_case_report_prompt(case, iocs, tagged_events)
+            logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters)")
+            
+            # Generate report with Ollama
+            start_time = time.time()
+            success, result = generate_report_with_ollama(prompt)
+            generation_time = time.time() - start_time
+            
+            if success:
+                # Update report with success
+                report.status = 'completed'
+                report.report_title = format_report_title(case.name)
+                report.report_content = result['report']
+                report.generation_time_seconds = result['duration_seconds']
+                report.completed_at = datetime.utcnow()
+                report.model_name = result.get('model', 'phi3:14b')
+                
+                db.session.commit()
+                
+                logger.info(f"[AI REPORT] Report generated successfully in {generation_time:.1f}s")
+                
+                return {
+                    'status': 'success',
+                    'report_id': report_id,
+                    'generation_time': generation_time,
+                    'tokens_generated': result.get('eval_count', 0)
+                }
+            else:
+                # Update report with failure
+                error_msg = result.get('error', 'Unknown error')
+                report.status = 'failed'
+                report.error_message = error_msg
+                report.generation_time_seconds = generation_time
+                
+                db.session.commit()
+                
+                logger.error(f"[AI REPORT] Generation failed: {error_msg}")
+                
+                return {
+                    'status': 'error',
+                    'report_id': report_id,
+                    'message': error_msg
+                }
+                
+        except Exception as e:
+            logger.error(f"[AI REPORT] Fatal error: {e}", exc_info=True)
+            
+            # Try to update report status
+            try:
+                report = db.session.get(AIReport, report_id)
+                if report:
+                    report.status = 'failed'
+                    report.error_message = str(e)
+                    db.session.commit()
+            except:
+                pass
+            
+            return {
+                'status': 'error',
+                'report_id': report_id,
+                'message': str(e)
+            }

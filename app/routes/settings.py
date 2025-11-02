@@ -60,6 +60,18 @@ def index():
     # Get Logging settings
     log_level = get_setting('log_level', 'INFO')
     
+    # Get AI settings
+    ai_enabled = get_setting('ai_enabled', 'false') == 'true'
+    ai_model_name = get_setting('ai_model_name', 'phi3:14b')
+    
+    # Check AI system status
+    ai_status = {'installed': False, 'running': False, 'model_available': False, 'models': []}
+    try:
+        from ai_report import check_ollama_status
+        ai_status = check_ollama_status()
+    except:
+        pass
+    
     return render_template('settings.html',
                          dfir_iris_enabled=dfir_iris_enabled,
                          dfir_iris_url=dfir_iris_url,
@@ -67,7 +79,10 @@ def index():
                          opencti_enabled=opencti_enabled,
                          opencti_url=opencti_url,
                          opencti_api_key=opencti_api_key,
-                         log_level=log_level)
+                         log_level=log_level,
+                         ai_enabled=ai_enabled,
+                         ai_model_name=ai_model_name,
+                         ai_status=ai_status)
 
 
 @settings_bp.route('/save', methods=['POST'])
@@ -117,13 +132,24 @@ def save():
         except Exception as e:
             print(f"Warning: Could not update log level dynamically: {e}")
     
+    # AI settings
+    ai_enabled = request.form.get('ai_enabled') == 'on'
+    ai_model_name = request.form.get('ai_model_name', 'phi3:14b').strip()
+    
+    set_setting('ai_enabled', 'true' if ai_enabled else 'false',
+                'Enable AI report generation features')
+    set_setting('ai_model_name', ai_model_name,
+                'AI model name for report generation')
+    
     # Audit log
     from audit_logger import log_action
     log_action('update_settings', resource_type='settings', resource_name='System Settings',
               details={
                   'dfir_iris_enabled': dfir_iris_enabled,
                   'opencti_enabled': opencti_enabled,
-                  'log_level': log_level
+                  'log_level': log_level,
+                  'ai_enabled': ai_enabled,
+                  'ai_model_name': ai_model_name
               })
     
     flash('✓ Settings saved successfully', 'success')

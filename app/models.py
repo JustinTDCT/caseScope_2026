@@ -276,3 +276,24 @@ class AuditLog(db.Model):
     # Relationships
     user = db.relationship('User', backref='audit_logs', foreign_keys=[user_id])
 
+
+class AIReport(db.Model):
+    """AI-generated DFIR reports"""
+    __tablename__ = 'ai_report'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    generated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending', index=True)  # pending, generating, completed, failed
+    model_name = db.Column(db.String(50), default='phi3:14b')  # AI model used
+    report_title = db.Column(db.String(500))
+    report_content = db.Column(db.Text)  # Full report in markdown format
+    generation_time_seconds = db.Column(db.Float)  # How long it took to generate
+    error_message = db.Column(db.Text)  # Error details if failed
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    completed_at = db.Column(db.DateTime)
+    
+    # Relationships
+    case = db.relationship('Case', backref='ai_reports', foreign_keys=[case_id])
+    generator = db.relationship('User', backref='generated_reports', foreign_keys=[generated_by])
+

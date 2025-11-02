@@ -596,6 +596,203 @@ def view_case(case_id):
     return render_template('view_case_enhanced.html', case=case, files=files, total_iocs=total_iocs)
 
 
+# ============================================================================
+# AI REPORT ROUTES
+# ============================================================================
+
+@app.route('/ai/status')
+@login_required
+def ai_status():
+    """Check Ollama and AI model status"""
+    from ai_report import check_ollama_status
+    from settings_utils import get_setting
+    
+    ai_enabled = get_setting('ai_enabled', 'false') == 'true'
+    status = check_ollama_status()
+    
+    return jsonify({
+        'ai_enabled': ai_enabled,
+        'ollama_installed': status['installed'],
+        'ollama_running': status['running'],
+        'model_available': status['model_available'],
+        'models': status.get('model_names', []),
+        'error': status.get('error')
+    })
+
+
+@app.route('/case/<int:case_id>/ai/generate', methods=['POST'])
+@login_required
+def generate_ai_report(case_id):
+    """Generate AI report for a case"""
+    from settings_utils import get_setting
+    from models import AIReport
+    from tasks import generate_ai_report as generate_ai_report_task
+    from ai_report import check_ollama_status
+    
+    # Check if AI is enabled
+    ai_enabled = get_setting('ai_enabled', 'false') == 'true'
+    if not ai_enabled:
+        return jsonify({
+            'success': False,
+            'error': 'AI features are not enabled. Please enable in System Settings.'
+        }), 403
+    
+    # Check if Ollama is running
+    status = check_ollama_status()
+    if not status['running'] or not status['model_available']:
+        return jsonify({
+            'success': False,
+            'error': 'AI system not available. Please check Ollama installation and model availability.',
+            'status': status
+        }), 503
+    
+    # Check case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    # Check for existing pending/generating report
+    existing_report = AIReport.query.filter_by(
+        case_id=case_id,
+        status='pending'
+    ).first()
+    
+    if not existing_report:
+        existing_report = AIReport.query.filter_by(
+            case_id=case_id,
+            status='generating'
+        ).first()
+    
+    if existing_report:
+        return jsonify({
+            'success': False,
+            'error': 'A report is already being generated for this case',
+            'report_id': existing_report.id,
+            'status': existing_report.status
+        }), 409
+    
+    # Create new AIReport record
+    new_report = AIReport(
+        case_id=case_id,
+        generated_by=current_user.id,
+        status='pending',
+        model_name=get_setting('ai_model_name', 'phi3:14b')
+    )
+    
+    db.session.add(new_report)
+    db.session.commit()
+    
+    # Queue Celery task
+    try:
+        generate_ai_report_task.delay(new_report.id)
+        
+        logger.info(f"[AI] Report generation queued for case {case_id}, report_id={new_report.id}")
+        
+        return jsonify({
+            'success': True,
+            'report_id': new_report.id,
+            'status': 'pending',
+            'message': 'Report generation started. This may take 3-5 minutes.'
+        })
+    except Exception as e:
+        logger.error(f"[AI] Error queuing report generation: {e}")
+        new_report.status = 'failed'
+        new_report.error_message = f'Failed to queue: {str(e)}'
+        db.session.commit()
+        
+        return jsonify({
+            'success': False,
+            'error': f'Failed to start report generation: {str(e)}'
+        }), 500
+
+
+@app.route('/ai/report/<int:report_id>')
+@login_required
+def get_ai_report(report_id):
+    """Get AI report details"""
+    from models import AIReport
+    
+    report = db.session.get(AIReport, report_id)
+    if not report:
+        return jsonify({'error': 'Report not found'}), 404
+    
+    # Check case access (basic check - could be enhanced)
+    case = db.session.get(Case, report.case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    return jsonify({
+        'id': report.id,
+        'case_id': report.case_id,
+        'case_name': case.name,
+        'status': report.status,
+        'title': report.report_title,
+        'content': report.report_content,
+        'model_name': report.model_name,
+        'generation_time': report.generation_time_seconds,
+        'error_message': report.error_message,
+        'created_at': report.created_at.isoformat() if report.created_at else None,
+        'completed_at': report.completed_at.isoformat() if report.completed_at else None
+    })
+
+
+@app.route('/ai/report/<int:report_id>/download')
+@login_required
+def download_ai_report(report_id):
+    """Download AI report as markdown file"""
+    from models import AIReport
+    from flask import make_response
+    
+    report = db.session.get(AIReport, report_id)
+    if not report:
+        flash('Report not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    if report.status != 'completed':
+        flash('Report is not ready for download', 'error')
+        return redirect(url_for('view_case', case_id=report.case_id))
+    
+    # Create response with markdown content
+    response = make_response(report.report_content)
+    response.headers['Content-Type'] = 'text/markdown; charset=utf-8'
+    
+    # Generate safe filename
+    case = db.session.get(Case, report.case_id)
+    case_name_safe = case.name.replace(' ', '_').replace('/', '_') if case else 'report'
+    timestamp = report.created_at.strftime('%Y%m%d_%H%M%S') if report.created_at else 'unknown'
+    
+    filename = f"AI_Report_{case_name_safe}_{timestamp}.md"
+    response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    
+    return response
+
+
+@app.route('/case/<int:case_id>/ai/reports')
+@login_required
+def list_ai_reports(case_id):
+    """List all AI reports for a case"""
+    from models import AIReport
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    reports = AIReport.query.filter_by(case_id=case_id).order_by(AIReport.created_at.desc()).all()
+    
+    return jsonify({
+        'reports': [{
+            'id': r.id,
+            'status': r.status,
+            'title': r.report_title,
+            'model_name': r.model_name,
+            'generation_time': r.generation_time_seconds,
+            'created_at': r.created_at.isoformat() if r.created_at else None,
+            'completed_at': r.completed_at.isoformat() if r.completed_at else None,
+            'error_message': r.error_message
+        } for r in reports]
+    })
+
+
 @app.route('/evtx_descriptions')
 @login_required
 def evtx_descriptions():

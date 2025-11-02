@@ -279,6 +279,84 @@
             </div>
         </div>
 
+        <!-- AI Configuration -->
+        <div class="card" style="margin-bottom: var(--spacing-lg);">
+            <div class="card-header">
+                <h2 class="card-title">🤖 AI Report Generation</h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
+                    Generate automated DFIR reports using local AI (Phi-3 14B via Ollama)
+                </p>
+            </div>
+            
+            <div class="card-body">
+                <!-- AI System Status -->
+                <div style="background: {% if ai_status.running and ai_status.model_available %}var(--color-success-bg){% elif ai_status.installed %}var(--color-warning-bg){% else %}var(--color-error-bg){% endif %}; padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid {% if ai_status.running and ai_status.model_available %}var(--color-success){% elif ai_status.installed %}var(--color-warning){% else %}var(--color-error){% endif %}; margin-bottom: var(--spacing-md);">
+                    <div style="display: flex; align-items: center; gap: var(--spacing-sm); margin-bottom: var(--spacing-xs);">
+                        <span style="font-size: 1.2rem;">{% if ai_status.running and ai_status.model_available %}✅{% elif ai_status.installed %}⚠️{% else %}❌{% endif %}</span>
+                        <strong style="color: {% if ai_status.running and ai_status.model_available %}var(--color-success){% elif ai_status.installed %}var(--color-warning){% else %}var(--color-error){% endif %};">
+                            AI System Status
+                        </strong>
+                    </div>
+                    <ul style="margin: var(--spacing-xs) 0 0 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                        <li><strong>Ollama:</strong> {% if ai_status.running %}✅ Running{% elif ai_status.installed %}⚠️ Installed but not running{% else %}❌ Not installed{% endif %}</li>
+                        <li><strong>Phi-3 14B Model:</strong> {% if ai_status.model_available %}✅ Available{% else %}❌ Not found{% endif %}</li>
+                        {% if ai_status.models %}
+                        <li><strong>Installed Models:</strong> {{ ai_status.models|join(', ') }}</li>
+                        {% endif %}
+                    </ul>
+                    {% if not ai_status.running or not ai_status.model_available %}
+                    <p style="margin: var(--spacing-sm) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
+                        ⚠️ <strong>To enable AI features:</strong> Install Ollama and pull the phi3:14b model
+                        <br>
+                        <code style="background: var(--color-background); padding: 2px 6px; border-radius: 3px;">curl -fsSL https://ollama.com/install.sh | sh && ollama pull phi3:14b</code>
+                    </p>
+                    {% endif %}
+                </div>
+
+                <!-- Enable AI -->
+                <div style="margin-bottom: var(--spacing-lg);">
+                    <label style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
+                        <input type="checkbox" 
+                               name="ai_enabled" 
+                               {% if ai_enabled %}checked{% endif %}
+                               style="width: 18px; height: 18px; cursor: pointer;">
+                        <span style="font-weight: 500;">Enable AI Report Generation</span>
+                    </label>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 26px; font-size: 0.875rem;">
+                        Allow users to generate AI-powered DFIR reports from case data, IOCs, and tagged events
+                    </p>
+                </div>
+
+                <!-- AI Model Name -->
+                <div class="form-group">
+                    <label for="ai_model_name">AI Model</label>
+                    <input type="text" 
+                           id="ai_model_name"
+                           name="ai_model_name" 
+                           value="{{ ai_model_name }}"
+                           placeholder="phi3:14b"
+                           style="width: 100%; max-width: 400px;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                        Ollama model name (default: phi3:14b). Other options: phi3:3.8b, llama3.1:8b, mistral:7b
+                    </p>
+                </div>
+
+                <!-- AI Performance Info -->
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-info); margin-top: var(--spacing-md);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
+                        ⚡ Performance Information
+                    </h3>
+                    <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                        <li><strong>Generation Time:</strong> 3-5 minutes average (depends on CPU cores and case complexity)</li>
+                        <li><strong>Processing:</strong> Runs on CPU only (no GPU required)</li>
+                        <li><strong>Privacy:</strong> 100% local - no data sent to external services</li>
+                        <li><strong>Cost:</strong> $0 - completely free and self-hosted</li>
+                        <li><strong>Quality:</strong> GPT-3.5 level analysis for DFIR investigations</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
         <!-- Save Button -->
         <div style="display: flex; gap: var(--spacing-md);">
             <button type="submit" class="btn btn-primary" style="padding: var(--spacing-sm) var(--spacing-xl);">

@@ -9,6 +9,10 @@
         <p class="text-secondary">Case ID: {{ case.id }} • Created: {{ case.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
     </div>
     <div class="content-actions">
+        <button onclick="generateAIReport()" class="btn" style="background: var(--color-primary); color: white;" id="aiReportBtn">
+            <span>🤖</span>
+            <span>Generate AI Report</span>
+        </button>
         <a href="{{ url_for('upload_files', case_id=case.id) }}" class="btn btn-primary">
             <span>📤</span>
             <span>Upload Files</span>
@@ -404,6 +408,83 @@ function rehuntSingleFile(fileId) {
         document.body.appendChild(form);
         form.submit();
     }
+}
+
+// ============================================================================
+// AI REPORT GENERATION
+// ============================================================================
+
+function generateAIReport() {
+    const button = document.getElementById('aiReportBtn');
+    button.disabled = true;
+    button.innerHTML = '<span>⏳</span><span>Starting...</span>';
+    
+    fetch('/case/{{ case.id }}/ai/generate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ AI Report Generation Started!\n\nReport ID: ${data.report_id}\nEstimated Time: 3-5 minutes\n\nThe report will appear in the AI Reports section below when ready.`);
+            
+            // Poll for report completion
+            checkAIReportStatus(data.report_id);
+        } else {
+            alert(`❌ Failed to Generate Report\n\n${data.error}`);
+            button.disabled = false;
+            button.innerHTML = '<span>🤖</span><span>Generate AI Report</span>';
+        }
+    })
+    .catch(err => {
+        console.error('AI report generation failed:', err);
+        alert(`❌ Error: ${err.message}`);
+        button.disabled = false;
+        button.innerHTML = '<span>🤖</span><span>Generate AI Report</span>';
+    });
+}
+
+function checkAIReportStatus(reportId, attempts = 0) {
+    const button = document.getElementById('aiReportBtn');
+    const maxAttempts = 120; // 120 * 3s = 6 minutes max
+    
+    if (attempts >= maxAttempts) {
+        button.disabled = false;
+        button.innerHTML = '<span>🤖</span><span>Generate AI Report</span>';
+        alert('⏱️ Report generation is taking longer than expected. Please refresh the page to check status.');
+        return;
+    }
+    
+    fetch(`/ai/report/${reportId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'completed') {
+                button.disabled = false;
+                button.innerHTML = '<span>🤖</span><span>Generate AI Report</span>';
+                alert(`✅ Report Generated Successfully!\n\nTitle: ${data.title}\nGeneration Time: ${data.generation_time.toFixed(1)}s\n\nDownloading now...`);
+                
+                // Download the report
+                window.location.href = `/ai/report/${reportId}/download`;
+                
+                // Refresh page to show new report in list
+                setTimeout(() => window.location.reload(), 1000);
+            } else if (data.status === 'failed') {
+                button.disabled = false;
+                button.innerHTML = '<span>🤖</span><span>Generate AI Report</span>';
+                alert(`❌ Report Generation Failed\n\n${data.error_message}`);
+            } else {
+                // Still pending or generating
+                const dots = '.'.repeat((attempts % 3) + 1);
+                button.innerHTML = `<span>⏳</span><span>Generating${dots}</span>`;
+                setTimeout(() => checkAIReportStatus(reportId, attempts + 1), 3000);
+            }
+        })
+        .catch(err => {
+            console.error('Status check failed:', err);
+            setTimeout(() => checkAIReportStatus(reportId, attempts + 1), 3000);
+        });
 }
 </script>
 {% endblock %}
