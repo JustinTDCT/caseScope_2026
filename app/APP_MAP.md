@@ -1,12 +1,58 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.25  
-**Last Updated**: 2025-11-02 05:00 UTC  
+**Version**: 1.10.27  
+**Last Updated**: 2025-11-02 15:00 UTC  
 **Purpose**: Track file responsibilities and workflow
 
 ---
 
-## 📋 Recent Updates (2025-11-02 05:00 UTC)
+## 📋 Recent Updates (2025-11-02 15:00 UTC)
+
+### **v1.10.27 - CRITICAL FIX: Hidden Events Filter** (2025-11-02 15:00 UTC)
+
+**Problem**: 
+The "Hide Hidden Events" filter was not working - hidden events still appeared in search results even when the filter was set to exclude them.
+
+**Root Cause**:
+In `main.py:search_events()`, there was a "performance optimization" shortcut that used `match_all` query when all default filters were applied:
+```python
+if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 4 and hidden_filter == 'hide':
+    query_dsl = {"query": {"match_all": {}}}  # Returns EVERYTHING including hidden events!
+```
+
+This shortcut **completely bypassed** the `build_search_query()` function, which meant the hidden filter logic in `search_utils.py` was never executed. The `match_all` query returned ALL events, including hidden ones, regardless of the `hidden_filter` parameter.
+
+**Solution**:
+Changed the shortcut condition from `hidden_filter == 'hide'` to `hidden_filter == 'show'`:
+```python
+if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 4 and hidden_filter == 'show':
+    query_dsl = {"query": {"match_all": {}}}  # Only use shortcut when explicitly showing ALL
+```
+
+Now:
+- **`hidden_filter == 'show'`**: Uses `match_all` (correct - show everything including hidden)
+- **`hidden_filter == 'hide'` or `'only'`**: Always calls `build_search_query()` which applies the proper hidden event filter
+
+**Investigation Process**:
+1. Rolled back to v1.10.25 (before audit work) to isolate the issue
+2. Confirmed the bug existed before audit changes (not caused by audit work)
+3. Added debug logging to `search_utils.py` to trace query building
+4. Discovered `build_search_query()` was never being called
+5. Found the shortcut logic that was bypassing the filter
+
+**Affected Files**:
+- `app/main.py` (changed shortcut condition from 'hide' to 'show')
+- `app/version.json` (v1.10.27)
+- `app/APP_MAP.md` (this documentation)
+
+**Testing**:
+- ✅ "Hide Hidden Events" - hidden events are excluded
+- ✅ "Show All Events" - all events displayed including hidden
+- ✅ "Hidden Events Only" - only hidden events displayed
+
+**Result**: Hidden event filtering now works correctly in all visibility modes.
+
+---
 
 ### **v1.10.25 - Fixed Hide/Unhide Button Display & Added Bulk Untag** (2025-11-02 05:00 UTC)
 

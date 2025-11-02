@@ -224,7 +224,6 @@ def build_search_query(
             })
     
     # Hidden events filter
-    logger.info(f"[SEARCH FILTER] hidden_filter parameter = '{hidden_filter}'")
     if hidden_filter == "hide":
         # Exclude hidden events - only show events where is_hidden doesn't exist OR is_hidden is false
         query["bool"]["filter"].append({
@@ -236,18 +235,15 @@ def build_search_query(
                 "minimum_should_match": 1
             }
         })
-        logger.info("[SEARCH] Applied HIDE filter - excluding hidden events")
+        logger.debug("[SEARCH] Excluding hidden events from results")
     elif hidden_filter == "only":
         # Show ONLY hidden events
         query["bool"]["filter"].append({
             "term": {"is_hidden": True}
         })
-        logger.info("[SEARCH] Applied ONLY filter - showing only hidden events")
-    else:
-        logger.info(f"[SEARCH] No hidden filter applied (hidden_filter={hidden_filter})")
+        logger.debug("[SEARCH] Showing only hidden events")
     # If hidden_filter == "show", no filter is applied (show all events)
     
-    logger.info(f"[SEARCH QUERY] Final query: {json.dumps(query, indent=2)}")
     return {"query": query}
 
 
