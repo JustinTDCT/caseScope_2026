@@ -110,13 +110,14 @@
                     </button>
                 </div>
                 
-                <!-- Show Hidden Events -->
+                <!-- Hidden Events Filter -->
                 <div>
                     <label class="form-label">Visibility</label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-bg-secondary);">
-                        <input type="checkbox" name="show_hidden" value="true" onchange="resetToPageOne()" {% if show_hidden %}checked{% endif %}>
-                        <span style="font-size: 0.875rem;">Show Hidden Events</span>
-                    </label>
+                    <select name="hidden_filter" class="form-input" onchange="resetToPageOne()">
+                        <option value="hide" {% if hidden_filter == 'hide' %}selected{% endif %}>Hide Hidden Events</option>
+                        <option value="show" {% if hidden_filter == 'show' %}selected{% endif %}>Show All Events</option>
+                        <option value="only" {% if hidden_filter == 'only' %}selected{% endif %}>Hidden Events Only</option>
+                    </select>
                 </div>
             </div>
             
@@ -199,15 +200,18 @@
             <div id="bulkActions" style="display: none; gap: var(--spacing-xs);">
                 <button onclick="bulkTagSelected()" class="btn btn-sm" style="background: var(--color-warning);">
                     <span>⭐</span>
-                    <span>Tag Selected</span>
+                    <span>Tag</span>
                 </button>
-                <button onclick="bulkHideSelected()" class="btn btn-sm btn-secondary">
+                <button onclick="bulkHideSelected()" class="btn btn-sm btn-secondary" id="bulkHideBtn">
                     <span>👁️</span>
-                    <span>Hide Selected</span>
+                    <span>Hide</span>
+                </button>
+                <button onclick="bulkUnhideSelected()" class="btn btn-sm" style="background: var(--color-success);" id="bulkUnhideBtn">
+                    <span>👁️‍🗨️</span>
+                    <span>Unhide</span>
                 </button>
                 <button onclick="clearSelection()" class="btn btn-sm btn-secondary">
                     <span>✖</span>
-                    <span>Clear</span>
                 </button>
                 <span class="text-muted" id="selectedCount" style="margin-left: 0.5rem;">0 selected</span>
             </div>
@@ -688,18 +692,17 @@ function bulkTagSelected() {
     });
 }
 
-function bulkHideSelected() {
-    const events = getSelectedEvents();
+function bulkActionRequest(endpoint, actionName, events, confirmMsg) {
     if (events.length === 0) {
         alert('No events selected');
         return;
     }
     
-    if (!confirm(`Hide ${events.length} event(s) from search results?`)) {
+    if (confirmMsg && !confirm(confirmMsg)) {
         return;
     }
     
-    fetch(`/case/{{ case.id }}/search/bulk-hide`, {
+    fetch(`/case/{{ case.id }}/search/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ events: events })
@@ -707,16 +710,27 @@ function bulkHideSelected() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert(`✅ Hid ${data.hidden} event(s)`);
+            const count = data.hidden || data.unhidden || data.tagged || 0;
+            alert(`✅ ${actionName} ${count} event(s)`);
             window.location.reload();
         } else {
             alert(`❌ Error: ${data.error}`);
         }
     })
     .catch(error => {
-        console.error('Bulk hide error:', error);
-        alert('❌ Failed to hide events');
+        console.error(`${actionName} error:`, error);
+        alert(`❌ Failed to ${actionName.toLowerCase()} events`);
     });
+}
+
+function bulkHideSelected() {
+    const events = getSelectedEvents();
+    bulkActionRequest('bulk-hide', 'Hid', events, `Hide ${events.length} event(s) from search results?`);
+}
+
+function bulkUnhideSelected() {
+    const events = getSelectedEvents();
+    bulkActionRequest('bulk-unhide', 'Unhid', events, `Unhide ${events.length} event(s)?`);
 }
 
 function hideEvent(eventId, indexName) {

@@ -1,9 +1,10 @@
 {
-  "version": "1.10.23",
+  "version": "1.10.24",
   "release_date": "2025-11-02",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "Event Search - Enhanced Visibility Filter & Bulk Unhide (v1.10.24)",
     "Event Search - Bulk Operations & Hide Events (v1.10.23)",
     "Event Search - Fixed Date Filters (Custom Range & Relative Filters) (v1.10.22)",
     "Event Display - Hide ioc_count Metadata Field (v1.10.21)",
