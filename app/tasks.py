@@ -631,6 +631,8 @@ def generate_ai_report(self, report_id):
             
             # Update status to generating
             report.status = 'generating'
+            report.progress_percent = 5
+            report.progress_message = 'Initializing...'
             db.session.commit()
             
             # Get case data
@@ -644,10 +646,18 @@ def generate_ai_report(self, report_id):
             logger.info(f"[AI REPORT] Gathering data for case '{case.name}'")
             
             # Get IOCs for the case
+            report.progress_percent = 15
+            report.progress_message = f'Collecting IOCs for {case.name}...'
+            db.session.commit()
+            
             iocs = IOC.query.filter_by(case_id=case.id, deleted_at=None).all()
             logger.info(f"[AI REPORT] Found {len(iocs)} IOCs")
             
             # Get tagged events from OpenSearch
+            report.progress_percent = 30
+            report.progress_message = 'Fetching tagged events from OpenSearch...'
+            db.session.commit()
+            
             tagged_events = []
             try:
                 os_manager = OpenSearchManager()
@@ -684,10 +694,18 @@ def generate_ai_report(self, report_id):
                 # Continue without tagged events
             
             # Generate prompt
+            report.progress_percent = 45
+            report.progress_message = f'Building report prompt ({len(iocs)} IOCs, {len(tagged_events)} events)...'
+            db.session.commit()
+            
             prompt = generate_case_report_prompt(case, iocs, tagged_events)
             logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters)")
             
             # Generate report with Ollama
+            report.progress_percent = 50
+            report.progress_message = 'Generating report with AI (this may take 3-5 minutes)...'
+            db.session.commit()
+            
             start_time = time.time()
             success, result = generate_report_with_ollama(prompt)
             generation_time = time.time() - start_time
@@ -700,6 +718,8 @@ def generate_ai_report(self, report_id):
                 report.generation_time_seconds = result['duration_seconds']
                 report.completed_at = datetime.utcnow()
                 report.model_name = result.get('model', 'phi3:14b')
+                report.progress_percent = 100
+                report.progress_message = 'Report completed successfully!'
                 
                 db.session.commit()
                 

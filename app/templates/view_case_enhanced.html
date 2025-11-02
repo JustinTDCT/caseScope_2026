@@ -428,9 +428,10 @@ function generateAIReport() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert(`✅ AI Report Generation Started!\n\nReport ID: ${data.report_id}\nEstimated Time: 3-5 minutes\n\nThe report will appear in the AI Reports section below when ready.`);
+            // Show progress modal
+            showProgressModal(data.report_id);
             
-            // Poll for report completion
+            // Start polling for progress
             checkAIReportStatus(data.report_id);
         } else {
             alert(`❌ Failed to Generate Report\n\n${data.error}`);
@@ -446,23 +447,143 @@ function generateAIReport() {
     });
 }
 
-function checkAIReportStatus(reportId, attempts = 0) {
+function showProgressModal(reportId) {
+    // Create modal overlay
+    const modal = document.createElement('div');
+    modal.id = 'aiProgressModal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    `;
+    
+    modal.innerHTML = `
+        <div style="background: var(--color-background); padding: var(--spacing-xl); border-radius: var(--border-radius); max-width: 600px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.3);">
+            <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-lg);">
+                <span style="font-size: 2rem;">🤖</span>
+                <div>
+                    <h2 style="margin: 0; font-size: 1.25rem;">AI Report Generation</h2>
+                    <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">This will take 3-5 minutes</p>
+                </div>
+            </div>
+            
+            <div style="margin-bottom: var(--spacing-md);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: var(--spacing-xs);">
+                    <span id="progressMessage" style="font-size: 0.875rem; color: var(--color-text-muted);">Initializing...</span>
+                    <span id="progressPercent" style="font-size: 0.875rem; font-weight: 600; color: var(--color-primary);">0%</span>
+                </div>
+                <div style="width: 100%; height: 24px; background: var(--color-background-secondary); border-radius: 12px; overflow: hidden; border: 1px solid var(--color-border);">
+                    <div id="progressBar" style="height: 100%; background: linear-gradient(90deg, var(--color-primary), var(--color-success)); width: 0%; transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+            
+            <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md);">
+                <div style="display: flex; gap: var(--spacing-lg); font-size: 0.875rem;">
+                    <div>
+                        <span style="color: var(--color-text-muted);">⏱️ Elapsed:</span>
+                        <strong id="elapsedTime" style="margin-left: var(--spacing-xs);">0s</strong>
+                    </div>
+                    <div>
+                        <span style="color: var(--color-text-muted);">⏳ Remaining:</span>
+                        <strong id="remainingTime" style="margin-left: var(--spacing-xs);">~4m</strong>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="progressLog" style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: var(--border-radius); padding: var(--spacing-sm); max-height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: var(--color-text-muted);"></div>
+            
+            <p style="margin: var(--spacing-md) 0 0 0; text-align: center; font-size: 0.875rem; color: var(--color-text-muted);">
+                💡 You can close this and the report will continue generating in the background
+            </p>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Allow clicking outside to close (but keep generating)
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
+}
+
+function updateProgressUI(data) {
+    const progressBar = document.getElementById('progressBar');
+    const progressPercent = document.getElementById('progressPercent');
+    const progressMessage = document.getElementById('progressMessage');
+    const progressLog = document.getElementById('progressLog');
+    
+    if (!progressBar) return; // Modal closed
+    
+    // Update progress bar
+    progressBar.style.width = `${data.progress_percent}%`;
+    progressPercent.textContent = `${data.progress_percent}%`;
+    progressMessage.textContent = data.progress_message;
+    
+    // Add log entry
+    const timestamp = new Date().toLocaleTimeString();
+    const logEntry = document.createElement('div');
+    logEntry.textContent = `[${timestamp}] ${data.progress_message}`;
+    logEntry.style.marginBottom = '4px';
+    progressLog.appendChild(logEntry);
+    progressLog.scrollTop = progressLog.scrollHeight;
+}
+
+function checkAIReportStatus(reportId, attempts = 0, startTime = Date.now()) {
     const button = document.getElementById('aiReportBtn');
     const maxAttempts = 120; // 120 * 3s = 6 minutes max
     
     if (attempts >= maxAttempts) {
+        const modal = document.getElementById('aiProgressModal');
+        if (modal) modal.remove();
         button.disabled = false;
         button.innerHTML = '<span>🤖</span><span>Generate AI Report</span>';
         alert('⏱️ Report generation is taking longer than expected. Please refresh the page to check status.');
         return;
     }
     
+    // Update elapsed time
+    const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+    const elapsedTime = document.getElementById('elapsedTime');
+    const remainingTime = document.getElementById('remainingTime');
+    
+    if (elapsedTime) {
+        const minutes = Math.floor(elapsedSeconds / 60);
+        const seconds = elapsedSeconds % 60;
+        elapsedTime.textContent = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+    }
+    
     fetch(`/ai/report/${reportId}`)
         .then(response => response.json())
         .then(data => {
+            // Update progress UI if modal is open
+            updateProgressUI(data);
+            
+            // Update remaining time estimate
+            if (remainingTime && data.progress_percent > 0) {
+                const estimatedTotal = (elapsedSeconds / data.progress_percent) * 100;
+                const estimatedRemaining = Math.max(0, estimatedTotal - elapsedSeconds);
+                const remMinutes = Math.floor(estimatedRemaining / 60);
+                const remSeconds = Math.floor(estimatedRemaining % 60);
+                remainingTime.textContent = remMinutes > 0 ? `~${remMinutes}m ${remSeconds}s` : `~${remSeconds}s`;
+            }
+            
             if (data.status === 'completed') {
+                // Close modal
+                const modal = document.getElementById('aiProgressModal');
+                if (modal) modal.remove();
+                
                 button.disabled = false;
                 button.innerHTML = '<span>🤖</span><span>Generate AI Report</span>';
+                
                 alert(`✅ Report Generated Successfully!\n\nTitle: ${data.title}\nGeneration Time: ${data.generation_time.toFixed(1)}s\n\nDownloading now...`);
                 
                 // Download the report
@@ -471,19 +592,21 @@ function checkAIReportStatus(reportId, attempts = 0) {
                 // Refresh page to show new report in list
                 setTimeout(() => window.location.reload(), 1000);
             } else if (data.status === 'failed') {
+                // Close modal
+                const modal = document.getElementById('aiProgressModal');
+                if (modal) modal.remove();
+                
                 button.disabled = false;
                 button.innerHTML = '<span>🤖</span><span>Generate AI Report</span>';
                 alert(`❌ Report Generation Failed\n\n${data.error_message}`);
             } else {
-                // Still pending or generating
-                const dots = '.'.repeat((attempts % 3) + 1);
-                button.innerHTML = `<span>⏳</span><span>Generating${dots}</span>`;
-                setTimeout(() => checkAIReportStatus(reportId, attempts + 1), 3000);
+                // Still pending or generating - continue polling
+                setTimeout(() => checkAIReportStatus(reportId, attempts + 1, startTime), 3000);
             }
         })
         .catch(err => {
             console.error('Status check failed:', err);
-            setTimeout(() => checkAIReportStatus(reportId, attempts + 1), 3000);
+            setTimeout(() => checkAIReportStatus(reportId, attempts + 1, startTime), 3000);
         });
 }
 </script>

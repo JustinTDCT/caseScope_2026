@@ -731,6 +731,8 @@ def get_ai_report(report_id):
         'model_name': report.model_name,
         'generation_time': report.generation_time_seconds,
         'error_message': report.error_message,
+        'progress_percent': report.progress_percent or 0,
+        'progress_message': report.progress_message or 'Initializing...',
         'created_at': report.created_at.isoformat() if report.created_at else None,
         'completed_at': report.completed_at.isoformat() if report.completed_at else None
     })

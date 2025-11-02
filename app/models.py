@@ -290,6 +290,8 @@ class AIReport(db.Model):
     report_content = db.Column(db.Text)  # Full report in markdown format
     generation_time_seconds = db.Column(db.Float)  # How long it took to generate
     error_message = db.Column(db.Text)  # Error details if failed
+    progress_percent = db.Column(db.Integer, default=0)  # 0-100 progress indicator
+    progress_message = db.Column(db.String(200))  # Current step description
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     completed_at = db.Column(db.DateTime)
     
