@@ -605,7 +605,7 @@ def view_case(case_id):
 def ai_status():
     """Check Ollama and AI model status"""
     from ai_report import check_ollama_status
-    from settings_utils import get_setting
+    from routes.settings import get_setting
     
     ai_enabled = get_setting('ai_enabled', 'false') == 'true'
     status = check_ollama_status()
@@ -624,7 +624,7 @@ def ai_status():
 @login_required
 def generate_ai_report(case_id):
     """Generate AI report for a case"""
-    from settings_utils import get_setting
+    from routes.settings import get_setting
     from models import AIReport
     from tasks import generate_ai_report as generate_ai_report_task
     from ai_report import check_ollama_status
