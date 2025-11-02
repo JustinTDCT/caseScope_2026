@@ -1,12 +1,124 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.22  
-**Last Updated**: 2025-11-02 03:00 UTC  
+**Version**: 1.10.25  
+**Last Updated**: 2025-11-02 05:00 UTC  
 **Purpose**: Track file responsibilities and workflow
 
 ---
 
-## 📋 Recent Updates (2025-11-02 03:00 UTC)
+## 📋 Recent Updates (2025-11-02 05:00 UTC)
+
+### **v1.10.25 - Fixed Hide/Unhide Button Display & Added Bulk Untag** (2025-11-02 05:00 UTC)
+
+**Problem**: 
+1. Hide/Unhide button always showed "Hide" even for hidden events
+2. No way to bulk remove timeline tags from events
+
+**Root Cause**:
+1. The `is_hidden` field from OpenSearch wasn't being passed to the template
+2. No bulk untag route or JavaScript function existed
+
+**Solution**:
+1. **Fixed Hide/Unhide Button**:
+   - Modified `main.py:search_events()` to include `is_hidden` field in results: `fields['is_hidden'] = result['_source'].get('is_hidden', False)`
+   - Template now correctly shows "Hide" or "Unhide" based on event state
+2. **Added Bulk Untag**:
+   - New route: `POST /case/<id>/search/bulk-untag` to remove timeline tags
+   - New JavaScript function: `bulkUntagSelected()`
+   - Added "☆ Untag" button to bulk actions
+
+**Affected Files**:
+- `app/main.py` (added is_hidden to results, new bulk_untag_events route)
+- `app/templates/search_events.html` (added Untag button, bulkUntagSelected function, updated bulkActionRequest)
+- `app/version.json` (v1.10.25)
+
+**Result**: Hidden events now display correct button, and users can bulk remove timeline tags.
+
+---
+
+### **v1.10.24 - Enhanced Visibility Filter & Bulk Unhide** (2025-11-02 04:30 UTC)
+
+**Problem**: 
+1. Checkbox for "Show Hidden Events" wasn't granular enough
+2. No way to view ONLY hidden events
+3. No bulk unhide functionality
+4. Code duplication in bulk hide/unhide operations
+
+**Root Cause**:
+- Simple boolean checkbox limited visibility options
+- Bulk operations had duplicated code
+
+**Solution**:
+1. **Replaced Checkbox with Dropdown**:
+   - Changed from `show_hidden` (boolean) to `hidden_filter` (string: "hide", "show", "only")
+   - Updated `search_utils.py:build_search_query()` to handle three modes:
+     - "hide": Exclude hidden events (default) - adds `must_not` filter
+     - "show": Include all events - no filter applied
+     - "only": Show ONLY hidden events - adds `term` filter
+2. **Added Bulk Unhide**:
+   - New route: `POST /case/<id>/search/bulk-unhide`
+   - New JavaScript function: `bulkUnhideSelected()`
+3. **Code Refactoring**:
+   - Created `bulk_update_hidden_status()` helper function
+   - Both bulk hide and unhide use same helper with boolean flag
+   - Created `bulkActionRequest()` JavaScript helper for all bulk operations
+
+**Affected Files**:
+- `app/main.py` (hidden_filter parameter, bulk_unhide route, helper function)
+- `app/search_utils.py` (hidden_filter logic with three modes)
+- `app/templates/search_events.html` (dropdown, bulk unhide button, refactored JS)
+- `app/version.json` (v1.10.24)
+
+**Result**: More flexible visibility control and cleaner, more maintainable code.
+
+---
+
+### **v1.10.23 - Bulk Operations & Hide Events** (2025-11-02 04:00 UTC)
+
+**Problem**: 
+1. Checkboxes on events had no functionality
+2. No way to hide noisy/irrelevant events from search results
+3. No way to bulk tag events for timeline
+
+**Root Cause**:
+- No bulk action UI or backend routes existed
+- No mechanism to mark events as hidden
+
+**Solution**:
+1. **Hide Events Using OpenSearch Field** (better than database table):
+   - Events store `is_hidden`, `hidden_by`, `hidden_at` fields in OpenSearch
+   - Filter excludes `is_hidden: true` events by default
+2. **Bulk Actions UI**:
+   - Added bulk action buttons (appear when events selected)
+   - Buttons: Tag Selected, Hide Selected, Clear
+   - Shows selection count
+3. **Backend Routes**:
+   - `POST /case/<id>/search/hide` - Hide single event
+   - `POST /case/<id>/search/unhide` - Unhide single event
+   - `POST /case/<id>/search/bulk-tag` - Bulk tag events
+   - `POST /case/<id>/search/bulk-hide` - Bulk hide events
+4. **JavaScript Functions**:
+   - `toggleSelectAll()` - Select/deselect all checkboxes
+   - `updateBulkActions()` - Show/hide bulk action buttons
+   - `getSelectedEvents()` - Get array of selected event IDs
+   - `bulkTagSelected()`, `bulkHideSelected()` - Bulk operations
+   - `hideEvent()`, `unhideEvent()` - Single event operations
+5. **Search Filter**:
+   - Default: exclude hidden events
+   - Checkbox to show hidden events
+
+**Affected Files**:
+- `app/models.py` (initially added HiddenEvent model, then removed in favor of OpenSearch field)
+- `app/main.py` (hide/unhide/bulk routes, show_hidden parameter)
+- `app/search_utils.py` (hidden events filter logic, skip_fields)
+- `app/templates/search_events.html` (bulk action UI, Hide/Unhide buttons, JavaScript)
+- `app/version.json` (v1.10.23)
+
+**Result**: Users can now hide noisy events, bulk tag for timeline creation, and manage selections efficiently.
+
+---
+
+## 📋 Previous Updates (2025-11-02 03:00 UTC)
 
 ### **🐛 v1.10.22 - Fixed Date Range Filters (Custom & Relative)** (2025-11-02 03:00 UTC)
 
