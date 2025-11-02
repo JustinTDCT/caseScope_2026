@@ -1,12 +1,74 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.27  
-**Last Updated**: 2025-11-02 15:00 UTC  
+**Version**: 1.10.28  
+**Last Updated**: 2025-11-02 16:00 UTC  
 **Purpose**: Track file responsibilities and workflow
 
 ---
 
-## 📋 Recent Updates (2025-11-02 15:00 UTC)
+## 📋 Recent Updates (2025-11-02 16:00 UTC)
+
+### **v1.10.28 - Comprehensive Audit Logging System** (2025-11-02 16:00 UTC)
+
+**Problem**:
+The existing audit system (`audit_logger.py`, `AuditLog` model) was in place but not being used consistently across the application. Many critical operations (case management, file operations, user management, system settings) were not being logged to the audit trail.
+
+**Solution**:
+Added comprehensive audit logging to ALL user actions across the application using the existing `log_action()` function from `audit_logger.py`. Every operation now logs:
+- **Timestamp**: `datetime.utcnow()`
+- **User**: `current_user.id` and `current_user.username`
+- **Action**: Descriptive action name (e.g., `create_case`, `edit_user`, `reindex_file`)
+- **Resource**: Type (`case`, `file`, `user`, `sigma`, `settings`, `evtx`) and ID
+- **Details**: JSON-serialized change details (what changed, from/to values)
+- **IP Address**: `request.remote_addr`
+- **User Agent**: Browser/client information
+- **Status**: `success`, `failed`, or `error`
+
+**Audit Logging Added To**:
+
+1. **Case Management**:
+   - `create_case` - Case ID, name, company, description
+   - `edit_case` - Case ID, name, tracked changes (name, description, company, status, assigned_to)
+   - `delete_case` - Case ID, name, indices deleted, files deleted
+
+2. **File Operations**:
+   - `upload_file` - Filename, case ID, files queued, duplicates skipped
+   - `reindex_file` - File ID, filename, case ID, case name
+   - `bulk_delete_files` - Case ID, files deleted count, errors count
+
+3. **User Management**:
+   - `create_user` - Username, role, email, is_active status
+   - `edit_user` - Username, tracked changes (email, full_name, role, is_active, password)
+   - `delete_user` - Username, role
+
+4. **SIGMA Operations**:
+   - `update_sigma_rules` - Result message, success/failed status
+
+5. **System Settings**:
+   - `update_settings` - DFIR-IRIS enabled, OpenCTI enabled
+
+6. **EVTX Definitions**:
+   - `update_evtx_definitions` - Statistics (processed, new, updated) or error details
+
+**Affected Files**:
+- `app/main.py` - Added audit logging for case creation, file bulk delete, SIGMA update, EVTX definitions
+- `app/routes/cases.py` - Added audit logging for case edit and delete
+- `app/routes/users.py` - Added audit logging for user create, edit, delete
+- `app/routes/files.py` - Added audit logging for file reindex
+- `app/routes/settings.py` - Added audit logging for settings updates
+- `app/upload_integration.py` - Added audit logging for file uploads
+- `app/version.json` - Updated to v1.10.28
+
+**How to View Audit Logs**:
+Navigate to **Admin → Audit Trail** (route: `/admin/audit`)
+- Filter by action, resource type, user, status, date range
+- View detailed change history with before/after values
+- Track all user activities for compliance and security
+
+**Result**: Every user action is now logged with full context, providing complete visibility into system operations for security auditing, compliance, and troubleshooting.
+
+---
+
 
 ### **v1.10.27 - CRITICAL FIX: Hidden Events Filter** (2025-11-02 15:00 UTC)
 
