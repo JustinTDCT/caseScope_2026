@@ -225,10 +225,15 @@ def build_search_query(
     
     # Hidden events filter
     if hidden_filter == "hide":
-        # Exclude hidden events (default behavior)
-        query["bool"]["must_not"] = query["bool"].get("must_not", [])
-        query["bool"]["must_not"].append({
-            "term": {"is_hidden": True}
+        # Exclude hidden events - only show events where is_hidden doesn't exist OR is_hidden is false
+        query["bool"]["filter"].append({
+            "bool": {
+                "should": [
+                    {"bool": {"must_not": [{"exists": {"field": "is_hidden"}}]}},  # Field doesn't exist
+                    {"term": {"is_hidden": False}}  # Or explicitly false
+                ],
+                "minimum_should_match": 1
+            }
         })
         logger.debug("[SEARCH] Excluding hidden events from results")
     elif hidden_filter == "only":
