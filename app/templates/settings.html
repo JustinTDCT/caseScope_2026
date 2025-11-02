@@ -194,6 +194,91 @@
             </div>
         </div>
 
+        <!-- Logging Configuration -->
+        <div class="card" style="margin-bottom: var(--spacing-lg);">
+            <div class="card-header">
+                <h2 class="card-title">📋 Logging</h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
+                    Configure application logging level and view log files
+                </p>
+            </div>
+            
+            <div class="card-body">
+                <!-- Log Level Selection -->
+                <div class="form-group">
+                    <label for="log_level">Log Level</label>
+                    <select id="log_level" 
+                            name="log_level" 
+                            style="width: 100%; max-width: 300px; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-background); color: var(--color-text);">
+                        <option value="DEBUG" {% if log_level == 'DEBUG' %}selected{% endif %}>DEBUG - Log everything (verbose)</option>
+                        <option value="INFO" {% if log_level == 'INFO' %}selected{% endif %}>INFO - Normal operations (recommended)</option>
+                        <option value="WARNING" {% if log_level == 'WARNING' %}selected{% endif %}>WARNING - Only warnings and errors</option>
+                        <option value="ERROR" {% if log_level == 'ERROR' %}selected{% endif %}>ERROR - Only errors (minimal)</option>
+                    </select>
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                        <strong>Current Level:</strong> {{ log_level or 'INFO' }} | 
+                        <strong>Logs Location:</strong> <code style="background: var(--color-background-secondary); padding: 2px 6px; border-radius: 3px;">/opt/casescope/logs/</code>
+                    </p>
+                </div>
+
+                <!-- Log Files Info -->
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-info); margin-top: var(--spacing-md);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
+                        📁 Log Files
+                    </h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm); margin: var(--spacing-sm) 0;">
+                        <div style="font-family: monospace; font-size: 0.8rem; padding: var(--spacing-xs); background: var(--color-background); border-radius: var(--border-radius);">
+                            <strong style="color: var(--color-primary);">cases.log</strong><br>
+                            <span style="color: var(--color-text-muted);">Case operations</span>
+                        </div>
+                        <div style="font-family: monospace; font-size: 0.8rem; padding: var(--spacing-xs); background: var(--color-background); border-radius: var(--border-radius);">
+                            <strong style="color: var(--color-primary);">files.log</strong><br>
+                            <span style="color: var(--color-text-muted);">File processing</span>
+                        </div>
+                        <div style="font-family: monospace; font-size: 0.8rem; padding: var(--spacing-xs); background: var(--color-background); border-radius: var(--border-radius);">
+                            <strong style="color: var(--color-primary);">workers.log</strong><br>
+                            <span style="color: var(--color-text-muted);">Celery tasks</span>
+                        </div>
+                        <div style="font-family: monospace; font-size: 0.8rem; padding: var(--spacing-xs); background: var(--color-background); border-radius: var(--border-radius);">
+                            <strong style="color: var(--color-primary);">app.log</strong><br>
+                            <span style="color: var(--color-text-muted);">Web application</span>
+                        </div>
+                        <div style="font-family: monospace; font-size: 0.8rem; padding: var(--spacing-xs); background: var(--color-background); border-radius: var(--border-radius);">
+                            <strong style="color: var(--color-primary);">api.log</strong><br>
+                            <span style="color: var(--color-text-muted);">External API calls</span>
+                        </div>
+                        <div style="font-family: monospace; font-size: 0.8rem; padding: var(--spacing-xs); background: var(--color-background); border-radius: var(--border-radius);">
+                            <strong style="color: var(--color-primary);">dfir_iris.log</strong><br>
+                            <span style="color: var(--color-text-muted);">DFIR-IRIS integration</span>
+                        </div>
+                        <div style="font-family: monospace; font-size: 0.8rem; padding: var(--spacing-xs); background: var(--color-background); border-radius: var(--border-radius); grid-column: span 1;">
+                            <strong style="color: var(--color-primary);">opencti.log</strong><br>
+                            <span style="color: var(--color-text-muted);">OpenCTI integration</span>
+                        </div>
+                    </div>
+                    <p style="margin: var(--spacing-sm) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
+                        💡 <strong>Tip:</strong> Use <code style="background: var(--color-background); padding: 2px 6px; border-radius: 3px;">tail -f /opt/casescope/logs/[filename].log</code> to monitor logs in real-time
+                    </p>
+                </div>
+
+                <!-- Log Level Details -->
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-warning); margin-top: var(--spacing-md);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-warning);">
+                        ⚙️ Log Level Details
+                    </h3>
+                    <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                        <li><strong>DEBUG:</strong> Maximum verbosity - Logs all operations, variables, SQL queries, API calls. Use for troubleshooting only (large log files).</li>
+                        <li><strong>INFO:</strong> Normal operations - Logs important events like case creation, file uploads, user actions. Recommended for production.</li>
+                        <li><strong>WARNING:</strong> Potential issues - Logs warnings and errors only. Use when disk space is limited.</li>
+                        <li><strong>ERROR:</strong> Errors only - Logs only critical failures. Use for minimal logging in stable environments.</li>
+                    </ul>
+                    <p style="margin: var(--spacing-sm) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
+                        ⚠️ <strong>Note:</strong> Changes take effect immediately. Restart services if logs are not updating.
+                    </p>
+                </div>
+            </div>
+        </div>
+
         <!-- Save Button -->
         <div style="display: flex; gap: var(--spacing-md);">
             <button type="submit" class="btn btn-primary" style="padding: var(--spacing-sm) var(--spacing-xl);">

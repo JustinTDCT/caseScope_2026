@@ -5,7 +5,10 @@ CaseScope 2026 v1.0.0 - Celery Application
 from celery import Celery
 import logging
 
-logger = logging.getLogger(__name__)
+# Setup logging using centralized configuration
+from logging_config import setup_logging, get_logger
+setup_logging()  # Initialize logging system
+logger = get_logger('celery')  # Get celery-specific logger
 
 # Create Celery app
 celery_app = Celery('casescope')

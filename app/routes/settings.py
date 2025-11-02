@@ -57,13 +57,17 @@ def index():
     opencti_url = get_setting('opencti_url', '')
     opencti_api_key = get_setting('opencti_api_key', '')
     
+    # Get Logging settings
+    log_level = get_setting('log_level', 'INFO')
+    
     return render_template('settings.html',
                          dfir_iris_enabled=dfir_iris_enabled,
                          dfir_iris_url=dfir_iris_url,
                          dfir_iris_api_key=dfir_iris_api_key,
                          opencti_enabled=opencti_enabled,
                          opencti_url=opencti_url,
-                         opencti_api_key=opencti_api_key)
+                         opencti_api_key=opencti_api_key,
+                         log_level=log_level)
 
 
 @settings_bp.route('/save', methods=['POST'])
@@ -95,12 +99,31 @@ def save():
     set_setting('opencti_api_key', opencti_api_key,
                 'OpenCTI API key')
     
+    # Logging settings
+    log_level = request.form.get('log_level', 'INFO').upper()
+    if log_level not in ['DEBUG', 'INFO', 'WARNING', 'ERROR']:
+        log_level = 'INFO'  # Default to INFO if invalid
+    
+    old_log_level = get_setting('log_level', 'INFO')
+    set_setting('log_level', log_level, 'Application log level')
+    
+    # Update log level dynamically if changed
+    if old_log_level != log_level:
+        try:
+            import sys
+            sys.path.insert(0, '/opt/casescope/app')
+            from logging_config import update_log_level
+            update_log_level(log_level)
+        except Exception as e:
+            print(f"Warning: Could not update log level dynamically: {e}")
+    
     # Audit log
     from audit_logger import log_action
     log_action('update_settings', resource_type='settings', resource_name='System Settings',
               details={
                   'dfir_iris_enabled': dfir_iris_enabled,
-                  'opencti_enabled': opencti_enabled
+                  'opencti_enabled': opencti_enabled,
+                  'log_level': log_level
               })
     
     flash('✓ Settings saved successfully', 'success')

@@ -17,9 +17,10 @@ from config import Config
 from models import db, User, Case, CaseFile, SigmaRule, SigmaViolation, IOC, IOCMatch, SkippedFile, SystemSettings
 from celery_app import celery_app
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Setup logging using centralized configuration
+from logging_config import setup_logging, get_logger
+setup_logging()  # Initialize logging system
+logger = get_logger('app')  # Get app-specific logger
 
 # Create Flask app
 app = Flask(__name__)

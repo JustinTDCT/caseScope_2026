@@ -1,8 +1,95 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.32  
+**Version**: 1.10.33  
 **Last Updated**: 2025-11-02 18:00 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 📋 v1.10.33 - Centralized Logging System (2025-11-02 18:00 UTC)
+
+**Feature**: Implemented comprehensive centralized logging system with separate log files and configurable log levels
+
+**What Was Added**:
+
+1. **New Logging Configuration Module** (`app/logging_config.py`):
+   - Centralized logging setup with rotating file handlers (10MB max, 5 backups)
+   - Separate log files for different components
+   - Dynamic log level updates without restart
+   - Configurable from SystemSettings database
+
+2. **7 Separate Log Files** (located in `/opt/casescope/logs/`):
+   - **cases.log** - Case management operations (create, edit, delete)
+   - **files.log** - File operations (upload, index, process)
+   - **workers.log** - Celery worker tasks (processing, SIGMA, IOC hunting)
+   - **app.log** - Flask application logs (routes, requests, errors)
+   - **api.log** - External API calls and integrations
+   - **dfir_iris.log** - DFIR-IRIS integration logs (if enabled)
+   - **opencti.log** - OpenCTI integration logs (if enabled)
+
+3. **4 Log Levels** (configurable in System Settings):
+   - **DEBUG** - Log everything (verbose) - for troubleshooting
+   - **INFO** - Normal operations (recommended for production)
+   - **WARNING** - Only warnings and errors
+   - **ERROR** - Only errors (minimal logging)
+
+4. **Settings Page UI**:
+   - Added "Logging" section with dropdown selector
+   - Visual grid display of all 7 log files with descriptions
+   - Real-time monitoring tips (`tail -f /opt/casescope/logs/[filename].log`)
+   - Log level details with best practices
+
+**Implementation Details**:
+
+- **Database**: Added `log_level` setting to `SystemSettings` table (default: INFO)
+- **Integration**: Updated `main.py` and `celery_app.py` to use `logging_config.setup_logging()`
+- **Dynamic Updates**: Log level changes in Settings immediately update all loggers
+- **Format**: `YYYY-MM-DD HH:MM:SS | logger_name | LEVEL | message`
+
+**How to Use**:
+
+1. **Change Log Level**: Navigate to **Settings → Logging** and select desired level
+2. **View Logs**: `tail -f /opt/casescope/logs/[component].log`
+3. **Monitor Workers**: `tail -f /opt/casescope/logs/workers.log`
+4. **Debug Issues**: Set to DEBUG, reproduce issue, check relevant log file
+
+**Usage Examples for Developers**:
+
+```python
+# In routes/cases.py:
+from logging_config import get_logger
+logger = get_logger('cases')
+logger.info(f"Creating new case: {case_name}")
+logger.debug(f"Case created with ID: {case.id}")
+
+# In file_processing.py:
+from logging_config import get_logger
+logger = get_logger('files')
+logger.info(f"Indexing file: {file_path}")
+logger.warning(f"File contains {error_count} errors")
+
+# In dfir_iris.py:
+from logging_config import get_logger
+logger = get_logger('dfir_iris')
+logger.info(f"Syncing case {case.id} to DFIR-IRIS")
+logger.error(f"DFIR-IRIS sync failed: {error}")
+```
+
+**Affected Files**:
+- **New**: `app/logging_config.py` - Centralized logging module
+- **New**: `add_log_level_setting.py` - Database migration script
+- **Modified**: `app/main.py` - Integrated logging setup
+- **Modified**: `app/celery_app.py` - Integrated logging setup
+- **Modified**: `app/routes/settings.py` - Added log_level handling
+- **Modified**: `app/templates/settings.html` - Added logging UI section
+- **Modified**: `app/version.json` - Updated to v1.10.33
+- **Modified**: `app/APP_MAP.md` - Added documentation
+
+**Result**: 
+- All components now log to dedicated files for easy debugging and monitoring
+- Admins can adjust log verbosity without code changes or restarts
+- Production deployments can use INFO, while troubleshooting uses DEBUG
+- Separate logs make it easy to track specific subsystems (workers, API calls, etc.)
 
 ---
 

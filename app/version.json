@@ -1,9 +1,10 @@
 {
-  "version": "1.10.32",
+  "version": "1.10.33",
   "release_date": "2025-11-02",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "Centralized Logging System with Configurable Log Levels (v1.10.33)",
     "CRITICAL FIX: Read-Only User Permission Lockdown (v1.10.32)",
     "CRITICAL FIX: Role Check Consistency - admin → administrator (v1.10.31)",
     "Enhanced EVTX UI - Added 3 New Sources with Statistics (v1.10.30)",
