@@ -19,7 +19,8 @@ def build_search_query(
     custom_date_end: Optional[datetime] = None,
     file_types: Optional[List[str]] = None,
     additional_filters: Optional[Dict] = None,
-    tagged_event_ids: Optional[List[str]] = None
+    tagged_event_ids: Optional[List[str]] = None,
+    latest_event_timestamp: Optional[datetime] = None
 ) -> Dict[str, Any]:
     """
     Build OpenSearch query DSL based on search parameters
@@ -33,6 +34,7 @@ def build_search_query(
         file_types: List of file types to include ['EVTX', 'EDR', 'JSON', 'CSV']
         additional_filters: Additional field filters (e.g., {'EventID': '4624'})
         tagged_event_ids: List of event IDs that have timeline tags (for 'tagged' filter)
+        latest_event_timestamp: Latest event timestamp in case (for relative date filters)
     
     Returns:
         OpenSearch query DSL dictionary
@@ -173,38 +175,41 @@ def build_search_query(
             }
         })
     
-    # Date range filtering
+    # Date range filtering (using normalized_timestamp for compatibility with all file types)
     if date_range != "all":
         date_filter = None
         
         if date_range in ["24h", "7d", "30d"]:
-            # Calculate relative date
-            now = datetime.utcnow()
+            # Calculate relative date based on latest event timestamp (not current system time)
+            reference_time = latest_event_timestamp if latest_event_timestamp else datetime.utcnow()
+            
             if date_range == "24h":
-                start_date = now - timedelta(hours=24)
+                start_date = reference_time - timedelta(hours=24)
             elif date_range == "7d":
-                start_date = now - timedelta(days=7)
+                start_date = reference_time - timedelta(days=7)
             elif date_range == "30d":
-                start_date = now - timedelta(days=30)
+                start_date = reference_time - timedelta(days=30)
             
             date_filter = {
                 "range": {
-                    "System.TimeCreated.@attributes.SystemTime": {
+                    "normalized_timestamp": {
                         "gte": start_date.isoformat(),
-                        "lte": now.isoformat()
+                        "lte": reference_time.isoformat()
                     }
                 }
             }
+            logger.info(f"[SEARCH] Date filter: {date_range} from {start_date} to {reference_time}")
         
         elif date_range == "custom" and custom_date_start and custom_date_end:
             date_filter = {
                 "range": {
-                    "System.TimeCreated.@attributes.SystemTime": {
+                    "normalized_timestamp": {
                         "gte": custom_date_start.isoformat(),
                         "lte": custom_date_end.isoformat()
                     }
                 }
             }
+            logger.info(f"[SEARCH] Custom date filter: {custom_date_start} to {custom_date_end}")
         
         if date_filter:
             query["bool"]["filter"].append(date_filter)

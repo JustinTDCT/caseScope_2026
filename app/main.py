@@ -733,6 +733,28 @@ def search_events(case_id):
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)
     
+    # Get custom date range if provided
+    custom_date_start = None
+    custom_date_end = None
+    custom_date_start_str = ''
+    custom_date_end_str = ''
+    
+    if date_range == 'custom':
+        custom_date_start_str = request.args.get('custom_date_start', '')
+        custom_date_end_str = request.args.get('custom_date_end', '')
+        
+        if custom_date_start_str:
+            try:
+                custom_date_start = datetime.fromisoformat(custom_date_start_str)
+            except:
+                pass
+        
+        if custom_date_end_str:
+            try:
+                custom_date_end = datetime.fromisoformat(custom_date_end_str)
+            except:
+                pass
+    
     # If filtering by tagged events, get the list of tagged event IDs for this case
     tagged_event_ids = None
     if filter_type == 'tagged':
@@ -749,6 +771,27 @@ def search_events(case_id):
     # Build index pattern for case (search ALL indices for this case)
     index_pattern = f"case_{case_id}_*"
     
+    # Get latest event timestamp for relative date filters (24h, 7d, 30d)
+    latest_event_timestamp = None
+    if date_range in ['24h', '7d', '30d']:
+        try:
+            # Query OpenSearch for the latest timestamp
+            latest_query = {
+                "size": 1,
+                "sort": [{"normalized_timestamp": {"order": "desc"}}],
+                "_source": ["normalized_timestamp"]
+            }
+            latest_result = opensearch_client.search(index=index_pattern, body=latest_query)
+            if latest_result['hits']['hits']:
+                timestamp_str = latest_result['hits']['hits'][0]['_source'].get('normalized_timestamp')
+                if timestamp_str:
+                    latest_event_timestamp = datetime.fromisoformat(timestamp_str)
+                    logger.info(f"[SEARCH] Latest event timestamp for case {case_id}: {latest_event_timestamp}")
+        except Exception as e:
+            logger.warning(f"[SEARCH] Could not get latest timestamp for case {case_id}: {e}")
+            # Fall back to current time if query fails
+            latest_event_timestamp = datetime.utcnow()
+    
     # Build query (if no search text, match all)
     if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 4:
         # Simple match_all for performance (only if all file types selected)
@@ -759,7 +802,10 @@ def search_events(case_id):
             filter_type=filter_type,
             date_range=date_range,
             file_types=file_types,
-            tagged_event_ids=tagged_event_ids
+            tagged_event_ids=tagged_event_ids,
+            custom_date_start=custom_date_start,
+            custom_date_end=custom_date_end,
+            latest_event_timestamp=latest_event_timestamp
         )
     
     # Execute search
@@ -898,7 +944,9 @@ def search_events(case_id):
         columns=columns,
         tagged_ids=tagged_ids,
         recent_searches=recent_searches,
-        favorite_searches=favorite_searches
+        favorite_searches=favorite_searches,
+        custom_date_start=custom_date_start_str,
+        custom_date_end=custom_date_end_str
     )
 
 
@@ -926,15 +974,53 @@ def export_search_results(case_id):
     sort_field = request.args.get('sort', 'normalized_timestamp')
     sort_order = request.args.get('order', 'desc')
     
+    # Get custom date range if provided
+    custom_date_start = None
+    custom_date_end = None
+    if date_range == 'custom':
+        custom_date_start_str = request.args.get('custom_date_start', '')
+        custom_date_end_str = request.args.get('custom_date_end', '')
+        
+        if custom_date_start_str:
+            try:
+                custom_date_start = datetime.fromisoformat(custom_date_start_str)
+            except:
+                pass
+        
+        if custom_date_end_str:
+            try:
+                custom_date_end = datetime.fromisoformat(custom_date_end_str)
+            except:
+                pass
+    
     # Get tagged event IDs if filtering by tagged
     tagged_event_ids = None
     if filter_type == 'tagged':
         tagged_events = TimelineTag.query.filter_by(case_id=case_id).all()
         tagged_event_ids = [tag.event_id for tag in tagged_events]
     
-    # Build index pattern and query (reuse same logic)
+    # Build index pattern
     index_pattern = f"case_{case_id}_*"
     
+    # Get latest event timestamp for relative date filters (24h, 7d, 30d)
+    latest_event_timestamp = None
+    if date_range in ['24h', '7d', '30d']:
+        try:
+            latest_query = {
+                "size": 1,
+                "sort": [{"normalized_timestamp": {"order": "desc"}}],
+                "_source": ["normalized_timestamp"]
+            }
+            latest_result = opensearch_client.search(index=index_pattern, body=latest_query)
+            if latest_result['hits']['hits']:
+                timestamp_str = latest_result['hits']['hits'][0]['_source'].get('normalized_timestamp')
+                if timestamp_str:
+                    latest_event_timestamp = datetime.fromisoformat(timestamp_str)
+        except Exception as e:
+            logger.warning(f"[EXPORT] Could not get latest timestamp: {e}")
+            latest_event_timestamp = datetime.utcnow()
+    
+    # Build query (reuse same logic)
     if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 4:
         query_dsl = {"query": {"match_all": {}}}
     else:
@@ -943,7 +1029,10 @@ def export_search_results(case_id):
             filter_type=filter_type,
             date_range=date_range,
             file_types=file_types,
-            tagged_event_ids=tagged_event_ids
+            tagged_event_ids=tagged_event_ids,
+            custom_date_start=custom_date_start,
+            custom_date_end=custom_date_end,
+            latest_event_timestamp=latest_event_timestamp
         )
     
     # Execute search - export ALL results (no pagination limit)
