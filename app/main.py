@@ -511,6 +511,11 @@ def case_selection():
 @login_required
 def create_case():
     """Create new case"""
+    # Permission check: Read-only users cannot create cases
+    if current_user.role == 'read-only':
+        flash('Read-only users cannot create cases', 'error')
+        return redirect(url_for('case_selection'))
+    
     if request.method == 'POST':
         name = request.form.get('name')
         description = request.form.get('description')
@@ -1158,6 +1163,10 @@ def get_event_detail_route(case_id, event_id):
 @login_required
 def tag_timeline_event(case_id):
     """Tag event for timeline"""
+    # Permission check: Read-only users cannot tag events
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot tag events'}), 403
+    
     from models import TimelineTag
     import json
     
@@ -1211,6 +1220,10 @@ def tag_timeline_event(case_id):
 @login_required
 def untag_timeline_event(case_id):
     """Remove timeline tag"""
+    # Permission check: Read-only users cannot untag events
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot untag events'}), 403
+    
     from models import TimelineTag
     
     data = request.json
@@ -1240,6 +1253,10 @@ def untag_timeline_event(case_id):
 @login_required
 def hide_event(case_id):
     """Hide event from search results by setting is_hidden flag in OpenSearch"""
+    # Permission check: Read-only users cannot hide events
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot hide events'}), 403
+    
     case = db.session.get(Case, case_id)
     if not case:
         return jsonify({'error': 'Case not found'}), 404
@@ -1283,6 +1300,10 @@ def hide_event(case_id):
 @login_required
 def unhide_event(case_id):
     """Unhide event by removing is_hidden flag from OpenSearch"""
+    # Permission check: Read-only users cannot unhide events
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot unhide events'}), 403
+    
     data = request.json
     event_id = data.get('event_id')
     index_name = data.get('index_name')
@@ -1315,6 +1336,10 @@ def unhide_event(case_id):
 @login_required
 def bulk_tag_events(case_id):
     """Bulk tag multiple events for timeline"""
+    # Permission check: Read-only users cannot tag events
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot tag events'}), 403
+    
     from models import TimelineTag
     import json
     
@@ -1378,6 +1403,10 @@ def bulk_tag_events(case_id):
 @login_required
 def bulk_untag_events(case_id):
     """Bulk remove timeline tags from multiple events"""
+    # Permission check: Read-only users cannot untag events
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot untag events'}), 403
+    
     from models import TimelineTag
     
     case = db.session.get(Case, case_id)
@@ -1467,6 +1496,10 @@ def bulk_update_hidden_status(case_id, events, is_hidden_value, user_id):
 @login_required
 def bulk_hide_events(case_id):
     """Bulk hide multiple events by setting is_hidden flag in OpenSearch"""
+    # Permission check: Read-only users cannot hide events
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot hide events'}), 403
+    
     case = db.session.get(Case, case_id)
     if not case:
         return jsonify({'error': 'Case not found'}), 404
@@ -1496,6 +1529,10 @@ def bulk_hide_events(case_id):
 @login_required
 def bulk_unhide_events(case_id):
     """Bulk unhide multiple events by removing is_hidden flag from OpenSearch"""
+    # Permission check: Read-only users cannot unhide events
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot unhide events'}), 403
+    
     case = db.session.get(Case, case_id)
     if not case:
         return jsonify({'error': 'Case not found'}), 404
@@ -1554,6 +1591,10 @@ def toggle_search_favorite(case_id, search_id):
 @login_required
 def add_field_as_ioc(case_id):
     """Add event field value as IOC"""
+    # Permission check: Read-only users cannot add IOCs
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot add IOCs'}), 403
+    
     from models import IOC
     
     case = db.session.get(Case, case_id)
@@ -2321,6 +2362,11 @@ def _old_view_case_template():
 @login_required
 def upload_files(case_id):
     """Upload files to case"""
+    # Permission check: Read-only users cannot upload files
+    if current_user.role == 'read-only':
+        flash('Read-only users cannot upload files', 'error')
+        return redirect(url_for('view_case', case_id=case_id))
+    
     case = db.session.get(Case, case_id)
     if not case:
         flash('Case not found', 'error')
@@ -2591,6 +2637,10 @@ def _old_upload_template():
 @login_required
 def upload_chunk(case_id):
     """Receive individual file chunks for chunked uploads"""
+    # Permission check: Read-only users cannot upload files
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot upload files'}), 403
+    
     try:
         # Verify case exists
         case = db.session.get(Case, case_id)
@@ -2636,6 +2686,10 @@ def upload_chunk(case_id):
 @login_required
 def finalize_upload(case_id):
     """Finalize chunked upload - assemble chunks and process"""
+    # Permission check: Read-only users cannot upload files
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot upload files'}), 403
+    
     try:
         data = request.get_json()
         upload_id = data.get('upload_id')

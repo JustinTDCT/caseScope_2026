@@ -1,8 +1,29 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.28  
-**Last Updated**: 2025-11-02 16:00 UTC  
+**Version**: 1.10.32  
+**Last Updated**: 2025-11-02 18:00 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔒 v1.10.32 - Read-Only User Permission Lockdown (2025-11-02 18:00 UTC)
+
+**Critical Bug Fix**: Read-only users had too much access - could create cases, upload files, tag events, hide events, and modify IOCs
+
+**Root Cause**: Permission checks missing from data modification operations
+
+**Fixes**: Added 16 permission checks across `main.py` and `routes/ioc.py` to properly enforce read-only restrictions
+
+**Operations Now Blocked for Read-Only Users**:
+1. Create cases (1 check)
+2. Upload files (3 checks: upload, chunk, finalize)
+3. Tag/untag timeline events (4 checks: tag, untag, bulk tag, bulk untag)
+4. Hide/unhide events (4 checks: hide, unhide, bulk hide, bulk unhide)
+5. Add/edit/delete/toggle IOCs (5 checks: add IOC, edit, delete, toggle, add from field)
+
+**Result**: Read-only users now truly restricted to view-only access as specified
+
+See `PERMISSIONS_AUDIT_v1.10.31.md` for comprehensive audit details
 
 ---
 

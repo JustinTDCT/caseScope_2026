@@ -43,6 +43,10 @@ def ioc_management(case_id):
 @login_required
 def add_ioc(case_id):
     """Add new IOC to case"""
+    # Permission check: Read-only users cannot add IOCs
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot add IOCs'}), 403
+    
     from main import db, Case, IOC
     
     case = db.session.get(Case, case_id)
@@ -121,6 +125,10 @@ def get_ioc(case_id, ioc_id):
 @login_required
 def edit_ioc(case_id, ioc_id):
     """Edit existing IOC"""
+    # Permission check: Read-only users cannot edit IOCs
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot edit IOCs'}), 403
+    
     from main import db, IOC
     
     ioc = db.session.get(IOC, ioc_id)
@@ -147,6 +155,10 @@ def edit_ioc(case_id, ioc_id):
 @login_required
 def delete_ioc(case_id, ioc_id):
     """Delete IOC"""
+    # Permission check: Read-only users cannot delete IOCs
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot delete IOCs'}), 403
+    
     from main import db, IOC
     
     ioc = db.session.get(IOC, ioc_id)
@@ -170,6 +182,10 @@ def delete_ioc(case_id, ioc_id):
 @login_required
 def toggle_ioc(case_id, ioc_id):
     """Toggle IOC active status"""
+    # Permission check: Read-only users cannot toggle IOCs
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot toggle IOCs'}), 403
+    
     from main import db, IOC
     
     ioc = db.session.get(IOC, ioc_id)
