@@ -538,7 +538,7 @@ function updateProgressUI(data) {
     progressLog.scrollTop = progressLog.scrollHeight;
 }
 
-function checkAIReportStatus(reportId, attempts = 0, startTime = Date.now()) {
+function checkAIReportStatus(reportId, attempts = 0, startTime = null) {
     const button = document.getElementById('aiReportBtn');
     const maxAttempts = 120; // 120 * 3s = 6 minutes max
     
@@ -551,30 +551,38 @@ function checkAIReportStatus(reportId, attempts = 0, startTime = Date.now()) {
         return;
     }
     
-    // Update elapsed time
-    const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
-    const elapsedTime = document.getElementById('elapsedTime');
-    const remainingTime = document.getElementById('remainingTime');
-    
-    if (elapsedTime) {
-        const minutes = Math.floor(elapsedSeconds / 60);
-        const seconds = elapsedSeconds % 60;
-        elapsedTime.textContent = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-    }
-    
     fetch(`/ai/report/${reportId}`)
         .then(response => response.json())
         .then(data => {
+            // Get the real start time from the report's created_at timestamp
+            if (!startTime && data.created_at) {
+                startTime = new Date(data.created_at).getTime();
+            }
+            
+            // Calculate elapsed time from report creation
+            const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+            const elapsedTime = document.getElementById('elapsedTime');
+            const remainingTime = document.getElementById('remainingTime');
+            
+            if (elapsedTime) {
+                const minutes = Math.floor(elapsedSeconds / 60);
+                const seconds = elapsedSeconds % 60;
+                elapsedTime.textContent = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+            }
+            
             // Update progress UI if modal is open
             updateProgressUI(data);
             
-            // Update remaining time estimate
-            if (remainingTime && data.progress_percent > 0) {
-                const estimatedTotal = (elapsedSeconds / data.progress_percent) * 100;
-                const estimatedRemaining = Math.max(0, estimatedTotal - elapsedSeconds);
-                const remMinutes = Math.floor(estimatedRemaining / 60);
-                const remSeconds = Math.floor(estimatedRemaining % 60);
+            // Update remaining time estimate based on progress
+            if (remainingTime && data.progress_percent > 0 && data.progress_percent < 100) {
+                // Estimate total time based on current progress
+                const estimatedTotalSeconds = (elapsedSeconds / data.progress_percent) * 100;
+                const estimatedRemainingSeconds = Math.max(0, Math.floor(estimatedTotalSeconds - elapsedSeconds));
+                const remMinutes = Math.floor(estimatedRemainingSeconds / 60);
+                const remSeconds = estimatedRemainingSeconds % 60;
                 remainingTime.textContent = remMinutes > 0 ? `~${remMinutes}m ${remSeconds}s` : `~${remSeconds}s`;
+            } else if (remainingTime && data.progress_percent >= 100) {
+                remainingTime.textContent = '0s';
             }
             
             if (data.status === 'completed') {
