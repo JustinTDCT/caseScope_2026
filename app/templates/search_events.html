@@ -202,11 +202,15 @@
                     <span>⭐</span>
                     <span>Tag</span>
                 </button>
-                <button onclick="bulkHideSelected()" class="btn btn-sm btn-secondary" id="bulkHideBtn">
+                <button onclick="bulkUntagSelected()" class="btn btn-sm btn-secondary">
+                    <span>☆</span>
+                    <span>Untag</span>
+                </button>
+                <button onclick="bulkHideSelected()" class="btn btn-sm btn-secondary">
                     <span>👁️</span>
                     <span>Hide</span>
                 </button>
-                <button onclick="bulkUnhideSelected()" class="btn btn-sm" style="background: var(--color-success);" id="bulkUnhideBtn">
+                <button onclick="bulkUnhideSelected()" class="btn btn-sm" style="background: var(--color-success);">
                     <span>👁️‍🗨️</span>
                     <span>Unhide</span>
                 </button>
@@ -692,6 +696,11 @@ function bulkTagSelected() {
     });
 }
 
+function bulkUntagSelected() {
+    const events = getSelectedEvents();
+    bulkActionRequest('bulk-untag', 'Untagged', events, `Remove timeline tag from ${events.length} event(s)?`);
+}
+
 function bulkActionRequest(endpoint, actionName, events, confirmMsg) {
     if (events.length === 0) {
         alert('No events selected');
@@ -710,7 +719,7 @@ function bulkActionRequest(endpoint, actionName, events, confirmMsg) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            const count = data.hidden || data.unhidden || data.tagged || 0;
+            const count = data.hidden || data.unhidden || data.tagged || data.untagged || 0;
             alert(`✅ ${actionName} ${count} event(s)`);
             window.location.reload();
         } else {

@@ -836,6 +836,7 @@ def search_events(case_id):
         fields['_id'] = result['_id']
         fields['_index'] = result['_index']
         fields['ioc_types'] = []  # Will be populated if IOCs match
+        fields['is_hidden'] = result['_source'].get('is_hidden', False)  # Include hidden status
         events.append(fields)
         
         if fields.get('has_ioc'):
@@ -1324,6 +1325,52 @@ def bulk_tag_events(case_id):
         'success': True,
         'tagged': tagged_count,
         'skipped': skipped_count
+    })
+
+
+@app.route('/case/<int:case_id>/search/bulk-untag', methods=['POST'])
+@login_required
+def bulk_untag_events(case_id):
+    """Bulk remove timeline tags from multiple events"""
+    from models import TimelineTag
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    data = request.json
+    events = data.get('events', [])  # List of {event_id, index_name}
+    
+    if not events:
+        return jsonify({'error': 'No events provided'}), 400
+    
+    untagged_count = 0
+    
+    for event in events:
+        event_id = event.get('event_id')
+        index_name = event.get('index_name')
+        
+        if not event_id or not index_name:
+            continue
+        
+        # Find and delete tag
+        tag = db.session.query(TimelineTag).filter_by(
+            case_id=case_id,
+            event_id=event_id,
+            index_name=index_name
+        ).first()
+        
+        if tag:
+            db.session.delete(tag)
+            untagged_count += 1
+    
+    db.session.commit()
+    
+    logger.info(f"[BULK UNTAG] User {current_user.id} untagged {untagged_count} events in case {case_id}")
+    
+    return jsonify({
+        'success': True,
+        'untagged': untagged_count
     })
 
 
