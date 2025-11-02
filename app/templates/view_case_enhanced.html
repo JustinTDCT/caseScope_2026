@@ -610,6 +610,50 @@ function checkAIReportStatus(reportId, attempts = 0, startTime = Date.now()) {
             setTimeout(() => checkAIReportStatus(reportId, attempts + 1, startTime), 3000);
         });
 }
+
+// ============================================================================
+// CHECK STATUS MODE - For Active Reports
+// ============================================================================
+
+function checkActiveReport() {
+    // Check if there's already a report being generated for this case
+    fetch('/case/{{ case.id }}/ai/reports')
+        .then(response => response.json())
+        .then(data => {
+            if (data.reports && data.reports.length > 0) {
+                // Find the most recent generating report
+                const activeReport = data.reports.find(r => r.status === 'generating' || r.status === 'pending');
+                
+                if (activeReport) {
+                    // Update button to "Check Status" mode
+                    const button = document.getElementById('aiReportBtn');
+                    button.innerHTML = '<span>📊</span><span>Check Report Status</span>';
+                    button.style.background = 'var(--color-success)';
+                    button.onclick = () => checkStatus(activeReport.id);
+                    
+                    // Store active report ID for easy access
+                    button.dataset.activeReportId = activeReport.id;
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Failed to check for active reports:', err);
+        });
+}
+
+function checkStatus(reportId) {
+    // Open the progress modal and start monitoring from current position
+    showProgressModal(reportId);
+    checkAIReportStatus(reportId);
+}
+
+// Check for active reports when page loads
+window.addEventListener('load', () => {
+    checkActiveReport();
+    
+    // Re-check every 30 seconds in case user navigates back
+    setInterval(checkActiveReport, 30000);
+});
 </script>
 {% endblock %}
 
