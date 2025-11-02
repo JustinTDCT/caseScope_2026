@@ -23,88 +23,92 @@
 <!-- Single Full-Width Stats & Search Tile -->
 <div class="card" style="margin-bottom: var(--spacing-lg);">
     <div class="card-body" style="padding: var(--spacing-lg);">
-        <!-- Single Row: All Sources + Last Updated -->
-        <div style="display: grid; grid-template-columns: 1.2fr repeat(6, 1fr) 1fr; gap: var(--spacing-lg); align-items: center;">
+        <!-- Row 1: Total + First 3 Sources + Last Updated -->
+        <div style="display: grid; grid-template-columns: 1.5fr repeat(3, 1fr) 1fr; gap: var(--spacing-xl); align-items: center; margin-bottom: var(--spacing-md); padding-bottom: var(--spacing-md); border-bottom: 1px solid var(--color-border);">
             
             <!-- Total Events -->
             <div style="text-align: center;">
-                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Total Known Event IDs</div>
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Total Event IDs</div>
                 <a href="{{ url_for('evtx_descriptions', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Show all events">
                     <div style="font-size: 2rem; font-weight: 700; color: {% if not source_filter %}var(--color-primary){% else %}var(--color-text-secondary){% endif %}; line-height: 1;">{{ total_events }}</div>
                 </a>
             </div>
             
             <!-- Source 1: Ultimate Windows Security -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
-                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">UWS</div>
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Ultimate Windows Security</div>
                 <a href="{{ url_for('evtx_descriptions', source='uws', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Ultimate Windows Security">
-                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'uws' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'uws' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('Ultimate Windows Security', 0) }}
                     </div>
                 </a>
             </div>
             
             <!-- Source 2: GitHub Gist -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
-                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">GitHub</div>
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">GitHub Gist</div>
                 <a href="{{ url_for('evtx_descriptions', source='github', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by GitHub Gist">
-                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'github' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'github' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('GitHub Gist', 0) }}
                     </div>
                 </a>
             </div>
             
             <!-- Source 3: Infrasos -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
-                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Infrasos</div>
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Infrasos</div>
                 <a href="{{ url_for('evtx_descriptions', source='infrasos', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Infrasos">
-                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'infrasos' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'infrasos' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('Infrasos', 0) }}
                     </div>
                 </a>
             </div>
             
+            <!-- Last Updated -->
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Last Updated</div>
+                {% if last_updated %}
+                <div style="font-size: 0.875rem; font-weight: 600; color: var(--color-text-primary);">
+                    {{ last_updated.strftime('%Y-%m-%d') }}
+                </div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted);">{{ last_updated.strftime('%H:%M') }}</div>
+                {% else %}
+                <div style="font-size: 0.875rem; color: var(--color-text-muted);">Never</div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Row 2: Additional Sources (3 columns) -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-xl); align-items: center;">
+            
             <!-- Source 4: MyEventLog.com -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
-                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">MyEventLog</div>
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">MyEventLog.com</div>
                 <a href="{{ url_for('evtx_descriptions', source='myeventlog', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by MyEventLog.com">
-                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'myeventlog' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'myeventlog' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('MyEventLog.com', 0) }}
                     </div>
                 </a>
             </div>
             
             <!-- Source 5: Microsoft Sysmon -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
-                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">MS Sysmon</div>
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Microsoft Sysmon</div>
                 <a href="{{ url_for('evtx_descriptions', source='ms_sysmon', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Microsoft Sysmon">
-                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'ms_sysmon' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'ms_sysmon' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('Microsoft Sysmon', 0) }}
                     </div>
                 </a>
             </div>
             
             <!-- Source 6: Microsoft Security Auditing -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
-                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">MS Security</div>
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Microsoft Security Auditing</div>
                 <a href="{{ url_for('evtx_descriptions', source='ms_security', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Microsoft Security Auditing">
-                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'ms_security' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'ms_security' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('Microsoft Security Auditing', 0) }}
                     </div>
                 </a>
-            </div>
-            
-            <!-- Last Updated -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
-                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Last Updated</div>
-                {% if last_updated %}
-                <div style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-primary);">
-                    {{ last_updated.strftime('%Y-%m-%d') }}
-                </div>
-                <div style="font-size: 0.65rem; color: var(--color-text-muted);">{{ last_updated.strftime('%H:%M') }}</div>
-                {% else %}
-                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Never</div>
-                {% endif %}
             </div>
         </div>
         
