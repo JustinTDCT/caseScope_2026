@@ -647,55 +647,114 @@ def generate_ai_report(self, report_id):
             iocs = IOC.query.filter_by(case_id=case.id).all()
             logger.info(f"[AI REPORT] Found {len(iocs)} IOCs")
             
-            # Get tagged events from OpenSearch
+            # Get tagged events from OpenSearch (using TimelineTag table)
             report.progress_percent = 30
-            report.progress_message = 'Fetching tagged events from OpenSearch...'
+            report.progress_message = 'Fetching tagged events from database...'
             db.session.commit()
             
             tagged_events = []
             try:
-                # Search for tagged events in this case's indices
-                # Get all indices for this case
-                from models import CaseFile
-                from utils import make_index_name
-                case_files = CaseFile.query.filter_by(case_id=case.id).all()
-                indices = [make_index_name(case.id, f.original_filename) for f in case_files]
+                # Get tagged event IDs from TimelineTag table (same as search page)
+                from models import TimelineTag
+                timeline_tags = TimelineTag.query.filter_by(case_id=case.id).order_by(TimelineTag.created_at.asc()).all()
                 
-                if indices:
-                    # Search for events with tag field (tagged events)
-                    search_body = {
-                        "query": {
-                            "exists": {
-                                "field": "tag"
-                            }
-                        },
-                        "size": 100,  # Limit to 100 tagged events
-                        "sort": [{"timestamp": {"order": "asc"}}]
-                    }
+                if timeline_tags:
+                    logger.info(f"[AI REPORT] Found {len(timeline_tags)} tagged events in database")
                     
-                    results = opensearch_client.search(
-                        index=','.join(indices),
-                        body=search_body
-                    )
+                    # Get event_ids for OpenSearch query
+                    tagged_event_ids = [tag.event_id for tag in timeline_tags]
                     
-                    if results and 'hits' in results:
-                        tagged_events = results['hits']['hits']
-                        logger.info(f"[AI REPORT] Found {len(tagged_events)} tagged events")
-                
+                    # Fetch full event data from OpenSearch (limit to 100 most recent)
+                    if len(tagged_event_ids) > 0:
+                        # Build index pattern
+                        index_pattern = f"case_{case.id}_*"
+                        
+                        search_body = {
+                            "query": {
+                                "ids": {
+                                    "values": tagged_event_ids[:100]  # Limit to first 100
+                                }
+                            },
+                            "size": 100,
+                            "sort": [{"timestamp": {"order": "asc", "unmapped_type": "date"}}]
+                        }
+                        
+                        results = opensearch_client.search(
+                            index=index_pattern,
+                            body=search_body,
+                            ignore_unavailable=True
+                        )
+                        
+                        if results and 'hits' in results and 'hits' in results['hits']:
+                            tagged_events = results['hits']['hits']
+                            logger.info(f"[AI REPORT] Retrieved {len(tagged_events)} tagged events from OpenSearch")
+                else:
+                    logger.info(f"[AI REPORT] No tagged events found for case {case.id}")
+                    
             except Exception as e:
                 logger.warning(f"[AI REPORT] Error fetching tagged events: {e}")
                 # Continue without tagged events
             
-            # Generate prompt
-            report.progress_percent = 45
-            report.progress_message = f'Building report prompt ({len(iocs)} IOCs, {len(tagged_events)} events)...'
+            # Get SIGMA violations (top 100 by severity)
+            report.progress_percent = 40
+            report.progress_message = 'Fetching SIGMA detections...'
             db.session.commit()
             
-            prompt = generate_case_report_prompt(case, iocs, tagged_events)
+            sigma_violations = []
+            try:
+                from models import SigmaViolation, SigmaRule
+                # Get SIGMA violations with their rules (top 100)
+                sigma_violations = db.session.query(
+                    SigmaViolation, SigmaRule
+                ).join(
+                    SigmaRule, SigmaViolation.rule_id == SigmaRule.id
+                ).filter(
+                    SigmaViolation.case_id == case.id
+                ).order_by(
+                    db.case(
+                        (SigmaViolation.severity == 'critical', 1),
+                        (SigmaViolation.severity == 'high', 2),
+                        (SigmaViolation.severity == 'medium', 3),
+                        (SigmaViolation.severity == 'low', 4),
+                        else_=5
+                    )
+                ).limit(100).all()
+                logger.info(f"[AI REPORT] Found {len(sigma_violations)} SIGMA violations")
+            except Exception as e:
+                logger.warning(f"[AI REPORT] Error fetching SIGMA violations: {e}")
+                
+            # Get IOC matches (top 100)
+            report.progress_percent = 50
+            report.progress_message = 'Fetching IOC detections...'
+            db.session.commit()
+            
+            ioc_matches = []
+            try:
+                from models import IOCMatch
+                # Get IOC matches with their IOC details (top 100)
+                ioc_matches = db.session.query(
+                    IOCMatch, IOC
+                ).join(
+                    IOC, IOCMatch.ioc_id == IOC.id
+                ).filter(
+                    IOCMatch.case_id == case.id
+                ).order_by(
+                    IOCMatch.created_at.desc()
+                ).limit(100).all()
+                logger.info(f"[AI REPORT] Found {len(ioc_matches)} IOC matches")
+            except Exception as e:
+                logger.warning(f"[AI REPORT] Error fetching IOC matches: {e}")
+            
+            # Generate prompt
+            report.progress_percent = 60
+            report.progress_message = f'Building report prompt ({len(iocs)} IOCs, {len(tagged_events)} events, {len(sigma_violations)} SIGMA, {len(ioc_matches)} matches)...'
+            db.session.commit()
+            
+            prompt = generate_case_report_prompt(case, iocs, tagged_events, sigma_violations, ioc_matches)
             logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters)")
             
             # Generate report with Ollama
-            report.progress_percent = 50
+            report.progress_percent = 65
             report.progress_message = 'Generating report with AI (this may take 3-5 minutes)...'
             db.session.commit()
             

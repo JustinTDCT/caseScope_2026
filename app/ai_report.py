@@ -172,12 +172,79 @@ Three brief sub-sections:
             if len(ioc_list) > 10:
                 prompt += f"... and {len(ioc_list) - 10} more\n"
     
-    # Add tagged events
-    if tagged_events:
-        prompt += f"\n# Tagged Events ({len(tagged_events)} events)\n\n"
-        prompt += "Key events flagged by analysts:\n\n"
+    # Add SIGMA detections (before tagged events for context)
+    if sigma_violations and len(sigma_violations) > 0:
+        prompt += f"\n# SIGMA Rule Detections ({len(sigma_violations)} detections shown)\n\n"
+        prompt += "Automated threat detections from SIGMA rules (ordered by severity):\n\n"
         
-        for i, event in enumerate(tagged_events[:20], 1):  # Limit to first 20 events
+        # Group by rule for summary
+        rule_groups = {}
+        for violation, rule in sigma_violations:
+            rule_title = rule.title if rule else "Unknown Rule"
+            if rule_title not in rule_groups:
+                rule_groups[rule_title] = {
+                    'count': 0,
+                    'rule': rule,
+                    'severity': violation.severity if violation else 'unknown'
+                }
+            rule_groups[rule_title]['count'] += 1
+        
+        # Show top rules
+        for rule_title, data in sorted(rule_groups.items(), key=lambda x: x[1]['count'], reverse=True)[:20]:
+            rule_obj = data['rule']
+            count = data['count']
+            severity = data['severity']
+            
+            prompt += f"## {rule_title} ({count} hits, Severity: {severity.upper() if severity else 'UNKNOWN'})\n"
+            if rule_obj and rule_obj.description:
+                desc = rule_obj.description[:200]
+                prompt += f"Description: {desc}\n"
+            prompt += "\n"
+        
+        if len(rule_groups) > 20:
+            prompt += f"\n... and {len(rule_groups) - 20} more SIGMA rule types\n"
+    
+    # Add IOC matches (before tagged events for context)
+    if ioc_matches and len(ioc_matches) > 0:
+        prompt += f"\n# IOC Detection Matches ({len(ioc_matches)} detections shown)\n\n"
+        prompt += "Actual detections of IOCs in event logs (ordered by most recent):\n\n"
+        
+        # Group by IOC
+        ioc_groups = {}
+        for match, ioc in ioc_matches:
+            ioc_value = ioc.ioc_value if ioc else "Unknown IOC"
+            if ioc_value not in ioc_groups:
+                ioc_groups[ioc_value] = {
+                    'count': 0,
+                    'ioc': ioc,
+                    'type': ioc.ioc_type if ioc else 'unknown',
+                    'threat_level': ioc.threat_level if ioc else 'unknown'
+                }
+            ioc_groups[ioc_value]['count'] += 1
+        
+        # Show top IOC matches
+        for ioc_value, data in sorted(ioc_groups.items(), key=lambda x: x[1]['count'], reverse=True)[:20]:
+            ioc_obj = data['ioc']
+            count = data['count']
+            ioc_type = data['type']
+            threat_level = data['threat_level']
+            
+            prompt += f"## IOC: `{ioc_value}` ({ioc_type.upper()}) - {count} matches\n"
+            prompt += f"Threat Level: {threat_level.upper() if threat_level else 'UNKNOWN'}\n"
+            if ioc_obj and ioc_obj.description:
+                prompt += f"Description: {ioc_obj.description}\n"
+            prompt += "\n"
+        
+        if len(ioc_groups) > 20:
+            prompt += f"\n... and {len(ioc_groups) - 20} more IOCs detected\n"
+    
+    # Add tagged events (PRIMARY DATA SOURCE FOR TIMELINE)
+    if tagged_events:
+        prompt += f"\n# **Tagged Events for Timeline** ({len(tagged_events)} events)\n\n"
+        prompt += "**IMPORTANT: Use these tagged events as the PRIMARY source for your timeline in Section 2.**\n"
+        prompt += "These events were manually tagged by analysts as significant to the investigation.\n\n"
+        
+        for i, event in enumerate(tagged_events[:50], 1):  # Limit to first 50 events
             source = event.get('_source', {})
             
             # Extract key fields
@@ -192,17 +259,24 @@ Three brief sub-sections:
             prompt += f"- **Computer**: {computer}\n"
             prompt += f"- **Channel**: {channel}\n"
             
-            # Add event data (first 500 chars)
-            event_data = source.get('event_data', {})
-            if event_data:
-                prompt += "- **Event Data**: "
-                data_str = json.dumps(event_data, indent=2)[:500]
-                prompt += f"```\n{data_str}\n```\n"
+            # Add key event-specific fields that analysts care about
+            important_fields = [
+                'TargetUserName', 'SubjectUserName', 'IpAddress', 'IpPort',
+                'CommandLine', 'Image', 'ParentImage', 'ProcessId', 'ParentProcessId',
+                'SourceAddress', 'TargetDomainName', 'LogonType', 'WorkstationName',
+                'ServiceName', 'ObjectName', 'ShareName', 'RelativeTargetName'
+            ]
+            
+            for field in important_fields:
+                if field in source and source[field]:
+                    prompt += f"- **{field}**: {source[field]}\n"
             
             prompt += "\n"
         
-        if len(tagged_events) > 20:
-            prompt += f"... and {len(tagged_events) - 20} more tagged events\n"
+        if len(tagged_events) > 50:
+            prompt += f"\n... and {len(tagged_events) - 50} more tagged events\n"
+    else:
+        prompt += "\n⚠️ **No tagged events available.** Generate timeline from IOCs, SIGMA detections, and IOC matches.\n"
     
     # Add instructions - following the proven structure
     prompt += """
