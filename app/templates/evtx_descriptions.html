@@ -9,12 +9,10 @@
         <p class="text-secondary">Manage Windows Event ID descriptions for friendly display</p>
     </div>
     <div class="content-actions">
-        {% if current_user.role == 'admin' %}
         <button onclick="confirmUpdate()" class="btn btn-primary">
             <span>🔄</span>
             <span>Update from Sources</span>
         </button>
-        {% endif %}
         <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
             <span>←</span>
             <span>Back to Dashboard</span>
@@ -25,8 +23,8 @@
 <!-- Single Full-Width Stats & Search Tile -->
 <div class="card" style="margin-bottom: var(--spacing-lg);">
     <div class="card-body" style="padding: var(--spacing-lg);">
-        <!-- Row 1: Total + Original 3 Sources + Last Updated -->
-        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--spacing-xl); align-items: center; margin-bottom: var(--spacing-lg); padding-bottom: var(--spacing-lg); border-bottom: 1px solid var(--color-border);">
+        <!-- Single Row: All Sources + Last Updated -->
+        <div style="display: grid; grid-template-columns: 1.2fr repeat(6, 1fr) 1fr; gap: var(--spacing-lg); align-items: center;">
             
             <!-- Total Events -->
             <div style="text-align: center;">
@@ -37,89 +35,76 @@
             </div>
             
             <!-- Source 1: Ultimate Windows Security -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
-                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Ultimate Windows Security</div>
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
+                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">UWS</div>
                 <a href="{{ url_for('evtx_descriptions', source='uws', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Ultimate Windows Security">
-                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'uws' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'uws' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('Ultimate Windows Security', 0) }}
                     </div>
                 </a>
             </div>
             
             <!-- Source 2: GitHub Gist -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
-                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">GitHub Gist</div>
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
+                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">GitHub</div>
                 <a href="{{ url_for('evtx_descriptions', source='github', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by GitHub Gist">
-                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'github' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'github' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('GitHub Gist', 0) }}
                     </div>
                 </a>
             </div>
             
             <!-- Source 3: Infrasos -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
-                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Infrasos</div>
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
+                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Infrasos</div>
                 <a href="{{ url_for('evtx_descriptions', source='infrasos', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Infrasos">
-                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'infrasos' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'infrasos' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('Infrasos', 0) }}
                     </div>
                 </a>
             </div>
             
-            <!-- Last Updated -->
-            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-md);">
-                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Last Updated</div>
-                {% if last_updated %}
-                <div style="font-size: 0.875rem; font-weight: 600; color: var(--color-text-primary);">
-                    {{ last_updated.strftime('%Y-%m-%d') }}
-                </div>
-                <div style="font-size: 0.75rem; color: var(--color-text-muted);">{{ last_updated.strftime('%H:%M') }}</div>
-                {% else %}
-                <div style="font-size: 0.875rem; color: var(--color-text-muted);">Never</div>
-                {% endif %}
-            </div>
-        </div>
-        
-        <!-- Row 2: New Enhanced Sources -->
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-xl); align-items: center;">
-            
             <!-- Source 4: MyEventLog.com -->
-            <div style="text-align: center;">
-                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">
-                    <span style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.625rem; font-weight: 600; margin-right: 0.25rem;">NEW</span>
-                    MyEventLog.com
-                </div>
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
+                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">MyEventLog</div>
                 <a href="{{ url_for('evtx_descriptions', source='myeventlog', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by MyEventLog.com">
-                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'myeventlog' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'myeventlog' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('MyEventLog.com', 0) }}
                     </div>
                 </a>
             </div>
             
             <!-- Source 5: Microsoft Sysmon -->
-            <div style="text-align: center;">
-                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">
-                    <span style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.625rem; font-weight: 600; margin-right: 0.25rem;">NEW</span>
-                    Microsoft Sysmon
-                </div>
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
+                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">MS Sysmon</div>
                 <a href="{{ url_for('evtx_descriptions', source='ms_sysmon', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Microsoft Sysmon">
-                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'ms_sysmon' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'ms_sysmon' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('Microsoft Sysmon', 0) }}
                     </div>
                 </a>
             </div>
             
             <!-- Source 6: Microsoft Security Auditing -->
-            <div style="text-align: center;">
-                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">
-                    <span style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.125rem 0.375rem; border-radius: 3px; font-size: 0.625rem; font-weight: 600; margin-right: 0.25rem;">NEW</span>
-                    Microsoft Security
-                </div>
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
+                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">MS Security</div>
                 <a href="{{ url_for('evtx_descriptions', source='ms_security', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Microsoft Security Auditing">
-                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'ms_security' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
+                    <div style="font-size: 1.35rem; font-weight: 600; color: {% if source_filter == 'ms_security' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('Microsoft Security Auditing', 0) }}
                     </div>
                 </a>
+            </div>
+            
+            <!-- Last Updated -->
+            <div style="text-align: center; border-left: 1px solid var(--color-border); padding-left: var(--spacing-sm);">
+                <div style="font-size: 0.7rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Last Updated</div>
+                {% if last_updated %}
+                <div style="font-size: 0.8rem; font-weight: 600; color: var(--color-text-primary);">
+                    {{ last_updated.strftime('%Y-%m-%d') }}
+                </div>
+                <div style="font-size: 0.65rem; color: var(--color-text-muted);">{{ last_updated.strftime('%H:%M') }}</div>
+                {% else %}
+                <div style="font-size: 0.8rem; color: var(--color-text-muted);">Never</div>
+                {% endif %}
             </div>
         </div>
         
@@ -259,12 +244,10 @@
             <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📄</div>
             <h3>No event descriptions loaded</h3>
             <p style="margin-bottom: var(--spacing-lg);">Update from sources to populate the database</p>
-            {% if current_user.role == 'admin' %}
             <button onclick="confirmUpdate()" class="btn btn-primary">
                 <span>🔄</span>
                 <span>Update from Sources</span>
             </button>
-            {% endif %}
             {% endif %}
         </div>
         {% endif %}
