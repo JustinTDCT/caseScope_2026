@@ -1,7 +1,9 @@
-# 🔍 CaseScope 2026 v1.0.0
+# 🔍 CaseScope 2026 v1.10.22
 
 **Digital Forensics & Incident Response Platform**  
 **Built from scratch with clean, modular architecture**
+
+**Current Version**: 1.10.22 (November 2, 2025)
 
 ---
 
@@ -9,31 +11,51 @@
 
 CaseScope 2026 is a complete rewrite of CaseScope 7.x, designed from the ground up with:
 - ✅ **Zero legacy code** - Clean slate, no technical debt
-- ✅ **Modular architecture** - 4-step processing pipeline
+- ✅ **Modular architecture** - 5-step processing pipeline
 - ✅ **Production-ready** - Robust error handling, controlled concurrency
-- ✅ **Minimal codebase** - ~2,000 lines vs 20,000+ in v7.x
+- ✅ **Powerful IOC hunting** - Searches all fields with intelligent matching
+- ✅ **SIGMA detection** - Automated threat hunting with SigmaHQ + LOLRMM rules
+- ✅ **Advanced search** - Full-text search with filters, tagging, and timeline views
 
 ---
 
 ## 🚀 Features
 
 ### Core Capabilities
-- **Case Management** - Create and manage investigation cases
-- **File Upload** - HTTP upload + bulk folder upload with ZIP extraction
-- **Automated Processing** - 4-step modular pipeline:
-  1. Duplicate detection (hash + filename)
-  2. EVTX indexing to OpenSearch
-  3. SIGMA detection via Chainsaw
-  4. IOC hunting
-- **Real-time Progress** - Track processing status
+- **Case Management** - Create and manage investigation cases with full metadata
+- **File Upload** - HTTP upload + bulk folder upload with ZIP extraction and deduplication
+- **Automated Processing** - 5-step modular pipeline:
+  1. **Scan & Stage** - Deduplication (hash + filename)
+  2. **Event Filtering** - Filter out empty/low-value events
+  3. **Index** - Full-text indexing to OpenSearch with nested field support
+  4. **SIGMA Detection** - 40,000+ detection rules (SigmaHQ + LOLRMM)
+  5. **IOC Hunting** - Comprehensive IOC detection across all event fields
+- **Real-time Progress** - Track processing status with detailed stats
 - **Zero-event handling** - Automatically archive empty files
+
+### Search & Analysis
+- **Advanced Event Search** - Full-text search with filters:
+  - Filter by event type (EVTX, CSV, JSON, EDR)
+  - Filter by date range (custom or relative to latest event)
+  - Filter by IOC/SIGMA violations
+  - Filter by IOC count (2+, 3+ events)
+  - Tag events for timeline creation
+- **IOC Management** - Add, edit, enable/disable IOCs with multiple types:
+  - IP addresses, URLs, FQDNs
+  - Filenames, file paths, MD5/SHA256 hashes
+  - Usernames, user SIDs
+  - Commands (simple and complex/obfuscated)
+- **SIGMA Rule Management** - Browse, enable/disable detection rules
+- **EVTX Event Descriptions** - Human-readable descriptions for Windows events
+- **Export** - CSV export of search results
 
 ### Technical Stack
 - **Backend**: Flask + SQLAlchemy + Celery
-- **Search**: OpenSearch
+- **Search Engine**: OpenSearch 2.11.0
 - **Queue**: Redis
-- **SIGMA Engine**: Chainsaw CLI
-- **Format Support**: EVTX, JSON, NDJSON, ZIP
+- **SIGMA Engine**: Chainsaw v2.9.1
+- **Format Support**: EVTX, CSV, JSON, NDJSON, EDR, ZIP
+- **Detection Rules**: SigmaHQ + LOLRMM (40,000+ rules)
 
 ---
 
@@ -198,18 +220,23 @@ Default credentials: admin / admin
 
 ### Upload Files
 1. Open case
-2. Click "+ Upload Files"
-3. Select EVTX/JSON/ZIP files
+2. Click "+ Upload Files" or "+ Bulk Upload"
+3. Select EVTX/CSV/JSON/ZIP files (or select folder for bulk)
 4. Click "Upload"
-5. Files process automatically through 4-step pipeline
+5. Files process automatically through 5-step pipeline
 
-### Bulk Upload (Server-side)
-```bash
-# Copy files to local upload folder
-cp *.evtx /opt/casescope/local_uploads/
+### Add IOCs
+1. Navigate to "IOC Management" in case menu
+2. Click "+ Add IOC"
+3. Enter IOC details (type, value, description, tags)
+4. Save and trigger IOC hunt
 
-# Trigger bulk processing (TODO: Add admin route)
-```
+### Search Events
+1. Navigate to "Search Events" in case menu
+2. Use search bar for full-text search
+3. Apply filters (event type, date range, IOC/SIGMA)
+4. Tag events for timeline creation
+5. Export results to CSV
 
 ### Monitor Processing
 ```bash
@@ -239,14 +266,15 @@ HTTP Upload / Bulk Upload
          ↓
     Queue for Processing
          ↓
-┌────────────────────────┐
-│  Worker (2 concurrent) │
-├────────────────────────┤
-│ 1. duplicate_check()   │
-│ 2. index_file()        │
-│ 3. chainsaw_file()     │
-│ 4. hunt_iocs()         │
-└────────────────────────┘
+┌──────────────────────────────────┐
+│  Worker (configurable concurrency) │
+├──────────────────────────────────┤
+│ 1. duplicate_check()            │
+│ 2. event_filter() (skip empty)  │
+│ 3. index_file() (OpenSearch)    │
+│ 4. chainsaw_file() (SIGMA)      │
+│ 5. hunt_iocs() (all fields)     │
+└──────────────────────────────────┘
          ↓
    Mark Completed
 ```
@@ -331,13 +359,24 @@ watch -n 1 redis-cli LLEN celery
 
 ---
 
-## 🎯 Roadmap
+## 🎯 Version History
 
-- ✅ v1.0.0 - Core MVP (current)
-- ⏳ v1.1.0 - Timeline view, advanced search
-- ⏳ v1.2.0 - DFIR-IRIS integration
-- ⏳ v1.3.0 - OpenCTI integration
-- ⏳ v2.0.0 - Multi-tenant support
+- ✅ v1.10.22 - Fixed date range filters (custom & relative)
+- ✅ v1.10.21 - Hide ioc_count metadata field
+- ✅ v1.10.20 - Added 2+ and 3+ IOC event filters
+- ✅ v1.10.19 - Phrase matching for simple command IOCs
+- ✅ v1.10.18 - Added command_complex IOC type
+- ✅ v1.10.17 - Distinctive terms strategy for complex IOCs
+- ✅ v1.10.15 - Multi-line truncation for IOC display
+- ✅ v1.10.14 - IOC edit functionality
+- ✅ v1.10.11 - Fixed IOC re-hunt (clear OpenSearch flags)
+- ✅ v1.10.10 - Fixed bulk import processing
+- ✅ v1.10.9 - Added LOLRMM SIGMA rules
+- ✅ v1.10.8 - IOC hunting searches all fields by default
+- ✅ v1.10.7 - Fixed IOC hunting (nested fields, special chars, scroll API)
+- ✅ v1.0.0 - Core MVP
+
+See `APP_MAP.md` for detailed changelog and fixes.
 
 ---
 
@@ -359,11 +398,22 @@ This is a complete rewrite. Contributions welcome!
 
 ---
 
+## 📚 Additional Documentation
+
+- **APP_MAP.md** - Detailed changelog, bug fixes, and technical details
+- **INSTALL.md** - Quick installation guide
+- **DEPLOYMENT_GUIDE.md** - Production deployment guide
+- **QUICK_REFERENCE.md** - Command reference and troubleshooting
+- **UI_SYSTEM.md** - UI/UX documentation
+- **EVTX_DESCRIPTIONS_README.md** - EVTX event descriptions system
+- **FRESH_INSTALL_USAGE.md** - Fresh install / reset guide
+- **REMOTE_ACCESS.md** - Remote development setup
+
 ## 📞 Support
 
 - **Issues**: GitHub Issues
 - **Discussions**: GitHub Discussions
-- **Email**: support@casescope.local
+- **Documentation**: See docs above
 
 ---
 
