@@ -1,14 +1,14 @@
 # CaseScope 2026 - Application Map
 
 **Version**: 1.10.34  
-**Last Updated**: 2025-11-02 18:30 UTC  
+**Last Updated**: 2025-11-02 18:45 UTC  
 **Purpose**: Track file responsibilities and workflow
 
 ---
 
-## 🤖 v1.10.34 - AI Report Generation with Local LLM (2025-11-02 18:30 UTC)
+## 🤖 v1.10.34 - AI Report Generation with Real-Time Progress Tracking (2025-11-02 18:45 UTC)
 
-**Feature**: Integrated AI-powered DFIR report generation using Ollama + Phi-3 Medium 14B (local, CPU-only LLM)
+**Feature**: Integrated AI-powered DFIR report generation using Ollama + Phi-3 Medium 14B (local, CPU-only LLM) with comprehensive real-time progress tracking
 
 **What Was Added**:
 
@@ -30,6 +30,7 @@
      - `case_id`, `generated_by`, `status` (pending/generating/completed/failed)
      - `model_name` (phi3:14b by default), `report_title`, `report_content` (markdown)
      - `generation_time_seconds`, `error_message`, timestamps
+     - `progress_percent` (0-100), `progress_message` (current step description)
 
 4. **Flask Routes** (`app/main.py`):
    - `GET /ai/status` - Check Ollama and model availability
@@ -54,32 +55,42 @@
 
 7. **Case Dashboard Integration** (`app/templates/view_case_enhanced.html`):
    - "🤖 Generate AI Report" button in header (first position)
+   - **Enhanced Progress Modal** with:
+     - Animated gradient progress bar (0-100%)
+     - Real-time status messages from database
+     - Elapsed time counter (updates every 3s)
+     - Smart remaining time estimate (based on actual progress)
+     - Timestamped progress log (checkpoint history)
+     - Closable modal (generation continues in background)
    - JavaScript functions for:
-     - `generateAIReport()` - Start report generation with AJAX
-     - `checkAIReportStatus()` - Poll report status every 3 seconds
+     - `generateAIReport()` - Start generation and show progress modal
+     - `showProgressModal()` - Create beautiful progress overlay
+     - `updateProgressUI()` - Update progress bar and log
+     - `checkAIReportStatus()` - Poll progress every 3s with time tracking
      - Auto-download when complete, alert on failure
-   - Visual feedback (⏳ Generating..., ✅ Complete, ❌ Failed)
 
 **How It Works**:
 
 1. **User Action**: User clicks "Generate AI Report" on case dashboard
 2. **Permission Check**: System verifies AI is enabled and Ollama is running
-3. **Data Gathering**: 
-   - Case metadata (name, description, dates)
-   - All IOCs for the case (grouped by type, with flags)
-   - Tagged events from OpenSearch (up to 100 most relevant)
-4. **Prompt Building**: 
-   - Structured DFIR investigation report prompt
-   - Includes case context, IOCs, key events, and event data
-   - Requests specific sections: Executive Summary, Timeline, Technical Analysis, Findings, Recommendations
-5. **AI Generation**: 
-   - Celery task sends prompt to Ollama (phi3:14b model)
+3. **Progress Modal Appears**: Beautiful overlay shows real-time progress
+4. **Data Gathering** (with progress updates):
+   - **5%**: Initializing...
+   - **15%**: Collecting IOCs (query database for all IOCs)
+   - **30%**: Fetching tagged events from OpenSearch (up to 100 events)
+   - **45%**: Building report prompt (assemble all data into structured prompt)
+5. **AI Generation**:
+   - **50%**: Generating report with AI (Ollama processes prompt with phi3:14b)
    - Model generates comprehensive DFIR report in markdown format
    - Takes 3-5 minutes on 12 vCPUs (CPU-only inference)
-6. **Result Storage**:
+   - Progress modal shows elapsed time and estimated remaining time
+6. **Completion**:
+   - **100%**: Report completed successfully!
+   - Auto-download report as markdown file
+   - Modal closes, page refreshes to show new report in history
+7. **Result Storage**:
    - Report saved to `AIReport` table with full markdown content
-   - Generation time, model name, and status tracked
-7. **Download**: User downloads report as markdown file
+   - Generation time, model name, status, and progress data tracked
 
 **Report Sections**:
 
@@ -105,7 +116,9 @@
 - **Quality**: GPT-3.5 level analysis for DFIR investigations
 - **Privacy**: 100% local - no data sent to external services
 - **Concurrency**: 1 report at a time per case (prevents duplicate generation)
-- **Monitoring**: Real-time status updates via JavaScript polling
+- **Progress Tracking**: Real-time updates at 5 key checkpoints (5%, 15%, 30%, 45%, 50%, 100%)
+- **User Experience**: Beautiful progress modal with time estimates and detailed log
+- **Monitoring**: JavaScript polls every 3 seconds, updates progress bar and remaining time
 
 **Installation for Users**:
 
@@ -139,11 +152,28 @@ Navigate to Settings → AI Report Generation → Enable checkbox
 - **Modified**: `app/version.json` - Updated to v1.10.34
 - **Modified**: `app/APP_MAP.md` - Added documentation
 
+**Progress Tracking Details**:
+
+- **Option 3 (Hybrid Approach)**: Real database checkpoints + smooth UI updates
+- **5 Progress Checkpoints**:
+  1. 5% - Initializing (task started, database record created)
+  2. 15% - Collecting IOCs (querying database)
+  3. 30% - Fetching tagged events (OpenSearch query)
+  4. 45% - Building prompt (assembling data into structured prompt)
+  5. 50% - Generating report (Ollama processing - longest step)
+  6. 100% - Complete (report ready for download)
+- **Smart Time Estimates**: Calculates remaining time based on actual progress rate
+- **Progress Log**: Timestamped entries show each completed step
+- **Modal Features**: Closable (generation continues), auto-download on completion
+- **Fallback**: Easy to downgrade to time-based estimation if needed (just change JavaScript)
+
 **Result**: 
-- CaseScope now has built-in AI-powered DFIR report generation
+- CaseScope now has built-in AI-powered DFIR report generation with professional UX
 - 100% local and private (no cloud API calls)
 - $0 ongoing cost (vs. $0.10-$1 per report with OpenAI)
 - Professional reports in 3-5 minutes with GPT-3.5 level quality
+- Real-time progress tracking keeps users informed during generation
+- Beautiful modal with progress bar, time estimates, and detailed logging
 - Modular design allows users to skip AI if resources are limited
 - Future-ready for other Ollama models (llama3.1:8b, mistral:7b, etc.)
 
