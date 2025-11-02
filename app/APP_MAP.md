@@ -1,12 +1,50 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.11  
-**Last Updated**: 2025-10-31 21:08 UTC  
+**Version**: 1.10.22  
+**Last Updated**: 2025-11-02 03:00 UTC  
 **Purpose**: Track file responsibilities and workflow
 
 ---
 
-## 📋 Recent Updates (2025-10-31 21:08 UTC)
+## 📋 Recent Updates (2025-11-02 03:00 UTC)
+
+### **🐛 v1.10.22 - Fixed Date Range Filters (Custom & Relative)** (2025-11-02 03:00 UTC)
+
+**Problem**: Two critical issues with date filtering in event search:
+1. Custom date range "Apply Range" button didn't work - dates were not being read from the form
+2. Predefined date filters (24h, 7d, 30d) were based on current system time instead of the latest event in the case
+3. Date filtering used EVTX-specific field (`System.TimeCreated.@attributes.SystemTime`) instead of `normalized_timestamp`, breaking filters for CSV/JSON/EDR files
+
+**Root Cause**:
+1. `main.py:search_events()` wasn't reading `custom_date_start` and `custom_date_end` from request args
+2. `search_utils.py:build_search_query()` was using `datetime.utcnow()` for relative date calculations
+3. Hard-coded EVTX field path in date range filter query
+
+**Solution**:
+1. **Custom Date Range Fix** (`main.py`):
+   - Added logic to read `custom_date_start` and `custom_date_end` from request args
+   - Parse ISO datetime strings and convert to datetime objects
+   - Pass parsed dates to `build_search_query()`
+   - Pass date strings to template for form population
+2. **Relative Date Fix** (`main.py` + `search_utils.py`):
+   - Added `latest_event_timestamp` query to find the most recent event in the case
+   - Query OpenSearch for latest `normalized_timestamp` when using 24h/7d/30d filters
+   - Pass this timestamp to `build_search_query()` as `latest_event_timestamp` parameter
+   - Use latest event timestamp as reference point instead of current system time
+3. **Normalized Timestamp** (`search_utils.py`):
+   - Changed date filter to use `normalized_timestamp` field (works for all file types)
+   - Added logging for date filter ranges
+
+**Affected Files**:
+- `app/main.py` (search_events, export_search_results routes)
+- `app/search_utils.py` (build_search_query function)
+- `app/version.json` (v1.10.22)
+
+**Result**: Custom date ranges now apply correctly, and relative filters (24h/7d/30d) are based on the latest event in the case (not current system time), working across all file types (EVTX/CSV/JSON/EDR).
+
+---
+
+## 📋 Previous Updates (2025-10-31 21:08 UTC)
 
 ### **🐛 v1.10.11 - IOC Re-Hunt Fix: OpenSearch has_ioc Flags Not Cleared** (2025-10-31 21:08 UTC)
 
