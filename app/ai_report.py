@@ -241,7 +241,7 @@ def generate_report_with_ollama(prompt, model='phi3:14b', num_ctx=8192, num_thre
         response = requests.post(
             'http://localhost:11434/api/generate',
             json=payload,
-            timeout=600  # 10 minute timeout
+            timeout=1800  # 30 minute timeout for CPU inference on 14B model
         )
         
         if response.status_code == 200:

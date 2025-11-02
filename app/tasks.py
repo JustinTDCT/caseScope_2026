@@ -657,8 +657,9 @@ def generate_ai_report(self, report_id):
                 # Search for tagged events in this case's indices
                 # Get all indices for this case
                 from models import CaseFile
+                from utils import make_index_name
                 case_files = CaseFile.query.filter_by(case_id=case.id).all()
-                indices = [f.index_name for f in case_files if f.index_name]
+                indices = [make_index_name(case.id, f.original_filename) for f in case_files]
                 
                 if indices:
                     # Search for events with tag field (tagged events)
