@@ -133,12 +133,21 @@ def update_all_descriptions(db, EventDescription):
         'sources': {}
     }
     
+    # Import enhanced scrapers
+    try:
+        from evtx_scrapers_enhanced import get_all_enhanced_scrapers
+        enhanced_scrapers = get_all_enhanced_scrapers()
+        logger.info(f"[EVTX UPDATER] Loaded {len(enhanced_scrapers)} enhanced scrapers")
+    except ImportError as e:
+        logger.warning(f"[EVTX UPDATER] Enhanced scrapers not available: {e}")
+        enhanced_scrapers = []
+    
     # Gather events from all sources
     all_sources = [
         ('Ultimate Windows Security', scrape_ultimate_windows_security),
         ('GitHub Gist', scrape_github_gist),
         ('Infrasos', scrape_infrasos)
-    ]
+    ] + enhanced_scrapers
     
     for source_name, scraper_func in all_sources:
         try:
