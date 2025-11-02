@@ -793,11 +793,12 @@ def search_events(case_id):
             # Fall back to current time if query fails
             latest_event_timestamp = datetime.utcnow()
     
-    # Build query (if no search text, match all)
-    if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 4 and hidden_filter == 'hide':
-        # Simple match_all for performance (only if all file types selected and hiding hidden events)
+    # Build query (if no search text AND showing all events, match all)
+    if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 4 and hidden_filter == 'show':
+        # Simple match_all for performance (only if all file types selected AND showing all events including hidden)
         query_dsl = {"query": {"match_all": {}}}
     else:
+        # Build proper query with hidden filter applied
         query_dsl = build_search_query(
             search_text=search_text,
             filter_type=filter_type,
