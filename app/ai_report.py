@@ -114,13 +114,13 @@ def generate_case_report_prompt(case, iocs, tagged_events):
             prompt += f"\n## {ioc_type.upper()} ({len(ioc_list)} indicators)\n"
             for ioc in ioc_list[:10]:  # Limit to first 10 per type
                 flags = []
-                if ioc.is_malicious:
-                    flags.append("MALICIOUS")
-                if ioc.is_confirmed:
-                    flags.append("CONFIRMED")
+                if ioc.threat_level:
+                    flags.append(ioc.threat_level.upper())
+                if not ioc.is_active:
+                    flags.append("INACTIVE")
                 flag_str = f" [{', '.join(flags)}]" if flags else ""
                 
-                prompt += f"- `{ioc.value}`{flag_str}"
+                prompt += f"- `{ioc.ioc_value}`{flag_str}"
                 if ioc.description:
                     prompt += f" - {ioc.description}"
                 prompt += "\n"

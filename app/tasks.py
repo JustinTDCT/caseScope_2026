@@ -607,19 +607,13 @@ def generate_ai_report(self, report_id):
     Returns:
         dict: Status and results
     """
-    from flask import Flask
-    from models import db, AIReport, Case, IOC
-    from opensearch_config import OpenSearchManager
+    from main import app, db, opensearch_client
+    from models import AIReport, Case, IOC
     from ai_report import generate_case_report_prompt, generate_report_with_ollama, format_report_title
     from datetime import datetime
     import time
     
     logger.info(f"[AI REPORT] Starting generation for report_id={report_id}")
-    
-    # Initialize Flask app context
-    app = Flask(__name__)
-    app.config.from_object('config.Config')
-    db.init_app(app)
     
     with app.app_context():
         try:
@@ -650,7 +644,7 @@ def generate_ai_report(self, report_id):
             report.progress_message = f'Collecting IOCs for {case.name}...'
             db.session.commit()
             
-            iocs = IOC.query.filter_by(case_id=case.id, deleted_at=None).all()
+            iocs = IOC.query.filter_by(case_id=case.id).all()
             logger.info(f"[AI REPORT] Found {len(iocs)} IOCs")
             
             # Get tagged events from OpenSearch
@@ -660,8 +654,6 @@ def generate_ai_report(self, report_id):
             
             tagged_events = []
             try:
-                os_manager = OpenSearchManager()
-                
                 # Search for tagged events in this case's indices
                 # Get all indices for this case
                 from models import CaseFile
@@ -680,7 +672,7 @@ def generate_ai_report(self, report_id):
                         "sort": [{"timestamp": {"order": "asc"}}]
                     }
                     
-                    results = os_manager.search(
+                    results = opensearch_client.search(
                         index=','.join(indices),
                         body=search_body
                     )
