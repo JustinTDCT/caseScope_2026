@@ -74,27 +74,71 @@ def check_ollama_status():
         }
 
 
-def generate_case_report_prompt(case, iocs, tagged_events):
+def generate_case_report_prompt(case, iocs, tagged_events, sigma_violations=None, ioc_matches=None):
     """
-    Build the prompt for AI report generation
+    Build the prompt for AI report generation following proven DFIR report structure
     
     Args:
         case: Case object
         iocs: List of IOC objects
         tagged_events: List of tagged event dicts from OpenSearch
+        sigma_violations: List of (SigmaViolation, SigmaRule) tuples (optional)
+        ioc_matches: List of (IOCMatch, IOC) tuples (optional)
         
     Returns:
         str: Formatted prompt for the LLM
     """
     # Build case summary
-    prompt = f"""You are a professional DFIR (Digital Forensics and Incident Response) analyst. Generate a comprehensive investigation report for the following case.
+    prompt = f"""You are a professional DFIR (Digital Forensics and Incident Response) analyst. Generate a comprehensive investigation report following this EXACT 5-part structure:
 
-# Case Information
-- **Case Name**: {case.name}
-- **Description**: {case.description or 'N/A'}
-- **Company**: {case.company or 'N/A'}
-- **Status**: {case.status}
-- **Created**: {case.created_at.strftime('%Y-%m-%d %H:%M UTC') if case.created_at else 'N/A'}
+# CASE: {case.name}
+Company: {case.company or 'N/A'}
+Status: {case.status}
+Investigation Date: {case.created_at.strftime('%Y-%m-%d') if case.created_at else 'N/A'}
+
+Your report MUST have these 5 sections in this order:
+
+## SECTION 1: Executive Summary (3-4 paragraphs)
+Write for both technical IR folks and non-technical readers. Include:
+- Paragraph 1: What happened (the incident overview)
+- Paragraph 2: Why it happened (vulnerabilities exploited, attack vector)
+- Paragraph 3: What the actor did (their actions and objectives)
+- Paragraph 4: Impact and scope
+
+## SECTION 2: Attack Timeline
+Create a chronological timeline from the tagged events below. For each event include:
+- Timestamp
+- What happened
+- MITRE ATT&CK technique (e.g., T1078.001 - Valid Accounts: Domain Accounts)
+- Significance
+
+## SECTION 3: Indicators of Compromise (IOCs)
+List all IOCs found with their MITRE ATT&CK mappings:
+- IP addresses
+- Usernames/accounts
+- Hostnames
+- Commands
+- Files/DLLs
+- Processes
+For each IOC, specify which MITRE technique it relates to.
+
+## SECTION 4: Detailed Technical Analysis
+Deep dive into:
+- **Initial Access**: How they got in (method, entry point, credentials)
+- **Credential Access**: How passwords/credentials were obtained
+- **Discovery**: What information they gained (network recon, domain enumeration)
+- **Lateral Movement**: How they moved through the network
+- **Actions on Objectives**: What they ultimately did
+
+## SECTION 5: Summary & Prevention
+Three brief sub-sections:
+- **What Happened**: 2-3 sentence summary
+- **Why It Happened**: Root cause and security gaps
+- **What Could Have Stopped It**: Specific controls (MFA, EDR, network segmentation, etc.)
+
+---
+
+# DATA PROVIDED FOR ANALYSIS:
 
 """
     
@@ -160,49 +204,60 @@ def generate_case_report_prompt(case, iocs, tagged_events):
         if len(tagged_events) > 20:
             prompt += f"... and {len(tagged_events) - 20} more tagged events\n"
     
-    # Add instructions
+    # Add instructions - following the proven structure
     prompt += """
 
-# Report Instructions
+---
 
-Generate a professional DFIR investigation report with the following sections:
+# **CRITICAL: Follow This EXACT Report Structure**
 
-1. **Executive Summary** (2-3 paragraphs)
-   - High-level overview of the investigation
-   - Key findings and impact assessment
-   - Recommended immediate actions
+Generate a professional DFIR investigation report with EXACTLY these 5 sections:
 
-2. **Investigation Timeline**
-   - Chronological sequence of key events
-   - Attack progression (if applicable)
-   - Detection and response timeline
+## **SECTION 1: Executive Summary** (3-4 paragraphs)
+Write for BOTH technical IR professionals AND non-technical readers:
+- **Paragraph 1**: What happened (incident overview, initial detection)
+- **Paragraph 2**: Why it happened (vulnerabilities exploited, attack vector, security gaps)
+- **Paragraph 3**: What the actor did (their actions, techniques, objectives)
+- **Paragraph 4**: Impact and scope (affected systems, data, business impact)
 
-3. **Technical Analysis**
-   - Detailed analysis of IOCs
-   - Event correlation and patterns
-   - Attack techniques (MITRE ATT&CK if applicable)
-   - Affected systems and scope
+## **SECTION 2: Attack Timeline**
+Create a chronological timeline using the tagged events above. For EACH significant event:
+- **Timestamp** (exact time)
+- **What Happened** (brief description)
+- **MITRE ATT&CK Technique** (e.g., T1078.001 - Valid Accounts: Domain Accounts)
+- **Significance** (why this event matters)
 
-4. **Findings and Impact**
-   - Confirmed malicious activity
-   - Compromised systems/data
-   - Potential data exfiltration
-   - Business impact assessment
+## **SECTION 3: Indicators of Compromise with MITRE Mapping**
+List all IOCs organized by type. For EACH IOC specify:
+- The IOC value
+- IOC type (IP, Username, Hostname, Command, File, etc.)
+- Which MITRE ATT&CK technique(s) it relates to
+- Threat level/significance
 
-5. **Recommendations**
-   - Immediate containment actions
-   - Remediation steps
-   - Long-term security improvements
-   - Prevention measures
+## **SECTION 4: Detailed Technical Analysis**
+Deep dive into the attack mechanics:
+- **Initial Access**: Exactly how they got in (method, entry point, credentials used)
+- **Credential Access**: How passwords/credentials were obtained (tool, technique, target accounts)
+- **Discovery**: What information they gained (network recon, domain enumeration, system discovery)
+- **Lateral Movement**: How they moved through the network (RDP, PsExec, WMI, etc.)
+- **Actions on Objectives**: What they ultimately did (data access, exfiltration, persistence)
 
-6. **Appendices**
-   - Complete IOC list summary
-   - Key event references
-   - Additional technical details
+## **SECTION 5: Summary & Prevention**
+Three brief but specific sub-sections:
+- **What Happened**: 2-3 sentence summary of the entire incident
+- **Why It Happened**: Root cause analysis and security gaps that enabled the attack
+- **What Could Have Stopped It**: Specific security controls that would have prevented or detected this (e.g., MFA, EDR on all systems, network segmentation, privileged access management, etc.)
 
-**Format**: Use clear Markdown formatting with headers, bullet points, and code blocks where appropriate. Be concise but thorough. Focus on actionable insights.
+---
 
-Generate the report now:
+**IMPORTANT NOTES:**
+- Use tagged events as PRIMARY source for timeline
+- Map EVERYTHING to MITRE ATT&CK techniques
+- Be specific with times, systems, accounts, and actions
+- Write professionally but clearly - avoid jargon where possible
+- If information is missing, state "Not available in provided data"
+
+Generate the complete report now:
 """
     
     return prompt
