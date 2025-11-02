@@ -525,6 +525,12 @@ def create_case():
         db.session.add(case)
         db.session.commit()
         
+        # Audit log
+        from audit_logger import log_action
+        log_action('create_case', resource_type='case', resource_id=case.id,
+                  resource_name=case.name, 
+                  details={'company': company, 'description': description})
+        
         flash('Case created successfully', 'success')
         return redirect(url_for('view_case', case_id=case.id))
     
@@ -695,6 +701,12 @@ def evtx_descriptions_update():
     try:
         stats = update_all_descriptions(db, EventDescription)
         
+        # Audit log success
+        from audit_logger import log_action
+        log_action('update_evtx_definitions', resource_type='evtx', 
+                  resource_name='EVTX Event Descriptions',
+                  details={'stats': stats})
+        
         flash(f"Successfully updated EVTX descriptions: {stats['total_processed']} processed, "
               f"{stats['new_events']} new, {stats['updated_events']} updated", 'success')
         
@@ -702,6 +714,12 @@ def evtx_descriptions_update():
             flash(f"{source}: {count} events", 'info')
             
     except Exception as e:
+        # Audit log failure
+        from audit_logger import log_action
+        log_action('update_evtx_definitions', resource_type='evtx',
+                  resource_name='EVTX Event Descriptions',
+                  details={'error': str(e)}, status='failed')
+        
         flash(f'Error updating descriptions: {str(e)}', 'error')
         logger.error(f"[EVTX UPDATE] Error: {e}", exc_info=True)
     
@@ -1593,6 +1611,12 @@ def update_sigma():
     
     result = update_sigma_rules()
     
+    # Audit log
+    from audit_logger import log_action
+    status = 'success' if result['success'] else 'failed'
+    log_action('update_sigma_rules', resource_type='sigma', resource_name='SIGMA Rules',
+              details={'result': result['message']}, status=status)
+    
     if result['success']:
         flash(result['message'], 'success')
     else:
@@ -1981,6 +2005,12 @@ def bulk_delete_files(case_id):
     try:
         db.session.commit()
         logger.info(f"[BULK DELETE] Completed: deleted {deleted_count} file(s)")
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('bulk_delete_files', resource_type='case', resource_id=case_id,
+                  resource_name=case.name,
+                  details={'files_deleted': deleted_count, 'errors': len(errors)})
         
         if errors:
             flash(f'Deleted {deleted_count} file(s) with {len(errors)} error(s)', 'warning')

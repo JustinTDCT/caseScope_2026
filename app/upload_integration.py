@@ -260,6 +260,21 @@ def handle_chunked_upload_finalize_v96(app, db, Case, CaseFile, SkippedFile, cel
         
         db.session.commit()
         
+        # Audit log
+        try:
+            from audit_logger import log_action
+            case = db.session.get(Case, case_id)
+            log_action('upload_file', resource_type='file', resource_id=None,
+                      resource_name=filename,
+                      details={
+                          'case_id': case_id,
+                          'case_name': case.name if case else None,
+                          'files_queued': filter_stats['valid_files'],
+                          'duplicates_skipped': queue_stats['duplicates_skipped']
+                      })
+        except Exception as e:
+            app.logger.warning(f"[AUDIT] Failed to log upload: {e}")
+        
         return jsonify({
             'success': True,
             'message': f'Upload complete: {filter_stats["valid_files"]} files queued',

@@ -138,6 +138,12 @@ def create_user():
         db.session.add(new_user)
         db.session.commit()
         
+        # Audit log
+        from audit_logger import log_action
+        log_action('create_user', resource_type='user', resource_id=new_user.id,
+                  resource_name=username,
+                  details={'role': role, 'email': email, 'is_active': is_active})
+        
         flash(f'User {username} created successfully.', 'success')
         return redirect(url_for('users.list_users'))
     
@@ -184,6 +190,19 @@ def edit_user(user_id):
                 flash('Analysts can only set role to read-only.', 'error')
                 return redirect(url_for('users.edit_user', user_id=user_id))
         
+        # Track changes
+        changes = {}
+        if email != user.email:
+            changes['email'] = {'from': user.email, 'to': email}
+        if full_name != user.full_name:
+            changes['full_name'] = {'from': user.full_name, 'to': full_name}
+        if role != user.role:
+            changes['role'] = {'from': user.role, 'to': role}
+        if is_active != user.is_active:
+            changes['is_active'] = {'from': user.is_active, 'to': is_active}
+        if password:
+            changes['password'] = 'changed'
+        
         # Update user
         user.email = email
         user.full_name = full_name
@@ -195,6 +214,11 @@ def edit_user(user_id):
             user.password_hash = generate_password_hash(password)
         
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('edit_user', resource_type='user', resource_id=user.id,
+                  resource_name=user.username, details=changes)
         
         flash(f'User {user.username} updated successfully.', 'success')
         return redirect(url_for('users.list_users'))
@@ -255,8 +279,14 @@ def delete_user(user_id):
         return redirect(url_for('users.list_users'))
     
     username = user.username
+    user_role = user.role
     db.session.delete(user)
     db.session.commit()
+    
+    # Audit log
+    from audit_logger import log_action
+    log_action('delete_user', resource_type='user', resource_id=user_id,
+              resource_name=username, details={'role': user_role})
     
     flash(f'User {username} deleted successfully.', 'success')
     return redirect(url_for('users.list_users'))

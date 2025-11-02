@@ -76,17 +76,43 @@ def edit_case(case_id):
         return redirect(url_for('dashboard'))
     
     if request.method == 'POST':
+        # Track changes for audit log
+        changes = {}
+        old_name = case.name
+        old_description = case.description
+        old_company = case.company
+        old_status = case.status
+        old_assigned_to = case.assigned_to
+        
         case.name = request.form.get('name', case.name)
         case.description = request.form.get('description', case.description)
         case.company = request.form.get('company', case.company)
         case.status = request.form.get('status', case.status)
         
+        # Track what changed
+        if old_name != case.name:
+            changes['name'] = {'from': old_name, 'to': case.name}
+        if old_description != case.description:
+            changes['description'] = 'updated'
+        if old_company != case.company:
+            changes['company'] = {'from': old_company, 'to': case.company}
+        if old_status != case.status:
+            changes['status'] = {'from': old_status, 'to': case.status}
+        
         # Only admin can change assignment
         if current_user.role == 'admin':
             assigned_to = request.form.get('assigned_to')
             case.assigned_to = int(assigned_to) if assigned_to and assigned_to != '' else None
+            if old_assigned_to != case.assigned_to:
+                changes['assigned_to'] = {'from': old_assigned_to, 'to': case.assigned_to}
         
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('edit_case', resource_type='case', resource_id=case_id,
+                  resource_name=case.name, details=changes)
+        
         flash('Case updated successfully', 'success')
         
         # Redirect back to referring page or case dashboard
@@ -154,9 +180,18 @@ def delete_case(case_id):
         db.session.query(SigmaViolation).filter_by(case_id=case_id).delete()
         db.session.query(CaseFile).filter_by(case_id=case_id).delete()
         
+        # Store case name before deletion
+        case_name = case.name
+        
         # Delete the case itself
         db.session.delete(case)
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('delete_case', resource_type='case', resource_id=case_id,
+                  resource_name=case_name, 
+                  details={'indices_deleted': deleted_indices, 'files_deleted': len(files)})
         
         logger.info(f"[ADMIN] Case {case_id} deleted by user {current_user.id}: {deleted_indices} indices, {len(files)} files")
         

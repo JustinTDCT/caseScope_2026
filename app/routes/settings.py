@@ -95,6 +95,14 @@ def save():
     set_setting('opencti_api_key', opencti_api_key,
                 'OpenCTI API key')
     
+    # Audit log
+    from audit_logger import log_action
+    log_action('update_settings', resource_type='settings', resource_name='System Settings',
+              details={
+                  'dfir_iris_enabled': dfir_iris_enabled,
+                  'opencti_enabled': opencti_enabled
+              })
+    
     flash('✓ Settings saved successfully', 'success')
     return redirect(url_for('settings.index'))
 

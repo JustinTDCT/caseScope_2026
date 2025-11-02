@@ -380,6 +380,12 @@ def reindex_single_file(case_id, file_id):
     # Queue for full reprocessing
     process_file.delay(file_id)
     
+    # Audit log
+    from audit_logger import log_action
+    log_action('reindex_file', resource_type='file', resource_id=file_id,
+              resource_name=case_file.original_filename,
+              details={'case_id': case_id, 'case_name': case_file.case.name})
+    
     flash(f'Re-indexing queued for "{case_file.original_filename}". All data will be cleared and rebuilt.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
