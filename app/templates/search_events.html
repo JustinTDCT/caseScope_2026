@@ -109,6 +109,15 @@
                         ⚙️ Manage Columns
                     </button>
                 </div>
+                
+                <!-- Show Hidden Events -->
+                <div>
+                    <label class="form-label">Visibility</label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; padding: 0.5rem; border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-bg-secondary);">
+                        <input type="checkbox" name="show_hidden" value="true" onchange="resetToPageOne()" {% if show_hidden %}checked{% endif %}>
+                        <span style="font-size: 0.875rem;">Show Hidden Events</span>
+                    </label>
+                </div>
             </div>
             
             <!-- Hidden inputs for pagination/sorting -->
@@ -186,7 +195,22 @@
             <h2 class="card-title">📊 Search Results</h2>
             <span class="text-muted">{{ "{:,}".format(total_count) }} events found</span>
         </div>
-        <div style="display: flex; gap: var(--spacing-md);">
+        <div style="display: flex; gap: var(--spacing-md); align-items: center;">
+            <div id="bulkActions" style="display: none; gap: var(--spacing-xs);">
+                <button onclick="bulkTagSelected()" class="btn btn-sm" style="background: var(--color-warning);">
+                    <span>⭐</span>
+                    <span>Tag Selected</span>
+                </button>
+                <button onclick="bulkHideSelected()" class="btn btn-sm btn-secondary">
+                    <span>👁️</span>
+                    <span>Hide Selected</span>
+                </button>
+                <button onclick="clearSelection()" class="btn btn-sm btn-secondary">
+                    <span>✖</span>
+                    <span>Clear</span>
+                </button>
+                <span class="text-muted" id="selectedCount" style="margin-left: 0.5rem;">0 selected</span>
+            </div>
             {% if total_count > 0 %}
             <span class="text-muted">Page {{ page }} of {{ total_pages }}</span>
             {% endif %}
@@ -311,11 +335,26 @@
                             </div>
                         </td>
                         <td>
-                            <button onclick="showEventDetail('{{ event._id }}', '{{ event._index }}')" 
-                                    class="btn btn-sm btn-primary" 
-                                    style="padding: 4px 8px; font-size: 0.75rem;">
-                                View
-                            </button>
+                            <div style="display: flex; gap: 4px;">
+                                <button onclick="showEventDetail('{{ event._id }}', '{{ event._index }}')" 
+                                        class="btn btn-sm btn-primary" 
+                                        style="padding: 4px 8px; font-size: 0.75rem;">
+                                    View
+                                </button>
+                                {% if event.is_hidden %}
+                                <button onclick="unhideEvent('{{ event._id }}', '{{ event._index }}')" 
+                                        class="btn btn-sm" 
+                                        style="padding: 4px 8px; font-size: 0.75rem; background: var(--color-success);">
+                                    Unhide
+                                </button>
+                                {% else %}
+                                <button onclick="hideEvent('{{ event._id }}', '{{ event._index }}')" 
+                                        class="btn btn-sm btn-secondary" 
+                                        style="padding: 4px 8px; font-size: 0.75rem;">
+                                    Hide
+                                </button>
+                                {% endif %}
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
@@ -573,6 +612,155 @@ function toggleSelectAll() {
     const selectAll = document.getElementById('selectAll');
     const checkboxes = document.querySelectorAll('.event-checkbox');
     checkboxes.forEach(cb => cb.checked = selectAll.checked);
+    updateBulkActions();
+}
+
+function updateBulkActions() {
+    const checkboxes = document.querySelectorAll('.event-checkbox:checked');
+    const bulkActions = document.getElementById('bulkActions');
+    const selectedCount = document.getElementById('selectedCount');
+    
+    if (checkboxes.length > 0) {
+        bulkActions.style.display = 'flex';
+        selectedCount.textContent = `${checkboxes.length} selected`;
+    } else {
+        bulkActions.style.display = 'none';
+    }
+}
+
+// Add event listeners to checkboxes
+document.addEventListener('DOMContentLoaded', function() {
+    const checkboxes = document.querySelectorAll('.event-checkbox');
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', updateBulkActions);
+    });
+});
+
+function clearSelection() {
+    const selectAll = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.event-checkbox');
+    selectAll.checked = false;
+    checkboxes.forEach(cb => cb.checked = false);
+    updateBulkActions();
+}
+
+function getSelectedEvents() {
+    const selected = [];
+    const checkboxes = document.querySelectorAll('.event-checkbox:checked');
+    checkboxes.forEach(cb => {
+        const row = cb.closest('tr');
+        selected.push({
+            event_id: row.dataset.eventId,
+            index_name: row.dataset.index
+        });
+    });
+    return selected;
+}
+
+function bulkTagSelected() {
+    const events = getSelectedEvents();
+    if (events.length === 0) {
+        alert('No events selected');
+        return;
+    }
+    
+    if (!confirm(`Tag ${events.length} event(s) for timeline?`)) {
+        return;
+    }
+    
+    fetch(`/case/{{ case.id }}/search/bulk-tag`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: events, tag_color: 'blue' })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Tagged ${data.tagged} event(s) (${data.skipped} already tagged)`);
+            window.location.reload();
+        } else {
+            alert(`❌ Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Bulk tag error:', error);
+        alert('❌ Failed to tag events');
+    });
+}
+
+function bulkHideSelected() {
+    const events = getSelectedEvents();
+    if (events.length === 0) {
+        alert('No events selected');
+        return;
+    }
+    
+    if (!confirm(`Hide ${events.length} event(s) from search results?`)) {
+        return;
+    }
+    
+    fetch(`/case/{{ case.id }}/search/bulk-hide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ events: events })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Hid ${data.hidden} event(s)`);
+            window.location.reload();
+        } else {
+            alert(`❌ Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Bulk hide error:', error);
+        alert('❌ Failed to hide events');
+    });
+}
+
+function hideEvent(eventId, indexName) {
+    if (!confirm('Hide this event from search results?')) {
+        return;
+    }
+    
+    fetch(`/case/{{ case.id }}/search/hide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: eventId, index_name: indexName })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(`❌ Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Hide error:', error);
+        alert('❌ Failed to hide event');
+    });
+}
+
+function unhideEvent(eventId, indexName) {
+    fetch(`/case/{{ case.id }}/search/unhide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: eventId, index_name: indexName })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(`❌ Error: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Unhide error:', error);
+        alert('❌ Failed to unhide event');
+    });
 }
 
 // Show event detail modal

@@ -728,6 +728,7 @@ def search_events(case_id):
     file_types = request.args.getlist('file_types')  # ['EVTX', 'EDR', 'JSON', 'CSV']
     if not file_types:  # Default: all types checked
         file_types = ['EVTX', 'EDR', 'JSON', 'CSV']
+    show_hidden = request.args.get('show_hidden', 'false').lower() == 'true'  # Default: hide hidden events
     sort_field = request.args.get('sort', 'normalized_timestamp')  # Use normalized field
     sort_order = request.args.get('order', 'desc')
     page = request.args.get('page', 1, type=int)
@@ -793,8 +794,8 @@ def search_events(case_id):
             latest_event_timestamp = datetime.utcnow()
     
     # Build query (if no search text, match all)
-    if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 4:
-        # Simple match_all for performance (only if all file types selected)
+    if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 4 and not show_hidden:
+        # Simple match_all for performance (only if all file types selected and not showing hidden)
         query_dsl = {"query": {"match_all": {}}}
     else:
         query_dsl = build_search_query(
@@ -805,7 +806,8 @@ def search_events(case_id):
             tagged_event_ids=tagged_event_ids,
             custom_date_start=custom_date_start,
             custom_date_end=custom_date_end,
-            latest_event_timestamp=latest_event_timestamp
+            latest_event_timestamp=latest_event_timestamp,
+            show_hidden=show_hidden
         )
     
     # Execute search
@@ -935,6 +937,7 @@ def search_events(case_id):
         filter_type=filter_type,
         date_range=date_range,
         file_types=file_types,
+        show_hidden=show_hidden,
         sort_field=sort_field,
         sort_order=sort_order,
         page=page,
@@ -1184,6 +1187,204 @@ def untag_timeline_event(case_id):
     db.session.commit()
     
     return jsonify({'success': True})
+
+
+@app.route('/case/<int:case_id>/search/hide', methods=['POST'])
+@login_required
+def hide_event(case_id):
+    """Hide event from search results by setting is_hidden flag in OpenSearch"""
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    data = request.json
+    event_id = data.get('event_id')
+    index_name = data.get('index_name')
+    
+    if not event_id or not index_name:
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    # Update OpenSearch document to set is_hidden flag
+    try:
+        opensearch_client.update(
+            index=index_name,
+            id=event_id,
+            body={
+                'script': {
+                    'source': 'ctx._source.is_hidden = true; ctx._source.hidden_by = params.user_id; ctx._source.hidden_at = params.timestamp',
+                    'lang': 'painless',
+                    'params': {
+                        'user_id': current_user.id,
+                        'timestamp': datetime.utcnow().isoformat()
+                    }
+                }
+            }
+        )
+        
+        logger.info(f"[HIDE EVENT] User {current_user.id} hid event {event_id} in case {case_id}")
+        
+        return jsonify({
+            'success': True,
+            'event_id': event_id
+        })
+    except Exception as e:
+        logger.error(f"[HIDE EVENT] Error hiding event {event_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/case/<int:case_id>/search/unhide', methods=['POST'])
+@login_required
+def unhide_event(case_id):
+    """Unhide event by removing is_hidden flag from OpenSearch"""
+    data = request.json
+    event_id = data.get('event_id')
+    index_name = data.get('index_name')
+    
+    if not event_id or not index_name:
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    # Update OpenSearch document to remove is_hidden flag
+    try:
+        opensearch_client.update(
+            index=index_name,
+            id=event_id,
+            body={
+                'script': {
+                    'source': 'ctx._source.remove("is_hidden"); ctx._source.remove("hidden_by"); ctx._source.remove("hidden_at")',
+                    'lang': 'painless'
+                }
+            }
+        )
+        
+        logger.info(f"[UNHIDE EVENT] User {current_user.id} unhid event {event_id} in case {case_id}")
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"[UNHIDE EVENT] Error unhiding event {event_id}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/case/<int:case_id>/search/bulk-tag', methods=['POST'])
+@login_required
+def bulk_tag_events(case_id):
+    """Bulk tag multiple events for timeline"""
+    from models import TimelineTag
+    import json
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    data = request.json
+    events = data.get('events', [])  # List of {event_id, index_name}
+    tag_color = data.get('tag_color', 'blue')
+    
+    if not events:
+        return jsonify({'error': 'No events provided'}), 400
+    
+    tagged_count = 0
+    skipped_count = 0
+    
+    for event in events:
+        event_id = event.get('event_id')
+        index_name = event.get('index_name')
+        
+        if not event_id or not index_name:
+            continue
+        
+        # Check if already tagged
+        existing = db.session.query(TimelineTag).filter_by(
+            case_id=case_id,
+            event_id=event_id,
+            index_name=index_name
+        ).first()
+        
+        if existing:
+            skipped_count += 1
+            continue
+        
+        # Create tag
+        tag = TimelineTag(
+            case_id=case_id,
+            user_id=current_user.id,
+            event_id=event_id,
+            index_name=index_name,
+            event_data=json.dumps(event.get('event_data', {})),
+            tag_color=tag_color,
+            notes=''
+        )
+        db.session.add(tag)
+        tagged_count += 1
+    
+    db.session.commit()
+    
+    logger.info(f"[BULK TAG] User {current_user.id} tagged {tagged_count} events in case {case_id} (skipped {skipped_count})")
+    
+    return jsonify({
+        'success': True,
+        'tagged': tagged_count,
+        'skipped': skipped_count
+    })
+
+
+@app.route('/case/<int:case_id>/search/bulk-hide', methods=['POST'])
+@login_required
+def bulk_hide_events(case_id):
+    """Bulk hide multiple events by setting is_hidden flag in OpenSearch"""
+    from opensearchpy.helpers import bulk as opensearch_bulk
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    data = request.json
+    events = data.get('events', [])  # List of {event_id, index_name}
+    
+    if not events:
+        return jsonify({'error': 'No events provided'}), 400
+    
+    # Build bulk update operations
+    bulk_ops = []
+    timestamp = datetime.utcnow().isoformat()
+    
+    for event in events:
+        event_id = event.get('event_id')
+        index_name = event.get('index_name')
+        
+        if not event_id or not index_name:
+            continue
+        
+        bulk_ops.append({
+            '_op_type': 'update',
+            '_index': index_name,
+            '_id': event_id,
+            'script': {
+                'source': 'ctx._source.is_hidden = true; ctx._source.hidden_by = params.user_id; ctx._source.hidden_at = params.timestamp',
+                'lang': 'painless',
+                'params': {
+                    'user_id': current_user.id,
+                    'timestamp': timestamp
+                }
+            }
+        })
+    
+    if not bulk_ops:
+        return jsonify({'error': 'No valid events to hide'}), 400
+    
+    # Execute bulk update
+    try:
+        success, failed = opensearch_bulk(opensearch_client, bulk_ops, raise_on_error=False)
+        
+        logger.info(f"[BULK HIDE] User {current_user.id} hid {success} events in case {case_id} ({len(failed)} failed)")
+        
+        return jsonify({
+            'success': True,
+            'hidden': success,
+            'failed': len(failed)
+        })
+    except Exception as e:
+        logger.error(f"[BULK HIDE] Error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/case/<int:case_id>/search/columns', methods=['POST'])

@@ -256,6 +256,28 @@ class TimelineTag(db.Model):
     )
 
 
+class HiddenEvent(db.Model):
+    """Hidden events for cleaner search results"""
+    __tablename__ = 'hidden_event'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    event_id = db.Column(db.String(64), nullable=False, index=True)  # OpenSearch document _id
+    index_name = db.Column(db.String(200), nullable=False, index=True)  # OpenSearch index name
+    reason = db.Column(db.String(500))  # Optional reason for hiding
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    # Relationships
+    case = db.relationship('Case', backref='hidden_events')
+    user = db.relationship('User', backref='hidden_events')
+    
+    # Composite unique constraint to prevent duplicates
+    __table_args__ = (
+        db.UniqueConstraint('case_id', 'event_id', 'index_name', name='_hidden_event_uc'),
+    )
+
+
 class AuditLog(db.Model):
     """Audit trail for user actions"""
     __tablename__ = 'audit_log'

@@ -20,7 +20,8 @@ def build_search_query(
     file_types: Optional[List[str]] = None,
     additional_filters: Optional[Dict] = None,
     tagged_event_ids: Optional[List[str]] = None,
-    latest_event_timestamp: Optional[datetime] = None
+    latest_event_timestamp: Optional[datetime] = None,
+    show_hidden: bool = False
 ) -> Dict[str, Any]:
     """
     Build OpenSearch query DSL based on search parameters
@@ -35,6 +36,7 @@ def build_search_query(
         additional_filters: Additional field filters (e.g., {'EventID': '4624'})
         tagged_event_ids: List of event IDs that have timeline tags (for 'tagged' filter)
         latest_event_timestamp: Latest event timestamp in case (for relative date filters)
+        show_hidden: Whether to show hidden events (default: False)
     
     Returns:
         OpenSearch query DSL dictionary
@@ -220,6 +222,15 @@ def build_search_query(
             query["bool"]["filter"].append({
                 "term": {field: value}
             })
+    
+    # Hidden events filter
+    if not show_hidden:
+        # Exclude hidden events by default (events where is_hidden = true)
+        query["bool"]["must_not"] = query["bool"].get("must_not", [])
+        query["bool"]["must_not"].append({
+            "term": {"is_hidden": True}
+        })
+        logger.debug("[SEARCH] Excluding hidden events from results")
     
     return {"query": query}
 
@@ -595,6 +606,7 @@ def extract_event_fields(event_source: Dict[str, Any]) -> Dict[str, Any]:
         skip_fields = {
             'opensearch_key', '_id', '_index', '_score', 
             'has_sigma', 'has_ioc', 'ioc_count',  # Skip IOC metadata fields
+            'is_hidden', 'hidden_by', 'hidden_at',  # Skip hidden metadata fields
             'normalized_timestamp', 'normalized_computer', 'normalized_event_id',  # Skip normalized fields
             'source_file_type'  # Skip this metadata field
         }
