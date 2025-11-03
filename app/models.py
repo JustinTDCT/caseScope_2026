@@ -289,6 +289,9 @@ class AIReport(db.Model):
     report_title = db.Column(db.String(500))
     report_content = db.Column(db.Text)  # Full report in markdown format
     generation_time_seconds = db.Column(db.Float)  # How long it took to generate
+    estimated_duration_seconds = db.Column(db.Float)  # Estimated time based on IOC/event counts
+    tokens_per_second = db.Column(db.Float)  # Generation speed (tokens/second)
+    total_tokens = db.Column(db.Integer)  # Total tokens generated
     error_message = db.Column(db.Text)  # Error details if failed
     progress_percent = db.Column(db.Integer, default=0)  # 0-100 progress indicator
     progress_message = db.Column(db.String(200))  # Current step description

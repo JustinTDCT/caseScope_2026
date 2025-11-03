@@ -14,7 +14,7 @@ from opensearchpy import OpenSearch
 
 # Import config and models
 from config import Config
-from models import db, User, Case, CaseFile, SigmaRule, SigmaViolation, IOC, IOCMatch, SkippedFile, SystemSettings
+from models import db, User, Case, CaseFile, SigmaRule, SigmaViolation, IOC, IOCMatch, SkippedFile, SystemSettings, TimelineTag, AIReport
 from celery_app import celery_app
 
 # Setup logging using centralized configuration
@@ -671,12 +671,26 @@ def generate_ai_report(case_id):
             'status': existing_report.status
         }), 409
     
+    # Calculate estimated duration based on IOC and tagged event counts
+    ioc_count = IOC.query.filter_by(case_id=case_id).count()
+    tagged_event_count = TimelineTag.query.filter_by(case_id=case_id).count()
+    
+    # Smart estimation algorithm for LLaMA 3.1 8B (faster than 14B):
+    # Base time: 90 seconds (1.5 min)
+    # Per IOC: +2 seconds
+    # Per tagged event: +0.5 second
+    # Model overhead: +30 seconds for model loading
+    estimated_seconds = 90 + (ioc_count * 2) + (tagged_event_count * 0.5) + 30
+    # Cap between 2-15 minutes (8B is faster than 14B)
+    estimated_seconds = max(120, min(estimated_seconds, 900))
+    
     # Create new AIReport record
     new_report = AIReport(
         case_id=case_id,
         generated_by=current_user.id,
         status='pending',
-        model_name=get_setting('ai_model_name', 'phi3:14b')
+        model_name=get_setting('ai_model_name', 'phi3:14b'),
+        estimated_duration_seconds=estimated_seconds
     )
     
     db.session.add(new_report)
@@ -730,6 +744,9 @@ def get_ai_report(report_id):
         'content': report.report_content,
         'model_name': report.model_name,
         'generation_time': report.generation_time_seconds,
+        'estimated_duration': report.estimated_duration_seconds,
+        'tokens_per_second': report.tokens_per_second,
+        'total_tokens': report.total_tokens,
         'error_message': report.error_message,
         'progress_percent': report.progress_percent or 0,
         'progress_message': report.progress_message or 'Initializing...',

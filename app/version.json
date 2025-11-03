@@ -1,10 +1,12 @@
 {
-  "version": "1.10.34",
+  "version": "1.10.37",
   "release_date": "2025-11-02",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
-    "🤖 AI Report Generation with Real-Time Progress Tracking - Local LLM (Phi-3 14B) via Ollama (v1.10.34)",
+    "🤖 AI Report Generation with Real-Time Streaming & Live Token Monitoring - Local LLM via Ollama (v1.10.35)",
+    "📝 Professional DFIR Report Structure - Client-Proven Format with HTML/Word Output (v1.10.36)",
+    "🔧 AI Report Fixes - Timeline Sorting, IOC Formatting, System Role Clarity (v1.10.37)",
     "Centralized Logging System with Configurable Log Levels (v1.10.33)",
     "CRITICAL FIX: Read-Only User Permission Lockdown (v1.10.32)",
     "CRITICAL FIX: Role Check Consistency - admin → administrator (v1.10.31)",

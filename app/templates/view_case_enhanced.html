@@ -428,11 +428,21 @@ function generateAIReport() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Show progress modal
-            showProgressModal(data.report_id);
-            
-            // Start polling for progress
-            checkAIReportStatus(data.report_id);
+            // Fetch report details to get estimated duration
+            fetch(`/ai/report/${data.report_id}`)
+                .then(r => r.json())
+                .then(reportData => {
+                    const estimatedMinutes = reportData.estimated_duration ? (reportData.estimated_duration / 60) : 3;
+                    // Show progress modal with smart estimate
+                    showProgressModal(data.report_id, estimatedMinutes);
+                    // Start polling for progress
+                    checkAIReportStatus(data.report_id);
+                })
+                .catch(err => {
+                    // Fallback if fetch fails
+                    showProgressModal(data.report_id, 3);
+                    checkAIReportStatus(data.report_id);
+                });
         } else {
             alert(`❌ Failed to Generate Report\n\n${data.error}`);
             button.disabled = false;
@@ -447,7 +457,7 @@ function generateAIReport() {
     });
 }
 
-function showProgressModal(reportId) {
+function showProgressModal(reportId, estimatedMinutes = 3) {
     // Create modal overlay
     const modal = document.createElement('div');
     modal.id = 'aiProgressModal';
@@ -465,13 +475,17 @@ function showProgressModal(reportId) {
         z-index: 99999 !important;
     `;
     
+    const estimateText = estimatedMinutes < 2 
+        ? 'This will take ~2 minutes'
+        : `This will take ~${Math.round(estimatedMinutes)} minutes`;
+    
     modal.innerHTML = `
         <div style="background: var(--color-background); padding: var(--spacing-xl); border-radius: var(--border-radius); max-width: 600px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.3);">
             <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-lg);">
                 <span style="font-size: 2rem;">🤖</span>
                 <div>
                     <h2 style="margin: 0; font-size: 1.25rem;">AI Report Generation</h2>
-                    <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">This will take 3-5 minutes</p>
+                    <p id="estimatedTimeText" style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">${estimateText}</p>
                 </div>
             </div>
             
@@ -494,6 +508,10 @@ function showProgressModal(reportId) {
                     <div>
                         <span style="color: var(--color-text-muted);">⏳ Remaining:</span>
                         <strong id="remainingTime" style="margin-left: var(--spacing-xs);">~4m</strong>
+                    </div>
+                    <div id="tokensPerSecDiv" style="display: none;">
+                        <span style="color: var(--color-text-muted);">⚡ Speed:</span>
+                        <strong id="tokensPerSec" style="margin-left: var(--spacing-xs); color: var(--color-success);">--</strong>
                     </div>
                 </div>
             </div>
@@ -554,17 +572,19 @@ function checkAIReportStatus(reportId, attempts = 0, startTime = null) {
     fetch(`/ai/report/${reportId}`)
         .then(response => response.json())
         .then(data => {
-            // Get the real start time from the report's created_at timestamp
+            // Get the real start time from the report's created_at timestamp (parse ISO string properly)
             if (!startTime && data.created_at) {
-                startTime = new Date(data.created_at).getTime();
+                // Parse the ISO timestamp correctly
+                startTime = new Date(data.created_at + 'Z').getTime(); // Add Z to ensure UTC parsing
             }
             
             // Calculate elapsed time from report creation
-            const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+            const now = Date.now();
+            const elapsedSeconds = startTime ? Math.max(0, Math.floor((now - startTime) / 1000)) : 0;
             const elapsedTime = document.getElementById('elapsedTime');
             const remainingTime = document.getElementById('remainingTime');
             
-            if (elapsedTime) {
+            if (elapsedTime && elapsedSeconds >= 0) {
                 const minutes = Math.floor(elapsedSeconds / 60);
                 const seconds = elapsedSeconds % 60;
                 elapsedTime.textContent = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
@@ -573,16 +593,36 @@ function checkAIReportStatus(reportId, attempts = 0, startTime = null) {
             // Update progress UI if modal is open
             updateProgressUI(data);
             
-            // Update remaining time estimate based on progress
-            if (remainingTime && data.progress_percent > 0 && data.progress_percent < 100) {
-                // Estimate total time based on current progress
-                const estimatedTotalSeconds = (elapsedSeconds / data.progress_percent) * 100;
-                const estimatedRemainingSeconds = Math.max(0, Math.floor(estimatedTotalSeconds - elapsedSeconds));
-                const remMinutes = Math.floor(estimatedRemainingSeconds / 60);
-                const remSeconds = estimatedRemainingSeconds % 60;
+            // Update remaining time estimate based on real estimation from backend
+            if (remainingTime && data.progress_percent > 0 && data.progress_percent < 100 && data.estimated_duration) {
+                // Use backend's smart estimation (in SECONDS)
+                const estimatedTotalSeconds = data.estimated_duration;
+                const estimatedRemaining = Math.max(0, Math.floor(estimatedTotalSeconds - elapsedSeconds));
+                const remMinutes = Math.floor(estimatedRemaining / 60);
+                const remSeconds = estimatedRemaining % 60;
                 remainingTime.textContent = remMinutes > 0 ? `~${remMinutes}m ${remSeconds}s` : `~${remSeconds}s`;
             } else if (remainingTime && data.progress_percent >= 100) {
                 remainingTime.textContent = '0s';
+            }
+            
+            // Update tokens/second if available (real-time during generation)
+            const tokensDiv = document.getElementById('tokensPerSecDiv');
+            const tokensText = document.getElementById('tokensPerSec');
+            if (tokensDiv && tokensText) {
+                // Show tok/s if we have the data (even during generation)
+                if (data.tokens_per_second && data.tokens_per_second > 0) {
+                    tokensDiv.style.display = 'block';
+                    tokensText.textContent = `${data.tokens_per_second.toFixed(2)} tok/s`;
+                    
+                    // Also show total tokens if available
+                    if (data.total_tokens && data.total_tokens > 0) {
+                        tokensText.textContent = `${data.tokens_per_second.toFixed(2)} tok/s (${data.total_tokens} tokens)`;
+                    }
+                } else if (data.status === 'generating') {
+                    // Show placeholder during generation if no data yet
+                    tokensDiv.style.display = 'block';
+                    tokensText.textContent = 'calculating...';
+                }
             }
             
             if (data.status === 'completed') {
@@ -593,7 +633,16 @@ function checkAIReportStatus(reportId, attempts = 0, startTime = null) {
                 button.disabled = false;
                 button.innerHTML = '<span>🤖</span><span>Generate AI Report</span>';
                 
-                alert(`✅ Report Generated Successfully!\n\nTitle: ${data.title}\nGeneration Time: ${data.generation_time.toFixed(1)}s\n\nDownloading now...`);
+                // Build success message with tokens/second if available
+                let successMsg = `✅ Report Generated Successfully!\n\nTitle: ${data.title}\nGeneration Time: ${data.generation_time.toFixed(1)}s`;
+                if (data.tokens_per_second) {
+                    successMsg += `\nSpeed: ${data.tokens_per_second.toFixed(2)} tokens/second`;
+                    if (data.total_tokens) {
+                        successMsg += `\nTotal Tokens: ${data.total_tokens}`;
+                    }
+                }
+                successMsg += '\n\nDownloading now...';
+                alert(successMsg);
                 
                 // Download the report
                 window.location.href = `/ai/report/${reportId}/download`;

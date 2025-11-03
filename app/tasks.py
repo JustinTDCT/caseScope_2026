@@ -609,7 +609,7 @@ def generate_ai_report(self, report_id):
     """
     from main import app, db, opensearch_client
     from models import AIReport, Case, IOC
-    from ai_report import generate_case_report_prompt, generate_report_with_ollama, format_report_title
+    from ai_report import generate_case_report_prompt, generate_report_with_ollama, format_report_title, markdown_to_html
     from datetime import datetime
     import time
     
@@ -705,23 +705,40 @@ def generate_ai_report(self, report_id):
             
             # Generate report with Ollama
             report.progress_percent = 50
-            report.progress_message = 'Generating report with AI (this may take 3-5 minutes)...'
+            report.progress_message = 'Generating report with AI...'
             db.session.commit()
             
             start_time = time.time()
-            success, result = generate_report_with_ollama(prompt)
+            # Use the model specified in the report record (from database settings)
+            # Pass report object and db session for real-time streaming updates
+            success, result = generate_report_with_ollama(
+                prompt, 
+                model=report.model_name,
+                report_obj=report,
+                db_session=db.session
+            )
             generation_time = time.time() - start_time
             
             if success:
+                # Convert markdown report to HTML for Word compatibility
+                markdown_report = result['report']
+                html_report = markdown_to_html(markdown_report, case.name, case.company)
+                
                 # Update report with success
                 report.status = 'completed'
                 report.report_title = format_report_title(case.name)
-                report.report_content = result['report']
+                report.report_content = html_report  # Store as HTML for Word compatibility
                 report.generation_time_seconds = result['duration_seconds']
                 report.completed_at = datetime.utcnow()
                 report.model_name = result.get('model', 'phi3:14b')
                 report.progress_percent = 100
                 report.progress_message = 'Report completed successfully!'
+                
+                # Store performance metrics
+                eval_count = result.get('eval_count', 0)
+                if eval_count > 0 and result['duration_seconds'] > 0:
+                    report.tokens_per_second = eval_count / result['duration_seconds']
+                    report.total_tokens = eval_count
                 
                 db.session.commit()
                 

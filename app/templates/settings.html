@@ -327,18 +327,76 @@
                     </p>
                 </div>
 
-                <!-- AI Model Name -->
+                <!-- AI Model Selection -->
                 <div class="form-group">
-                    <label for="ai_model_name">AI Model</label>
+                    <label style="font-weight: 600; margin-bottom: var(--spacing-sm); display: block;">
+                        AI Model Selection
+                    </label>
+                    
+                    {% if ai_status.models %}
+                    <!-- Available Models -->
+                    <div style="display: grid; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                        {% for model in ai_status.models %}
+                        <label style="cursor: pointer;">
+                            <input type="radio" 
+                                   name="ai_model_name" 
+                                   value="{{ model.name }}"
+                                   {% if ai_model_name == model.name %}checked{% endif %}
+                                   style="display: none;">
+                            <div class="model-card" style="border: 2px solid {% if ai_model_name == model.name %}var(--color-primary){% else %}var(--color-border){% endif %}; padding: var(--spacing-md); border-radius: var(--border-radius); background: {% if ai_model_name == model.name %}var(--color-primary-bg){% else %}var(--color-background){% endif %}; transition: all 0.2s ease;">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-xs);">
+                                    <div>
+                                        <h4 style="margin: 0; font-size: 1rem; color: var(--color-text);">
+                                            {% if model.recommended %}⭐ {% endif %}{{ model.display_name }}
+                                            {% if ai_model_name == model.name %}
+                                            <span style="background: var(--color-primary); color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">SELECTED</span>
+                                            {% endif %}
+                                        </h4>
+                                        <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
+                                            {{ model.description }}
+                                        </p>
+                                    </div>
+                                </div>
+                                
+                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--spacing-sm); margin-top: var(--spacing-sm); font-size: 0.8rem;">
+                                    <div>
+                                        <span style="color: var(--color-text-muted);">Speed:</span>
+                                        <strong style="color: {% if model.speed == 'Fast' %}var(--color-success){% elif model.speed == 'Moderate' %}var(--color-warning){% else %}var(--color-error){% endif %};">{{ model.speed }}</strong>
+                                    </div>
+                                    <div>
+                                        <span style="color: var(--color-text-muted);">Quality:</span>
+                                        <strong style="color: {% if model.quality == 'Excellent' %}var(--color-success){% elif model.quality == 'Good' %}var(--color-info){% else %}var(--color-text-muted){% endif %};">{{ model.quality }}</strong>
+                                    </div>
+                                    <div>
+                                        <span style="color: var(--color-text-muted);">Size:</span>
+                                        <strong>{{ model.size }}</strong>
+                                    </div>
+                                </div>
+                                
+                                <div style="margin-top: var(--spacing-sm); padding-top: var(--spacing-sm); border-top: 1px solid var(--color-border); font-size: 0.75rem; color: var(--color-text-muted);">
+                                    <div>⚡ Performance: {{ model.speed_estimate }}</div>
+                                    <div style="margin-top: 2px;">⏱️ Report Time: {{ model.time_estimate }}</div>
+                                </div>
+                            </div>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
+                        💡 <strong>Tip:</strong> q4_K_M models offer the best speed/quality balance for CPU. Higher quantization (q5_K_M, q8) improves quality but requires more time or GPU acceleration.
+                    </p>
+                    {% else %}
+                    <!-- No models available - fallback to text input -->
                     <input type="text" 
                            id="ai_model_name"
                            name="ai_model_name" 
                            value="{{ ai_model_name }}"
-                           placeholder="phi3:14b"
-                           style="width: 100%; max-width: 400px;">
-                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
-                        Ollama model name (default: phi3:14b). Other options: phi3:3.8b, llama3.1:8b, mistral:7b
+                           placeholder="llama3.1:8b-instruct-q4_K_M"
+                           style="width: 100%; max-width: 600px;">
+                    <p style="color: var(--color-warning); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                        ⚠️ No models detected. Please download a model using: <code>ollama pull llama3.1:8b-instruct-q4_K_M</code>
                     </p>
+                    {% endif %}
                 </div>
 
                 <!-- AI Performance Info -->
@@ -368,6 +426,24 @@
         </div>
     </form>
 </div>
+
+<style>
+.model-card:hover {
+    border-color: var(--color-primary) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+
+.model-card {
+    transition: all 0.2s ease;
+}
+
+input[type="radio"]:checked + .model-card {
+    border-color: var(--color-primary) !important;
+    background: var(--color-primary-bg) !important;
+    box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.1);
+}
+</style>
 
 <script>
 function testIrisConnection() {

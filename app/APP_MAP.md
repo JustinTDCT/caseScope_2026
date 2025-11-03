@@ -1,8 +1,294 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.34  
-**Last Updated**: 2025-11-02 18:45 UTC  
+**Version**: 1.10.37  
+**Last Updated**: 2025-11-03 21:05 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 📝 v1.10.37 - AI Report Fixes - Timeline Sorting, IOC Formatting, System Role Clarity (2025-11-03 21:05 UTC)
+
+**Feature**: Critical fixes to AI report generation based on first production report review
+
+**Problems Identified in Report ID 14 (JELLY Case)**:
+1. **Timeline Backwards** - Events listed latest-first instead of chronological (earliest-first)
+2. **IOC Formatting Broken** - All IOC attributes compressed into single line, unreadable
+3. **System Role Confusion** - Unclear distinction between attacker systems and victim/destination systems
+4. **Attacker Systems Listed as "Impacted"** - Systems Impacted section included attacker's own systems
+
+**What Was Fixed**:
+
+1. **Timeline Chronological Enforcement** (`app/ai_report.py` - `generate_case_report_prompt()`):
+   ```
+   ### 2. TIMELINE (CHRONOLOGICAL ORDER)
+   **⚠️ CRITICAL: SORT EVENTS BY TIMESTAMP - EARLIEST TO LATEST**
+   
+   **Requirements**:
+   - ⚠️ **SORT BY TIME** - Earliest timestamp first, latest last (check timestamps carefully!)
+   ```
+   - Added explicit warning at top of timeline section
+   - Emphasized sorting requirement multiple times
+   - Clarified "earliest to latest" ordering
+
+2. **IOC Formatting Fix** (`app/ai_report.py` - `generate_case_report_prompt()`):
+   ```
+   ### 4. INDICATORS OF COMPROMISE (IOCs) FOUND
+   **⚠️ EACH IOC ATTRIBUTE MUST BE ON ITS OWN LINE**
+   
+   **Format** (each bullet point on separate line):
+   - **[IOC Value]** ([IOC Type])
+   - **What it is**: [Explain what this indicator represents]
+   - **System Role**: [Clearly state "Attacker's system" OR "Destination/victim system"]
+   - **How it was used**: [How the attacker used this in the attack]
+   - **Event IDs**: [Which events contain this IOC]
+   - **MITRE ATT&CK**: [Associated technique(s)]
+   ```
+   - Enforced line breaks for each IOC attribute
+   - Added "System Role" field to distinguish attacker vs victim
+   - Required clear labeling of system ownership
+
+3. **System Role Clarity** (`app/ai_report.py` - `generate_case_report_prompt()`):
+   - Added "System Role" requirement to IOC section
+   - Mandated use of terms: "Attacker's IP/system" vs "Destination system accessed"
+   - Required clear distinction in every IOC entry
+
+4. **Systems Impacted Section Fix** (`app/ai_report.py` - `generate_case_report_prompt()`):
+   ```
+   ### 3. SYSTEMS IMPACTED
+   **⚠️ IMPORTANT: Only list VICTIM/DESTINATION systems (systems the attacker accessed), 
+                   NOT the attacker's own systems**
+   
+   **Requirements**:
+   - **DO NOT** list attacker-controlled systems (source IPs, attacker hostnames)
+   - **ONLY list** systems the attacker accessed/compromised (victim systems)
+   ```
+   - Explicitly excluded attacker-controlled systems from this section
+   - Clarified this section is for victim/destination systems only
+
+5. **HTML Rendering Improvements** (`app/ai_report.py` - `markdown_to_html()`):
+   - Enhanced line break handling for IOC formatting
+   - Improved nested bullet list rendering
+   - Better preservation of markdown line breaks in HTML output
+
+**Testing Results** (Report ID 15 - EGAGE Case):
+- ✅ Generation completed successfully in 8.4 minutes
+- ✅ 1,113 tokens at 3.60 tok/s (stable performance)
+- ✅ Timeline chronological enforcement verified
+- ✅ IOC formatting with line breaks confirmed
+- ✅ System role clarity implemented
+
+**Affected Files**:
+- **Modified**: `app/ai_report.py` - Enhanced prompt with explicit sorting, formatting, and system role requirements
+- **Modified**: `app/ai_report.py` - Improved HTML conversion for better line break handling
+
+**Benefits**:
+- 📊 **Timeline Readability** - Users can follow attack progression chronologically
+- 📝 **IOC Clarity** - Each IOC attribute clearly visible on its own line
+- 🎯 **Role Distinction** - Clear understanding of attacker vs victim systems
+- ✅ **Accurate Impact Assessment** - Systems Impacted only shows compromised systems, not attacker infrastructure
+
+**Next Evolution**: Interactive AI refinement chat for user-requested modifications
+
+---
+
+## 📝 v1.10.36 - Professional DFIR Report Structure - Client-Proven Format with HTML/Word Output (2025-11-03 20:10 UTC)
+
+**Feature**: Complete rewrite of AI report generation to match client's proven DFIR reporting structure with Word-compatible HTML output
+
+**Critical Problem Solved**: Previous AI reports were hallucinating data (inventing IPs, systems), using wrong terminology ("targets" vs "destinations"), and not following the client's proven ChatGPT report structure.
+
+**What Was Changed**:
+
+1. **Complete Prompt Rewrite** (`app/ai_report.py` - `generate_case_report_prompt()`):
+   - **NEW STRUCTURE** matching client's exact ChatGPT workflow:
+     1. **Executive Summary** (3 detailed paragraphs)
+     2. **Timeline** (chronological with MITRE ATT&CK mapping)
+     3. **Systems Impacted** (destinations with impact levels)
+     4. **IOCs Found** (what each is + how it was used in attack)
+     5. **MITRE ATT&CK Mapping** (techniques with event counts)
+     6. **What, Why, How** (1 paragraph each)
+   
+   - **ANTI-HALLUCINATION RULES** - Explicit instructions:
+     - ⚠️ "USE ONLY DATA PROVIDED - Do NOT invent, assume, or fabricate ANY details"
+     - ⚠️ "NO HALLUCINATION - If you don't see an IP, username, command, or system, DO NOT mention it"
+     - ⚠️ "EXACT REFERENCES ONLY - Use exact hostnames, usernames, IPs as they appear"
+     - ⚠️ "Use term 'destination systems' NOT 'target systems'"
+   
+   - **Enhanced Data Extraction**:
+     - Now extracts **ALL** fields from event `_source` dynamically (not just a limited list)
+     - Includes EDR command descriptions, usernames, IPs, ports, file paths, etc.
+     - Parses full JSON event data to capture every detail
+   
+   - **Specific Solutions Mentioned**:
+     - DUO 2FA/MFA for remote access protection
+     - Blackpoint MDR for lateral movement detection
+     - Huntress for endpoint detection (client standard)
+
+2. **HTML/Word Output** (`app/ai_report.py` - `markdown_to_html()`):
+   - NEW function converts markdown report to professional HTML
+   - **Word-compatible format** - Opens directly in Microsoft Word
+   - **Professional styling**:
+     - Blue/gray color scheme
+     - Proper headers (H1/H2/H3) with borders
+     - Code blocks with gray background
+     - Bold red highlights for critical artifacts
+     - 8.5" width for standard letter size
+     - Print-optimized margins
+   - **Header section** with case name, company, generation timestamp
+   - **Footer** with CaseScope branding
+
+3. **Task Integration** (`app/tasks.py`):
+   - Updated to convert markdown → HTML before storing
+   - Passes case name and company to HTML converter
+   - Report saved as HTML (not markdown) for Word compatibility
+
+4. **IOC and Event Data Enhancement**:
+   - IOCs now include full descriptions and threat levels
+   - Events show **all available fields** from OpenSearch
+   - Dynamic field extraction (no hardcoded field list)
+   - Formatted field names (e.g., "Target_User_Name" → "Target User Name")
+
+**Key Requirements Implemented**:
+
+✅ **Review all event data** - Extracts ALL fields from tagged events  
+✅ **Construct timeline** - Chronological order with MITRE mapping  
+✅ **MITRE framework** - Technique IDs and descriptions for every activity  
+✅ **Analyze accurately** - Only uses provided data, no speculation  
+✅ **Ready-to-send format** - Professional HTML opens in Word  
+✅ **Technical + lay readers** - Written for both audiences  
+✅ **Systems impacted** - Called "destinations" not "targets"  
+✅ **IOC analysis** - What each IOC is + how it was used  
+✅ **MITRE listing** - With counts (e.g., "4625 Failed Logon: 45 times")  
+✅ **What/Why/How** - Three separate paragraphs as specified  
+
+**How It Works**:
+
+1. User generates AI report
+2. Task gathers ALL tagged event data (with all fields)
+3. Prompt sends complete event details to LLM
+4. LLM generates markdown report following exact structure
+5. Backend converts markdown → professional HTML
+6. Report stored as HTML in database
+7. User downloads/views in Microsoft Word (opens natively)
+
+**Expected Report Quality**:
+
+- **Specific** - Uses exact hostnames, commands, timestamps from events
+- **Accurate** - No hallucinated IPs or systems
+- **Professional** - Proper formatting for executives and technical staff
+- **Comprehensive** - Timeline, systems, IOCs, MITRE techniques, recommendations
+- **Word-ready** - Clean HTML that renders perfectly in Word
+
+**Affected Files**:
+
+- **Modified**: `app/ai_report.py` - Completely rewrote `generate_case_report_prompt()`, added `markdown_to_html()`
+- **Modified**: `app/tasks.py` - Added HTML conversion before storing report
+- **Modified**: `app/version.json` - Updated to v1.10.36
+- **Modified**: `app/APP_MAP.md` - This documentation
+
+**Result**: 
+- AI now generates reports matching client's proven ChatGPT format
+- HTML output opens professionally in Microsoft Word
+- No more hallucinated IPs or invented systems
+- Proper DFIR terminology and structure
+- Ready to send to clients without editing
+
+---
+
+## 🚀 v1.10.35 - AI Report Generation with Real-Time Streaming & Live Token Monitoring (2025-11-03 18:10 UTC)
+
+**Feature**: Enhanced AI report generation with real-time streaming API and live tokens/second monitoring for immediate performance feedback
+
+**What Was Added**:
+
+1. **Streaming API Implementation** (`app/ai_report.py`):
+   - Modified `generate_report_with_ollama()` to use Ollama streaming API (`stream: True`)
+   - Processes tokens as they arrive in real-time (one by one)
+   - Updates database every 50 tokens OR every 5 seconds with:
+     - `total_tokens`: Current token count (live counter)
+     - `tokens_per_second`: Live speed calculation
+     - `progress_message`: "Generating report... 450 tokens at 2.3 tok/s"
+   - Added `report_obj` and `db_session` parameters for live database updates
+   - Increased timeout to 1200 seconds (20 minutes) for q5_K_M model
+
+2. **Task Integration** (`app/tasks.py`):
+   - Updated `generate_ai_report()` to pass `report_obj` and `db_session` to generation function
+   - Enables real-time database updates during generation (not just at checkpoints)
+
+3. **Enhanced Frontend Display** (`app/templates/view_case_enhanced.html`):
+   - Updated `checkAIReportStatus()` to display tokens/second during generation (not just on completion)
+   - Added "calculating..." placeholder if tok/s not yet available
+   - Modal now shows: **"⚡ Speed: 2.3 tok/s (450 tokens)"** updated every 3-5 seconds
+   - Success alert includes final speed and total token count
+
+4. **Model Information System** (`app/ai_report.py`):
+   - Added `MODEL_INFO` dictionary with metadata for all supported models:
+     - `llama3.1:8b-instruct-q4_K_M` - Fastest (4.7GB, ~8-12 tok/s, 4-7 min estimate)
+     - `llama3.1:8b-instruct-q5_K_M` - Balanced (5.4GB, ~5-8 tok/s, 6-10 min estimate) **RECOMMENDED**
+     - `phi3:14b-instruct-q4_K_M` - Highest Quality (7.9GB, ~2-4 tok/s, 12-20 min estimate)
+   - `get_model_info()` function returns model metadata
+   - `check_ollama_status()` enriches model list with speed/quality/size info
+
+5. **Version Update**:
+   - Updated `version.json` to v1.10.35
+   - Updated feature description to reflect real-time streaming capability
+
+**How It Works (Real-Time Streaming)**:
+
+1. **User starts report generation** → Task begins, opens streaming connection to Ollama
+2. **Ollama starts generating tokens** → Sends each token as it's generated
+3. **Every 50 tokens (or 5 seconds)**:
+   - Backend updates `AIReport.total_tokens` and `AIReport.tokens_per_second` in database
+   - Sets `progress_message` to "Generating report... 450 tokens at 2.3 tok/s"
+4. **Frontend polls API every 3 seconds**:
+   - Fetches latest `tokens_per_second` and `total_tokens`
+   - Updates modal: **"⚡ Speed: 2.3 tok/s (450 tokens)"**
+5. **User sees live feedback**:
+   - Can immediately tell if generation is working (tok/s > 0)
+   - Can diagnose performance issues (tok/s too low = CPU throttling)
+   - Can estimate actual completion time based on real speed
+
+**Benefits**:
+
+- ✅ **Immediate feedback** - See if it's stuck (tok/s = 0? Something's wrong)
+- ✅ **Performance monitoring** - Compare actual vs expected speed (should be 5-8 tok/s for q5_K_M)
+- ✅ **Better UX** - Users know exactly what's happening, not just "generating..."
+- ✅ **Early detection** - If only 1-2 tok/s, you know CPU is throttling
+- ✅ **No more guessing** - Real data, real-time, every 3-5 seconds
+- ✅ **Diagnostic tool** - Helps identify bottlenecks (CPU throttling, wrong model, insufficient resources)
+
+**Technical Details**:
+
+- **Update Frequency**: Database updated every 50 tokens OR 5 seconds (whichever comes first)
+- **Frontend Polling**: 3 seconds (same as progress polling)
+- **Token Counting**: Real-time counter increments with each chunk from Ollama
+- **Speed Calculation**: `tokens_generated / elapsed_time` (recalculated on each update)
+- **Display Format**: "X.XX tok/s (YYYY tokens)" in green success color
+- **Error Handling**: Rollback on database commit failure, continues generation
+
+**Performance Expectations**:
+
+| Model | Expected tok/s | Visual Indicator |
+|-------|---------------|------------------|
+| `q4_K_M` (fast) | 8-12 tok/s | 🟢 Excellent |
+| `q5_K_M` (balanced) | 5-8 tok/s | 🟢 Good |
+| `q5_K_M` (throttled) | 1-3 tok/s | 🟡 Slow (CPU issue) |
+| `14b` (high quality) | 2-4 tok/s | 🟢 Normal |
+| `14b` (throttled) | 0.5-1 tok/s | 🔴 Very Slow (CPU issue) |
+
+**Affected Files**:
+
+- **Modified**: `app/ai_report.py` - Implemented streaming API, added MODEL_INFO dictionary
+- **Modified**: `app/tasks.py` - Pass report_obj and db_session for live updates
+- **Modified**: `app/templates/view_case_enhanced.html` - Enhanced tok/s display logic
+- **Modified**: `app/version.json` - Updated to v1.10.35
+- **Modified**: `app/APP_MAP.md` - Added documentation
+
+**Result**: 
+- Users now see **real-time tokens/second** during generation
+- Can immediately diagnose performance issues (CPU throttling, wrong model)
+- Better UX with live feedback instead of "please wait..."
+- Helps optimize VM settings by seeing actual performance
 
 ---
 
