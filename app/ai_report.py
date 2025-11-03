@@ -164,7 +164,45 @@ def generate_case_report_prompt(case, iocs, tagged_events):
     Returns:
         str: Formatted prompt for the LLM
     """
-    # Build case summary
+    
+    # ANTI-HALLUCINATION: Extract actual values from events
+    systems_found = set()
+    usernames_found = set()
+    ips_found = set()
+    
+    for evt in tagged_events:
+        source = evt.get('_source', {})
+        
+        # Extract system/computer names (try multiple field names)
+        for field in ['Computer', 'computer', 'computer_name', 'ComputerName', 'System', 'hostname', 'Hostname']:
+            computer = source.get(field)
+            if computer and isinstance(computer, str) and computer not in ['-', 'N/A', '', 'Unknown']:
+                systems_found.add(computer)
+        
+        # Check nested host object
+        if 'host' in source and isinstance(source['host'], dict):
+            hostname = source['host'].get('name')
+            if hostname and isinstance(hostname, str):
+                systems_found.add(hostname)
+        
+        # Extract usernames
+        for field in ['Target_User_Name', 'TargetUserName', 'target_user', 'SubjectUserName', 'user', 'User', 'username', 'UserName']:
+            username = source.get(field)
+            if username and isinstance(username, str) and username not in ['-', 'N/A', 'SYSTEM', 'ANONYMOUS LOGON', '']:
+                usernames_found.add(username)
+        
+        # Extract IPs
+        for field in ['Source_Network_Address', 'SourceNetworkAddress', 'source_ip', 'src_ip', 'IpAddress', 'ip', 'dest_ip', 'destination_ip']:
+            ip = source.get(field)
+            if ip and isinstance(ip, str) and ip not in ['-', '127.0.0.1', '::1', '0.0.0.0', 'N/A']:
+                ips_found.add(ip)
+    
+    # Build allowed values lists
+    systems_list = "\n".join([f"  • {s}" for s in sorted(systems_found)]) if systems_found else "  (No system names found)"
+    usernames_list = "\n".join([f"  • {u}" for u in sorted(usernames_found)]) if usernames_found else "  (No usernames found)"
+    ips_list = "\n".join([f"  • {ip}" for ip in sorted(ips_found)]) if ips_found else "  (No IP addresses found)"
+    
+    # Build case summary with APPROVED VALUES section
     prompt = f"""You are a senior DFIR (Digital Forensics and Incident Response) analyst generating a professional investigation report for: **{case.name}**
 
 **Company**: {case.company or 'N/A'}  
@@ -172,14 +210,30 @@ def generate_case_report_prompt(case, iocs, tagged_events):
 
 ---
 
-# CRITICAL INSTRUCTIONS:
+# 🚨 CRITICAL ANTI-HALLUCINATION RULES 🚨
 
-**⚠️ DATA INTEGRITY RULES - FOLLOW STRICTLY:**
-1. **USE ONLY DATA PROVIDED BELOW** - Do NOT invent, assume, or fabricate ANY details
-2. **NO HALLUCINATION** - If you don't see an IP address, username, command, or system in the data, DO NOT mention it
-3. **EXACT REFERENCES ONLY** - Use exact hostnames, usernames, IPs, and commands as they appear in the events
-4. **VERIFY BEFORE WRITING** - Every statement must be traceable to a specific event or IOC provided
-5. **DESTINATIONS NOT TARGETS** - Systems accessed are "destination systems" not "target systems"
+**⚠️ DATA INTEGRITY - FOLLOW STRICTLY:**
+1. **ONLY USE APPROVED VALUES BELOW** - Do NOT invent ANY details
+2. **FORBIDDEN**: Creating fake system names, IP addresses, or usernames
+3. **MANDATORY**: Only mention systems/IPs/users from the "APPROVED VALUES" list
+4. **NO SPECULATION** - If it's not in the data below, don't mention it
+5. **EXACT REFERENCES** - Copy names/IPs exactly as shown (case-sensitive)
+6. **DESTINATIONS NOT TARGETS** - Call systems "destination systems" not "target systems"
+
+---
+
+# ✅ APPROVED VALUES (ONLY USE THESE)
+
+**APPROVED SYSTEM NAMES** ({len(systems_found)} unique systems):
+{systems_list}
+
+**APPROVED USERNAMES** ({len(usernames_found)} unique users):
+{usernames_list}
+
+**APPROVED IP ADDRESSES** ({len(ips_found)} unique IPs):
+{ips_list}
+
+⚠️ **WARNING**: If you mention ANY system/IP/username NOT in the above lists, you are HALLUCINATING and the report will be REJECTED.
 
 ---
 
@@ -795,7 +849,7 @@ def refine_report_with_chat(user_request, current_report, case, iocs, tagged_eve
     if iocs:
         prompt += f"\n**IOCs**: {len(iocs)} indicators available\n"
         for ioc in iocs[:5]:
-            prompt += f"- {ioc.value} ({ioc.ioc_type})\n"
+            prompt += f"- {ioc.ioc_value} ({ioc.ioc_type})\n"
     
     # Add chat history for context
     if chat_history:

@@ -831,8 +831,6 @@ def ai_report_chat(report_id):
     tagged_event_ids = [tag.event_id for tag in TimelineTag.query.filter_by(case_id=case.id).all()]
     tagged_events = []
     if tagged_event_ids:
-        from opensearch_utils import get_opensearch_client
-        es = get_opensearch_client()
         case_index = f"case_{case.id}_*"
         try:
             result = es.search(

@@ -1,9 +1,10 @@
 {
-  "version": "1.10.38",
+  "version": "1.10.39",
   "release_date": "2025-11-03",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "🛡️ CRITICAL: Anti-Hallucination Protection - Whitelist-Based Validation (v1.10.39)",
     "💬 Interactive AI Report Refinement Chat - Real-Time Conversational Report Editing (v1.10.38)",
     "🤖 AI Report Generation with Real-Time Streaming & Live Token Monitoring - Local LLM via Ollama (v1.10.35)",
     "📝 Professional DFIR Report Structure - Client-Proven Format with HTML/Word Output (v1.10.36)",

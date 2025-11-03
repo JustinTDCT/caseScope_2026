@@ -1,8 +1,121 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.38  
-**Last Updated**: 2025-11-03 22:00 UTC  
+**Version**: 1.10.39  
+**Last Updated**: 2025-11-03 23:30 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🛡️ v1.10.39 - CRITICAL: Anti-Hallucination Protection with Whitelist-Based Validation (2025-11-03 23:30 UTC)
+
+**Feature**: Prevents AI from inventing system names, IPs, and usernames by extracting actual values and providing explicit whitelists
+
+**Critical Problem Discovered**:
+- EGAGE case report (Report #17) contained **JELLY system names** (JELLY-RDS01, JELLY-DC02)
+- User searched EGAGE tagged events for "jelly" → **0 results found**
+- **Conclusion**: AI was **hallucinating** system names that don't exist in the data
+
+**Root Cause Analysis**:
+1. LLM saw generic attack patterns (RDP, failed logins, domain controller)
+2. Generated "plausible-sounding" system names (JELLY-RDS01, JELLY-DC02)
+3. Ignored the "USE ONLY DATA PROVIDED" instruction
+4. Created fake systems despite multiple anti-hallucination rules
+
+**Solutions Implemented**:
+
+1. **Pre-extraction of Actual Values** (`app/ai_report.py` - `generate_case_report_prompt()`):
+   ```python
+   # NEW: Extract actual values from events BEFORE building prompt
+   systems_found = set()
+   usernames_found = set()
+   ips_found = set()
+   
+   for evt in tagged_events:
+       # Extract from multiple possible field names
+       # Computer, computer_name, host.name, etc.
+       # Only non-null, non-"N/A" values
+   ```
+
+2. **Approved Values Whitelist** (added to prompt):
+   ```
+   # ✅ APPROVED VALUES (ONLY USE THESE)
+   
+   **APPROVED SYSTEM NAMES** (X unique systems):
+     • ACCT-DSK-201
+     • EDMUNDS004
+     • [actual systems from events]
+   
+   **APPROVED USERNAMES** (X unique users):
+     • jdoe
+     • administrator
+     • [actual users from events]
+   
+   **APPROVED IP ADDRESSES** (X unique IPs):
+     • 192.168.1.10
+     • [actual IPs from events]
+   
+   ⚠️ WARNING: Mentioning ANY system/IP/user NOT in above lists = HALLUCINATION
+   ```
+
+3. **Explicit Rejection Warnings**:
+   - "If you mention ANY system/IP/username NOT in the above lists, you are HALLUCINATING and the report will be REJECTED"
+   - "FORBIDDEN: Creating fake system names, IP addresses, or usernames"
+   - "MANDATORY: Only mention systems/IPs/users from the 'APPROVED VALUES' list"
+
+4. **Field Name Flexibility**:
+   - Checks multiple field variations: `Computer`, `computer`, `computer_name`, `ComputerName`, `host.name`, etc.
+   - Handles nested objects (e.g., `host.name` from Elastic Common Schema)
+   - Filters out placeholder values: `-`, `N/A`, `SYSTEM`, `127.0.0.1`
+
+**How It Works**:
+
+1. **Before prompt generation**: Parse ALL tagged events and extract:
+   - All unique system/computer names
+   - All unique usernames (excluding SYSTEM, ANONYMOUS)
+   - All unique IP addresses (excluding localhost)
+
+2. **In the prompt**: Provide explicit whitelist:
+   - "APPROVED SYSTEM NAMES: (list)"
+   - "APPROVED USERNAMES: (list)"
+   - "APPROVED IP ADDRESSES: (list)"
+
+3. **AI constraint**: LLM can ONLY reference values from these lists
+
+4. **Result**: Report mentions "ACCT-DSK-201" (real) instead of "JELLY-RDS01" (hallucinated)
+
+**Testing Validation**:
+- Searched "jelly" in EGAGE tagged events: 0 results
+- Confirmed JELLY data should not appear in EGAGE reports
+- Real EGAGE systems: ACCT-DSK-201, EDMUNDS004, etc.
+
+**Expected Behavior After Fix**:
+- ✅ AI sees whitelist: "APPROVED SYSTEM NAMES: ACCT-DSK-201, EDMUNDS004"
+- ✅ AI writes: "Attack targeted ACCT-DSK-201..." (uses real name)
+- ❌ AI prevented from: "Attack targeted JELLY-RDS01..." (would be hallucination)
+
+**Benefits**:
+- 🎯 **Eliminates invented system names** - Only real systems from events
+- 🔒 **Data accuracy** - Every reference is traceable to source data
+- 📊 **Trust in reports** - No fake IPs, usernames, or hosts
+- ✅ **Validation** - Users can verify every entity mentioned exists in their data
+
+**Affected Files**:
+- **Modified**: `app/ai_report.py` - Added value extraction and whitelist logic
+- **Modified**: `app/version.json` - Updated to v1.10.39
+- **Modified**: `app/APP_MAP.md` - This documentation
+
+**Technical Details**:
+- Extracts values from 15+ field name variations
+- Handles nested JSON objects (ECS format)
+- Filters placeholder/system values
+- Deduplicates with `set()`
+- Sorted output for consistent prompts
+
+**Future Enhancements** (Not Implemented):
+- Post-generation validation: Scan report for entities not in whitelist
+- Rejection/warning if hallucinated values detected
+- Confidence scoring for each entity mention
+- User notification: "Report mentioned X systems not in your data"
 
 ---
 

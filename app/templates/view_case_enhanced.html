@@ -176,6 +176,23 @@
 <!-- End of Case Dashboard Tiles -->
 
 <!-- ============================================================================
+     AI REPORTS SECTION
+     ============================================================================ -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-header">
+        <h2 class="card-title">🤖 AI Generated Reports</h2>
+        <span class="text-secondary" id="aiReportsCount">Loading...</span>
+    </div>
+    <div class="card-body">
+        <div id="aiReportsList">
+            <p style="color: var(--color-text-muted); text-align: center; padding: var(--spacing-lg);">
+                Loading reports...
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================================
      FILES TABLE
      ============================================================================ -->
 <div class="card">
@@ -647,18 +664,16 @@ function checkAIReportStatus(reportId, attempts = 0, startTime = null) {
                 // Download the report
                 window.location.href = `/ai/report/${reportId}/download`;
                 
-                // Add "Refine with AI" button to the page
-                const refineBtn = document.createElement('button');
-                refineBtn.className = 'btn btn-success';
-                refineBtn.style.cssText = 'margin-left: 10px;';
-                refineBtn.innerHTML = '<span>🤖</span><span>Refine with AI</span>';
-                refineBtn.onclick = () => showAIReportChat(reportId);
+                // Refresh the reports list to show the new report
+                loadAIReportsList();
                 
-                const aiReportBtn = document.getElementById('aiReportBtn');
-                aiReportBtn.parentElement.insertBefore(refineBtn, aiReportBtn.nextSibling);
-                
-                // Refresh page to show new report in list
-                setTimeout(() => window.location.reload(), 1000);
+                // Scroll to the AI Reports section
+                setTimeout(() => {
+                    const reportsSection = document.getElementById('aiReportsList');
+                    if (reportsSection) {
+                        reportsSection.closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                }, 500);
             } else if (data.status === 'failed') {
                 // Close modal
                 const modal = document.getElementById('aiProgressModal');
@@ -717,10 +732,136 @@ function checkStatus(reportId) {
 // Check for active reports when page loads
 window.addEventListener('load', () => {
     checkActiveReport();
+    loadAIReportsList();
     
     // Re-check every 30 seconds in case user navigates back
     setInterval(checkActiveReport, 30000);
 });
+
+// ============================================================================
+// AI REPORTS LIST DISPLAY
+// ============================================================================
+
+function loadAIReportsList() {
+    fetch('/case/{{ case.id }}/ai/reports')
+        .then(response => {
+            console.log('AI Reports API Response Status:', response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('AI Reports Data:', data);
+            const reportsList = document.getElementById('aiReportsList');
+            const reportsCount = document.getElementById('aiReportsCount');
+            
+            if (!data.reports || data.reports.length === 0) {
+                reportsList.innerHTML = `
+                    <p style="color: var(--color-text-muted); text-align: center; padding: var(--spacing-lg);">
+                        No AI reports generated yet. Click "Generate AI Report" button above to create one.
+                    </p>
+                `;
+                reportsCount.textContent = '0 reports';
+                return;
+            }
+            
+            reportsCount.textContent = `${data.reports.length} report${data.reports.length > 1 ? 's' : ''}`;
+            
+            // Build reports list
+            let html = '<div style="display: flex; flex-direction: column; gap: var(--spacing-md);">';
+            
+            data.reports.forEach(report => {
+                const statusColors = {
+                    'completed': 'var(--color-success)',
+                    'generating': 'var(--color-warning)',
+                    'failed': 'var(--color-error)',
+                    'pending': 'var(--color-info)'
+                };
+                const statusColor = statusColors[report.status] || 'var(--color-text-muted)';
+                const createdDate = new Date(report.created_at).toLocaleString();
+                const genTime = report.generation_time ? ` (${report.generation_time.toFixed(1)}s)` : '';
+                
+                html += `
+                    <div style="border: 1px solid var(--color-border); border-radius: 8px; padding: var(--spacing-md); background: ${report.status === 'completed' ? 'var(--color-bg-secondary)' : 'var(--color-bg)'};">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--spacing-md);">
+                            <div style="flex: 1;">
+                                <h3 style="margin: 0 0 var(--spacing-xs) 0; font-size: 1rem;">
+                                    ${report.title || 'Untitled Report'}
+                                </h3>
+                                <div style="display: flex; flex-wrap: wrap; gap: var(--spacing-sm); font-size: 0.875rem; color: var(--color-text-muted);">
+                                    <span>
+                                        <strong>Status:</strong> 
+                                        <span style="color: ${statusColor}; font-weight: 600;">${report.status}</span>
+                                    </span>
+                                    <span>•</span>
+                                    <span><strong>Created:</strong> ${createdDate}</span>
+                `;
+                
+                if (report.model_name) {
+                    html += `
+                                    <span>•</span>
+                                    <span><strong>Model:</strong> ${report.model_name}</span>
+                    `;
+                }
+                
+                if (report.generation_time) {
+                    html += `
+                                    <span>•</span>
+                                    <span><strong>Time:</strong> ${report.generation_time.toFixed(1)}s</span>
+                    `;
+                }
+                
+                html += `
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: var(--spacing-xs); flex-shrink: 0;">
+                `;
+                
+                if (report.status === 'completed') {
+                    html += `
+                        <button onclick="showAIReportChat(${report.id})" class="btn btn-sm btn-success" title="Refine this report with AI">
+                            <span>🤖 Refine with AI</span>
+                        </button>
+                        <a href="/ai/report/${report.id}/download" class="btn btn-sm btn-primary" title="Download report">
+                            <span>💾 Download</span>
+                        </a>
+                    `;
+                } else if (report.status === 'generating' || report.status === 'pending') {
+                    html += `
+                        <button onclick="checkStatus(${report.id})" class="btn btn-sm" style="background: var(--color-info); color: white;">
+                            <span>📊 Check Status</span>
+                        </button>
+                    `;
+                } else if (report.status === 'failed') {
+                    html += `
+                        <button class="btn btn-sm" style="background: var(--color-error); color: white;" disabled>
+                            <span>❌ Failed</span>
+                        </button>
+                    `;
+                }
+                
+                html += `
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            reportsList.innerHTML = html;
+        })
+        .catch(err => {
+            console.error('Failed to load AI reports:', err);
+            const errorMsg = err.message || 'Unknown error';
+            document.getElementById('aiReportsList').innerHTML = 
+                '<p style="color: var(--color-error); text-align: center; padding: var(--spacing-lg);">' +
+                    '❌ Failed to load reports: ' + errorMsg + '<br>' +
+                    '<small>Check browser console (F12) for details, or refresh the page.</small>' +
+                '</p>';
+            document.getElementById('aiReportsCount').textContent = 'Error';
+        });
+}
 
 // ============================================================================
 // AI REPORT REFINEMENT CHAT
@@ -799,7 +940,7 @@ function showAIReportChat(reportId) {
                             <!-- Chat Input -->
                             <div style="padding: 15px; border-top: 2px solid #e0e0e0; background: white;">
                                 <textarea id="chatInput" placeholder="Type your refinement request..." style="width: 100%; height: 80px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.875rem; font-family: inherit; resize: none; margin-bottom: 10px;"></textarea>
-                                <button id="chatSendBtn" onclick="sendChatMessage(${reportId})" class="btn btn-primary" style="width: 100%; padding: 10px;">
+                                <button id="chatSendBtn" class="btn btn-primary" style="width: 100%; padding: 10px;">
                                     <span>📤 Send Request</span>
                                 </button>
                             </div>
@@ -810,11 +951,19 @@ function showAIReportChat(reportId) {
             
             document.body.appendChild(modal);
             
+            // Store reportId for later use
+            modal.dataset.reportId = reportId;
+            
             // Load chat history
             loadChatHistory(reportId);
             
             // Focus chat input
             document.getElementById('chatInput').focus();
+            
+            // Add button click handler
+            document.getElementById('chatSendBtn').onclick = function() {
+                sendChatMessage(reportId);
+            };
             
             // Add Enter key support (Shift+Enter for new line, Enter to send)
             document.getElementById('chatInput').addEventListener('keydown', (e) => {
@@ -924,11 +1073,7 @@ function sendChatMessage(reportId) {
     `;
     chatMessages.appendChild(aiMsgDiv);
     
-    // Stream AI response
-    const eventSource = new EventSource(\`/ai/report/\${reportId}/chat?message=\${encodeURIComponent(message)}\`);
-    // Actually we need to use fetch with streaming, not EventSource
-    // Let me fix this with proper POST request
-    
+    // Stream AI response with fetch
     fetch(`/ai/report/${reportId}/chat`, {
         method: 'POST',
         headers: {
