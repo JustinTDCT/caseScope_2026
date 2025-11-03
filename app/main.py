@@ -786,6 +786,177 @@ def download_ai_report(report_id):
     return response
 
 
+@app.route('/ai/report/<int:report_id>/chat', methods=['POST'])
+@login_required
+def ai_report_chat(report_id):
+    """Send a chat message to refine the AI report (with streaming)"""
+    from models import AIReport, AIReportChat, IOC, TimelineTag
+    from ai_report import refine_report_with_chat
+    from flask import Response, stream_with_context
+    import json
+    
+    report = db.session.get(AIReport, report_id)
+    if not report or report.status != 'completed':
+        return jsonify({'error': 'Report not found or not completed'}), 404
+    
+    # Check case access
+    case = db.session.get(Case, report.case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Get user message from request
+    data = request.get_json()
+    user_message = data.get('message', '').strip()
+    if not user_message:
+        return jsonify({'error': 'Message is required'}), 400
+    
+    # Save user message to database
+    user_chat = AIReportChat(
+        report_id=report.id,
+        user_id=current_user.id,
+        role='user',
+        message=user_message
+    )
+    db.session.add(user_chat)
+    db.session.commit()
+    
+    # Get chat history for context
+    previous_chats = AIReportChat.query.filter_by(report_id=report.id).order_by(AIReportChat.created_at.asc()).all()
+    chat_history = [{'role': msg.role, 'message': msg.message} for msg in previous_chats]
+    
+    # Get case data (IOCs and tagged events)
+    iocs = IOC.query.filter_by(case_id=case.id).all()
+    
+    # Get tagged events
+    tagged_event_ids = [tag.event_id for tag in TimelineTag.query.filter_by(case_id=case.id).all()]
+    tagged_events = []
+    if tagged_event_ids:
+        from opensearch_utils import get_opensearch_client
+        es = get_opensearch_client()
+        case_index = f"case_{case.id}_*"
+        try:
+            result = es.search(
+                index=case_index,
+                body={
+                    "query": {
+                        "ids": {"values": tagged_event_ids}
+                    },
+                    "size": 200
+                }
+            )
+            tagged_events = result.get('hits', {}).get('hits', [])
+        except Exception as e:
+            logger.warning(f"Could not fetch tagged events: {e}")
+    
+    # Stream AI response
+    def generate():
+        full_response = ""
+        try:
+            for chunk in refine_report_with_chat(
+                user_message, 
+                report.report_content, 
+                case, 
+                iocs, 
+                tagged_events, 
+                chat_history,
+                model=report.model_name
+            ):
+                full_response += chunk
+                # Send chunk to frontend
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            
+            # Save AI response to database
+            ai_chat = AIReportChat(
+                report_id=report.id,
+                user_id=current_user.id,
+                role='assistant',
+                message=full_response
+            )
+            db.session.add(ai_chat)
+            db.session.commit()
+            
+            # Send completion signal with message ID
+            yield f"data: {json.dumps({'done': True, 'message_id': ai_chat.id})}\n\n"
+            
+        except Exception as e:
+            logger.error(f"[AI Chat] Error during chat: {str(e)}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
+
+
+@app.route('/ai/report/<int:report_id>/chat', methods=['GET'])
+@login_required
+def get_ai_report_chat_history(report_id):
+    """Get chat history for an AI report"""
+    from models import AIReport, AIReportChat
+    
+    report = db.session.get(AIReport, report_id)
+    if not report:
+        return jsonify({'error': 'Report not found'}), 404
+    
+    # Check case access
+    case = db.session.get(Case, report.case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Get all chat messages
+    chats = AIReportChat.query.filter_by(report_id=report.id).order_by(AIReportChat.created_at.asc()).all()
+    
+    return jsonify({
+        'messages': [{
+            'id': msg.id,
+            'role': msg.role,
+            'message': msg.message,
+            'applied': msg.applied,
+            'created_at': msg.created_at.isoformat() if msg.created_at else None
+        } for msg in chats]
+    })
+
+
+@app.route('/ai/report/<int:report_id>/apply', methods=['POST'])
+@login_required
+def apply_ai_chat_refinement(report_id):
+    """Apply AI-suggested refinements to the report"""
+    from models import AIReport, AIReportChat
+    
+    report = db.session.get(AIReport, report_id)
+    if not report or report.status != 'completed':
+        return jsonify({'error': 'Report not found or not completed'}), 404
+    
+    # Check case access and permissions
+    case = db.session.get(Case, report.case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Get the chat message to apply
+    data = request.get_json()
+    message_id = data.get('message_id')
+    new_content = data.get('content', '').strip()
+    
+    if not message_id or not new_content:
+        return jsonify({'error': 'Message ID and content are required'}), 400
+    
+    # Get the chat message
+    chat_msg = db.session.get(AIReportChat, message_id)
+    if not chat_msg or chat_msg.report_id != report.id:
+        return jsonify({'error': 'Chat message not found'}), 404
+    
+    # Update the report content with the new refinement
+    # Note: Frontend will handle inserting the content at the right place
+    # We just mark this message as "applied"
+    chat_msg.applied = True
+    report.report_content = new_content  # Replace with refined content
+    db.session.commit()
+    
+    logger.info(f"[AI Chat] Applied refinement to Report ID {report.id} from Chat ID {chat_msg.id}")
+    
+    return jsonify({
+        'success': True,
+        'message': 'Refinement applied to report'
+    })
+
+
 @app.route('/case/<int:case_id>/ai/reports')
 @login_required
 def list_ai_reports(case_id):

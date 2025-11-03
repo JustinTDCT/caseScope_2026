@@ -735,12 +735,136 @@ def markdown_to_html(markdown_text, case_name, company_name=""):
     return full_html
 
 
+def refine_report_with_chat(user_request, current_report, case, iocs, tagged_events, chat_history=None, model='llama3.1:8b-instruct-q4_K_M'):
+    """
+    Refine an existing report based on user's chat request
+    
+    Args:
+        user_request (str): User's refinement request
+        current_report (str): The current HTML report content
+        case: Case object
+        iocs: List of IOC objects
+        tagged_events: List of tagged event dictionaries
+        chat_history (list): Previous chat messages [{'role': 'user'|'assistant', 'message': '...'}]
+        model (str): Ollama model to use
+    
+    Returns:
+        Generator yielding chat response chunks
+    """
+    from bs4 import BeautifulSoup
+    
+    # Convert HTML report back to text for context
+    soup = BeautifulSoup(current_report, 'html.parser')
+    report_text = soup.get_text()
+    
+    # Build context-aware prompt
+    prompt = f"""You are a DFIR report refinement assistant. A security analyst is reviewing a DFIR report and wants to make changes.
+
+**YOUR TASK**: Respond to the analyst's request by providing ONLY the refined/new content they asked for.
+
+**CRITICAL RULES**:
+1. ⚠️ **USE ONLY DATA PROVIDED** - Do NOT invent, assume, or fabricate ANY details
+2. ⚠️ **RESPOND DIRECTLY** - Provide the actual content they requested, not explanations about what you'll do
+3. ⚠️ **MATCH EXISTING FORMAT** - Use the same HTML formatting style as the current report
+4. ⚠️ **BE SPECIFIC** - Reference exact timestamps, IPs, hostnames, usernames from the events
+5. ⚠️ **STAY FOCUSED** - Only address what they asked for, don't rewrite the entire report
+
+**CURRENT REPORT EXCERPT** (first 2000 chars for context):
+```
+{report_text[:2000]}
+```
+
+**AVAILABLE CASE DATA**:
+"""
+    
+    # Add event summary
+    if tagged_events:
+        prompt += f"\n**Tagged Events**: {len(tagged_events)} events available\n"
+        prompt += "**Sample Event Data** (first 3 events):\n"
+        for i, evt in enumerate(tagged_events[:3]):
+            evt_data = evt.get('_source', {})
+            timestamp = evt_data.get('@timestamp', evt_data.get('timestamp', 'N/A'))
+            computer = evt_data.get('Computer', evt_data.get('computer', evt_data.get('host', {}).get('name', 'N/A')))
+            prompt += f"\n{i+1}. Time: {timestamp}, System: {computer}\n"
+            # Add key fields
+            for key in ['Event_ID', 'event_id', 'Target_User_Name', 'target_user', 'Source_Network_Address', 'source_ip', 'CommandLine', 'command_line']:
+                if key in evt_data and evt_data[key]:
+                    prompt += f"   - {key}: {evt_data[key]}\n"
+    
+    # Add IOC summary
+    if iocs:
+        prompt += f"\n**IOCs**: {len(iocs)} indicators available\n"
+        for ioc in iocs[:5]:
+            prompt += f"- {ioc.value} ({ioc.ioc_type})\n"
+    
+    # Add chat history for context
+    if chat_history:
+        prompt += "\n**PREVIOUS CONVERSATION**:\n"
+        for msg in chat_history[-5:]:  # Last 5 messages for context
+            role_label = "Analyst" if msg['role'] == 'user' else "You"
+            prompt += f"{role_label}: {msg['message']}\n"
+    
+    # Add current user request
+    prompt += f"\n**ANALYST'S REQUEST**:\n{user_request}\n\n"
+    
+    prompt += """
+**YOUR RESPONSE**:
+Provide ONLY the refined content requested. Format it in HTML suitable for the report.
+If they asked to:
+- "Add more detail" → Provide the expanded section with the additional details
+- "Rewrite for executives" → Provide the rewritten text in simpler language
+- "Expand timeline" → Provide additional timeline entries in the same format
+- "Add a section" → Provide the complete new section with proper HTML headers
+
+DO NOT:
+- Say "I'll do this" or "Here's how I'll change it"
+- Provide explanations of what you're doing
+- Repeat their request back to them
+- Offer to do it - JUST DO IT and provide the content
+
+BEGIN YOUR RESPONSE:
+"""
+    
+    # Call Ollama with streaming
+    ollama_url = "http://localhost:11434/api/generate"
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": True,
+        "options": {
+            "temperature": 0.3,  # Lower temperature for more focused refinements
+            "num_ctx": 8192,  # Larger context for full report
+            "num_thread": 16
+        }
+    }
+    
+    try:
+        response = requests.post(ollama_url, json=payload, stream=True, timeout=300)
+        response.raise_for_status()
+        
+        for line in response.iter_lines():
+            if line:
+                try:
+                    chunk = json.loads(line.decode('utf-8'))
+                    if 'response' in chunk:
+                        yield chunk['response']
+                    if chunk.get('done', False):
+                        break
+                except json.JSONDecodeError:
+                    continue
+                    
+    except Exception as e:
+        logger.error(f"[AI Chat] Error during refinement: {str(e)}")
+        yield f"\n\n❌ Error: {str(e)}"
+
+
 # Export functions
 __all__ = [
     'check_ollama_status',
     'generate_case_report_prompt',
     'generate_report_with_ollama',
     'format_report_title',
-    'markdown_to_html'
+    'markdown_to_html',
+    'refine_report_with_chat'
 ]
 

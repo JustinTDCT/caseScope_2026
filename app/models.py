@@ -301,4 +301,22 @@ class AIReport(db.Model):
     # Relationships
     case = db.relationship('Case', backref='ai_reports', foreign_keys=[case_id])
     generator = db.relationship('User', backref='generated_reports', foreign_keys=[generated_by])
+    chat_messages = db.relationship('AIReportChat', back_populates='report', lazy='dynamic', cascade='all, delete-orphan')
+
+
+class AIReportChat(db.Model):
+    """Interactive chat messages for AI report refinement"""
+    __tablename__ = 'ai_report_chat'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    report_id = db.Column(db.Integer, db.ForeignKey('ai_report.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    role = db.Column(db.String(20), nullable=False)  # 'user' or 'assistant'
+    message = db.Column(db.Text, nullable=False)  # The chat message content
+    applied = db.Column(db.Boolean, default=False)  # Whether AI's suggestion was applied to report
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    
+    # Relationships
+    report = db.relationship('AIReport', back_populates='chat_messages')
+    user = db.relationship('User', backref='ai_chat_messages', foreign_keys=[user_id])
 

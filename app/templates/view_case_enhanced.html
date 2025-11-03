@@ -641,11 +641,21 @@ function checkAIReportStatus(reportId, attempts = 0, startTime = null) {
                         successMsg += `\nTotal Tokens: ${data.total_tokens}`;
                     }
                 }
-                successMsg += '\n\nDownloading now...';
+                successMsg += '\n\nClick "OK" to download, or use "Refine with AI" button to make changes.';
                 alert(successMsg);
                 
                 // Download the report
                 window.location.href = `/ai/report/${reportId}/download`;
+                
+                // Add "Refine with AI" button to the page
+                const refineBtn = document.createElement('button');
+                refineBtn.className = 'btn btn-success';
+                refineBtn.style.cssText = 'margin-left: 10px;';
+                refineBtn.innerHTML = '<span>🤖</span><span>Refine with AI</span>';
+                refineBtn.onclick = () => showAIReportChat(reportId);
+                
+                const aiReportBtn = document.getElementById('aiReportBtn');
+                aiReportBtn.parentElement.insertBefore(refineBtn, aiReportBtn.nextSibling);
                 
                 // Refresh page to show new report in list
                 setTimeout(() => window.location.reload(), 1000);
@@ -711,6 +721,326 @@ window.addEventListener('load', () => {
     // Re-check every 30 seconds in case user navigates back
     setInterval(checkActiveReport, 30000);
 });
+
+// ============================================================================
+// AI REPORT REFINEMENT CHAT
+// ============================================================================
+
+function showAIReportChat(reportId) {
+    fetch(`/ai/report/${reportId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(`Error: ${data.error}`);
+                return;
+            }
+            
+            // Create chat modal
+            const modal = document.createElement('div');
+            modal.id = 'aiChatModal';
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 10000;
+            `;
+            
+            modal.innerHTML = `
+                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                    <!-- Header -->
+                    <div style="padding: 20px; border-bottom: 2px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h2 style="margin: 0; font-size: 1.5rem;">🤖 AI Report Refinement</h2>
+                            <p style="margin: 5px 0 0 0; color: #666; font-size: 0.875rem;">Chat with AI to refine your report</p>
+                        </div>
+                        <button onclick="closeAIChatModal()" style="background: none; border: none; font-size: 2rem; cursor: pointer; color: #999;">&times;</button>
+                    </div>
+                    
+                    <!-- Content Area: Split View -->
+                    <div style="flex: 1; display: flex; overflow: hidden;">
+                        <!-- Report Preview (Left) -->
+                        <div style="flex: 1; border-right: 2px solid #e0e0e0; display: flex; flex-direction: column;">
+                            <div style="padding: 15px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
+                                <h3 style="margin: 0; font-size: 1rem; color: #555;">📄 Report Preview</h3>
+                                <a href="/ai/report/${reportId}/download" class="btn btn-sm btn-secondary" style="padding: 5px 15px; text-decoration: none;">
+                                    <span>💾 Download</span>
+                                </a>
+                            </div>
+                            <div id="reportPreviewContent" style="flex: 1; overflow-y: auto; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+                                ${data.content || '<p style="color: #999;">Loading report...</p>'}
+                            </div>
+                        </div>
+                        
+                        <!-- Chat Interface (Right) -->
+                        <div style="width: 450px; display: flex; flex-direction: column;">
+                            <div style="padding: 15px; background: #f8f9fa; border-bottom: 1px solid #e0e0e0;">
+                                <h3 style="margin: 0; font-size: 1rem; color: #555;">💬 Refinement Chat</h3>
+                            </div>
+                            
+                            <!-- Chat Messages -->
+                            <div id="chatMessages" style="flex: 1; overflow-y: auto; padding: 15px; background: #fafafa;">
+                                <div style="padding: 15px; background: white; border: 1px solid #e0e0e0; border-radius: 8px; margin-bottom: 10px;">
+                                    <p style="margin: 0; color: #555; font-size: 0.875rem;">
+                                        <strong>💡 Examples:</strong><br>
+                                        • "Add more detail about the password dumping technique"<br>
+                                        • "Rewrite the executive summary for non-technical executives"<br>
+                                        • "Expand the timeline between 2:00 PM and 3:00 PM"<br>
+                                        • "Add a recommendations section"
+                                    </p>
+                                </div>
+                            </div>
+                            
+                            <!-- Chat Input -->
+                            <div style="padding: 15px; border-top: 2px solid #e0e0e0; background: white;">
+                                <textarea id="chatInput" placeholder="Type your refinement request..." style="width: 100%; height: 80px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.875rem; font-family: inherit; resize: none; margin-bottom: 10px;"></textarea>
+                                <button id="chatSendBtn" onclick="sendChatMessage(${reportId})" class="btn btn-primary" style="width: 100%; padding: 10px;">
+                                    <span>📤 Send Request</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Load chat history
+            loadChatHistory(reportId);
+            
+            // Focus chat input
+            document.getElementById('chatInput').focus();
+            
+            // Add Enter key support (Shift+Enter for new line, Enter to send)
+            document.getElementById('chatInput').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendChatMessage(reportId);
+                }
+            });
+        })
+        .catch(err => {
+            console.error('Error loading report:', err);
+            alert('Failed to load report for chat');
+        });
+}
+
+function closeAIChatModal() {
+    const modal = document.getElementById('aiChatModal');
+    if (modal) modal.remove();
+}
+
+function loadChatHistory(reportId) {
+    fetch(`/ai/report/${reportId}/chat`)
+        .then(response => response.json())
+        .then(data => {
+            const chatMessages = document.getElementById('chatMessages');
+            
+            // Add existing messages
+            if (data.messages && data.messages.length > 0) {
+                data.messages.forEach(msg => {
+                    appendChatMessage(msg.role, msg.message, msg.id, msg.applied);
+                });
+            }
+        })
+        .catch(err => {
+            console.error('Error loading chat history:', err);
+        });
+}
+
+function appendChatMessage(role, message, messageId = null, applied = false) {
+    const chatMessages = document.getElementById('chatMessages');
+    const isUser = role === 'user';
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.style.cssText = `
+        margin-bottom: 15px;
+        padding: 12px;
+        border-radius: 8px;
+        background: ${isUser ? '#e3f2fd' : 'white'};
+        border: 1px solid ${isUser ? '#90caf9' : '#e0e0e0'};
+    `;
+    
+    let applyButton = '';
+    if (!isUser && messageId && !applied) {
+        applyButton = `
+            <button onclick="applyRefinement(${messageId}, this)" class="btn btn-sm btn-success" style="padding: 5px 15px; margin-top: 10px;">
+                <span>✅ Apply to Report</span>
+            </button>
+        `;
+    } else if (!isUser && applied) {
+        applyButton = `<p style="margin-top: 10px; color: #4caf50; font-size: 0.75rem;">✅ Applied to report</p>`;
+    }
+    
+    msgDiv.innerHTML = `
+        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+            <span style="font-size: 1.2rem; margin-right: 8px;">${isUser ? '👤' : '🤖'}</span>
+            <strong style="font-size: 0.875rem; color: #555;">${isUser ? 'You' : 'AI Assistant'}</strong>
+        </div>
+        <div style="font-size: 0.875rem; color: #333; white-space: pre-wrap;">${message}</div>
+        ${applyButton}
+    `;
+    
+    chatMessages.appendChild(msgDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function sendChatMessage(reportId) {
+    const input = document.getElementById('chatInput');
+    const button = document.getElementById('chatSendBtn');
+    const message = input.value.trim();
+    
+    if (!message) return;
+    
+    // Add user message to chat
+    appendChatMessage('user', message);
+    
+    // Clear input and disable button
+    input.value = '';
+    button.disabled = true;
+    button.innerHTML = '<span>⏳ AI is thinking...</span>';
+    
+    // Create AI response placeholder
+    const chatMessages = document.getElementById('chatMessages');
+    const aiMsgDiv = document.createElement('div');
+    aiMsgDiv.style.cssText = `
+        margin-bottom: 15px;
+        padding: 12px;
+        border-radius: 8px;
+        background: white;
+        border: 1px solid #e0e0e0;
+    `;
+    aiMsgDiv.innerHTML = `
+        <div style="display: flex; align-items: center; margin-bottom: 5px;">
+            <span style="font-size: 1.2rem; margin-right: 8px;">🤖</span>
+            <strong style="font-size: 0.875rem; color: #555;">AI Assistant</strong>
+        </div>
+        <div id="aiStreamingResponse" style="font-size: 0.875rem; color: #333; white-space: pre-wrap;"></div>
+    `;
+    chatMessages.appendChild(aiMsgDiv);
+    
+    // Stream AI response
+    const eventSource = new EventSource(\`/ai/report/\${reportId}/chat?message=\${encodeURIComponent(message)}\`);
+    // Actually we need to use fetch with streaming, not EventSource
+    // Let me fix this with proper POST request
+    
+    fetch(`/ai/report/${reportId}/chat`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({message: message})
+    })
+    .then(response => {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullResponse = '';
+        let currentMessageId = null;
+        
+        function read() {
+            reader.read().then(({done, value}) => {
+                if (done) {
+                    // Add apply button after response completes
+                    if (currentMessageId) {
+                        const applyBtn = document.createElement('button');
+                        applyBtn.className = 'btn btn-sm btn-success';
+                        applyBtn.style.cssText = 'padding: 5px 15px; margin-top: 10px;';
+                        applyBtn.innerHTML = '<span>✅ Apply to Report</span>';
+                        applyBtn.onclick = () => applyRefinement(currentMessageId, applyBtn);
+                        aiMsgDiv.appendChild(applyBtn);
+                    }
+                    
+                    button.disabled = false;
+                    button.innerHTML = '<span>📤 Send Request</span>';
+                    return;
+                }
+                
+                const chunk = decoder.decode(value, {stream: true});
+                const lines = chunk.split('\\n');
+                
+                lines.forEach(line => {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.substring(6));
+                            if (data.chunk) {
+                                fullResponse += data.chunk;
+                                document.getElementById('aiStreamingResponse').textContent = fullResponse;
+                                chatMessages.scrollTop = chatMessages.scrollHeight;
+                            }
+                            if (data.done && data.message_id) {
+                                currentMessageId = data.message_id;
+                            }
+                            if (data.error) {
+                                document.getElementById('aiStreamingResponse').textContent = `❌ Error: ${data.error}`;
+                            }
+                        } catch (e) {
+                            // Ignore parse errors
+                        }
+                    }
+                });
+                
+                read();
+            });
+        }
+        
+        read();
+    })
+    .catch(err => {
+        console.error('Chat error:', err);
+        document.getElementById('aiStreamingResponse').textContent = `❌ Error: ${err.message}`;
+        button.disabled = false;
+        button.innerHTML = '<span>📤 Send Request</span>';
+    });
+}
+
+function applyRefinement(messageId, button) {
+    const reportId = button.closest('#aiChatModal').querySelector('[onclick*="applyRefinement"]').getAttribute('onclick').match(/\\d+/)[0];
+    
+    if (!confirm('Apply this refinement to the report? This will update the report content.')) {
+        return;
+    }
+    
+    // Get the AI message content
+    const aiResponse = button.parentElement.querySelector('#aiStreamingResponse, div[style*="white-space: pre-wrap"]').textContent;
+    
+    fetch(`/ai/report/${reportId}/apply`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            message_id: messageId,
+            content: aiResponse
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            button.disabled = true;
+            button.innerHTML = '<span>✅ Applied</span>';
+            button.style.background = '#4caf50';
+            
+            // Reload report preview
+            fetch(`/ai/report/${reportId}`)
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('reportPreviewContent').innerHTML = d.content;
+                    alert('✅ Refinement applied! Report updated successfully.');
+                });
+        } else {
+            alert(`❌ Failed to apply refinement: ${data.error || 'Unknown error'}`);
+        }
+    })
+    .catch(err => {
+        console.error('Apply error:', err);
+        alert(`❌ Error applying refinement: ${err.message}`);
+    });
+}
 </script>
 {% endblock %}
 
