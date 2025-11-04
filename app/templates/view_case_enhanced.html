@@ -500,9 +500,18 @@ function showProgressModal(reportId, estimatedMinutes = 3) {
         <div style="background: var(--color-background); padding: var(--spacing-xl); border-radius: var(--border-radius); max-width: 600px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.3);">
             <div style="display: flex; align-items: center; gap: var(--spacing-md); margin-bottom: var(--spacing-lg);">
                 <span style="font-size: 2rem;">🤖</span>
-                <div>
+                <div style="flex: 1;">
                     <h2 style="margin: 0; font-size: 1.25rem;">AI Report Generation</h2>
                     <p id="estimatedTimeText" style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">${estimateText}</p>
+                </div>
+            </div>
+            
+            <!-- Current Stage Indicator -->
+            <div style="background: var(--color-primary-bg); border: 1px solid var(--color-primary); border-radius: var(--border-radius); padding: var(--spacing-sm) var(--spacing-md); margin-bottom: var(--spacing-md); display: flex; align-items: center; gap: var(--spacing-sm);">
+                <span style="font-size: 1.5rem;">⚙️</span>
+                <div>
+                    <div style="font-size: 0.75rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Current Stage</div>
+                    <div id="currentStage" style="font-size: 0.95rem; font-weight: 600; color: var(--color-primary); margin-top: 2px;">Initializing</div>
                 </div>
             </div>
             
@@ -535,9 +544,14 @@ function showProgressModal(reportId, estimatedMinutes = 3) {
             
             <div id="progressLog" style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: var(--border-radius); padding: var(--spacing-sm); max-height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: var(--color-text-muted);"></div>
             
-            <p style="margin: var(--spacing-md) 0 0 0; text-align: center; font-size: 0.875rem; color: var(--color-text-muted);">
-                💡 You can close this and the report will continue generating in the background
-            </p>
+            <div style="display: flex; gap: var(--spacing-md); margin-top: var(--spacing-md); align-items: center;">
+                <button id="cancelReportBtn" onclick="cancelAIReport(${reportId})" style="background: var(--color-error); color: white; border: none; padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--border-radius); cursor: pointer; font-weight: 600; transition: all 0.2s;">
+                    ⛔ Cancel Generation
+                </button>
+                <p style="margin: 0; flex: 1; text-align: right; font-size: 0.875rem; color: var(--color-text-muted);">
+                    💡 You can close this and the report will continue
+                </p>
+            </div>
         </div>
     `;
     
@@ -555,6 +569,7 @@ function updateProgressUI(data) {
     const progressBar = document.getElementById('progressBar');
     const progressPercent = document.getElementById('progressPercent');
     const progressMessage = document.getElementById('progressMessage');
+    const currentStage = document.getElementById('currentStage');
     const progressLog = document.getElementById('progressLog');
     
     if (!progressBar) return; // Modal closed
@@ -563,6 +578,22 @@ function updateProgressUI(data) {
     progressBar.style.width = `${data.progress_percent}%`;
     progressPercent.textContent = `${data.progress_percent}%`;
     progressMessage.textContent = data.progress_message;
+    
+    // Update current stage with icon
+    if (currentStage && data.current_stage) {
+        const stageIcons = {
+            'Initializing': '🔄',
+            'Collecting Data': '📊',
+            'Analyzing Data': '🔍',
+            'Generating Report': '✍️',
+            'Finalizing': '📝',
+            'Completed': '✅',
+            'Cancelled': '⛔',
+            'Failed': '❌'
+        };
+        const icon = stageIcons[data.current_stage] || '⚙️';
+        currentStage.innerHTML = `${icon} ${data.current_stage}`;
+    }
     
     // Add log entry
     const timestamp = new Date().toLocaleTimeString();
@@ -727,6 +758,59 @@ function checkStatus(reportId) {
     // Open the progress modal and start monitoring from current position
     showProgressModal(reportId);
     checkAIReportStatus(reportId);
+}
+
+function cancelAIReport(reportId) {
+    if (!confirm('⚠️ Are you sure you want to cancel this report generation?\n\nThis action cannot be undone.')) {
+        return;
+    }
+    
+    const cancelBtn = document.getElementById('cancelReportBtn');
+    if (cancelBtn) {
+        cancelBtn.disabled = true;
+        cancelBtn.textContent = '⏳ Cancelling...';
+    }
+    
+    fetch(`/ai/report/${reportId}/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Close modal
+            const modal = document.getElementById('aiProgressModal');
+            if (modal) modal.remove();
+            
+            // Re-enable button
+            const button = document.getElementById('aiReportBtn');
+            if (button) {
+                button.disabled = false;
+                button.innerHTML = '<span>🤖</span><span>Generate AI Report</span>';
+            }
+            
+            // Reload reports list to show cancelled status
+            if (typeof loadAIReportsList === 'function') {
+                loadAIReportsList();
+            }
+            
+            alert('✓ Report generation has been cancelled successfully.');
+        } else {
+            alert(`❌ Failed to cancel report: ${data.error || 'Unknown error'}`);
+            if (cancelBtn) {
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = '⛔ Cancel Generation';
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Cancel failed:', err);
+        alert('❌ Failed to cancel report. Please try again.');
+        if (cancelBtn) {
+            cancelBtn.disabled = false;
+            cancelBtn.textContent = '⛔ Cancel Generation';
+        }
+    });
 }
 
 // Check for active reports when page loads

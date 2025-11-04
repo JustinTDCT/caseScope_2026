@@ -623,11 +623,20 @@ def generate_ai_report(self, report_id):
                 logger.error(f"[AI REPORT] Report {report_id} not found")
                 return {'status': 'error', 'message': 'Report not found'}
             
-            # Update status to generating
+            # Store Celery task ID for cancellation support
+            report.celery_task_id = self.request.id
             report.status = 'generating'
+            report.current_stage = 'Initializing'
             report.progress_percent = 5
-            report.progress_message = 'Initializing...'
+            report.progress_message = 'Initializing AI report generation...'
             db.session.commit()
+            logger.info(f"[AI REPORT] Task ID: {self.request.id}")
+            
+            # Check for cancellation
+            report = db.session.get(AIReport, report_id)
+            if report.status == 'cancelled':
+                logger.info(f"[AI REPORT] Report {report_id} was cancelled before starting")
+                return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
             
             # Get case data
             case = db.session.get(Case, report.case_id)
@@ -639,10 +648,17 @@ def generate_ai_report(self, report_id):
             
             logger.info(f"[AI REPORT] Gathering data for case '{case.name}'")
             
-            # Get IOCs for the case
+            # STAGE 1: Collecting Data
+            report.current_stage = 'Collecting Data'
             report.progress_percent = 15
-            report.progress_message = f'Collecting IOCs for {case.name}...'
+            report.progress_message = f'Collecting IOCs and tagged events for {case.name}...'
             db.session.commit()
+            
+            # Check for cancellation
+            report = db.session.get(AIReport, report_id)
+            if report.status == 'cancelled':
+                logger.info(f"[AI REPORT] Report {report_id} was cancelled during data collection")
+                return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
             
             iocs = IOC.query.filter_by(case_id=case.id).all()
             logger.info(f"[AI REPORT] Found {len(iocs)} IOCs")
@@ -695,17 +711,31 @@ def generate_ai_report(self, report_id):
                 logger.warning(f"[AI REPORT] Error fetching tagged events: {e}")
                 # Continue without tagged events
             
-            # Generate prompt (only tagged events and IOCs - no SIGMA noise)
+            # Check for cancellation before prompt building
+            report = db.session.get(AIReport, report_id)
+            if report.status == 'cancelled':
+                logger.info(f"[AI REPORT] Report {report_id} was cancelled after data collection")
+                return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
+            
+            # STAGE 2: Analyzing Data
+            report.current_stage = 'Analyzing Data'
             report.progress_percent = 40
-            report.progress_message = f'Building report prompt ({len(iocs)} IOCs, {len(tagged_events)} tagged events)...'
+            report.progress_message = f'Analyzing {len(iocs)} IOCs and {len(tagged_events)} tagged events...'
             db.session.commit()
             
             prompt = generate_case_report_prompt(case, iocs, tagged_events)
             logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters)")
             
-            # Generate report with Ollama
+            # Check for cancellation before AI generation
+            report = db.session.get(AIReport, report_id)
+            if report.status == 'cancelled':
+                logger.info(f"[AI REPORT] Report {report_id} was cancelled before AI generation")
+                return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
+            
+            # STAGE 3: Generating Report with AI
+            report.current_stage = 'Generating Report'
             report.progress_percent = 50
-            report.progress_message = 'Generating report with AI...'
+            report.progress_message = f'Loading {report.model_name} model and generating report...'
             db.session.commit()
             
             start_time = time.time()
@@ -719,13 +749,26 @@ def generate_ai_report(self, report_id):
             )
             generation_time = time.time() - start_time
             
+            # Check for cancellation after AI generation
+            report = db.session.get(AIReport, report_id)
+            if report.status == 'cancelled':
+                logger.info(f"[AI REPORT] Report {report_id} was cancelled after AI generation")
+                return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
+            
             if success:
+                # STAGE 4: Finalizing Report
+                report.current_stage = 'Finalizing'
+                report.progress_percent = 95
+                report.progress_message = 'Converting report to HTML format...'
+                db.session.commit()
+                
                 # Convert markdown report to HTML for Word compatibility
                 markdown_report = result['report']
                 html_report = markdown_to_html(markdown_report, case.name, case.company)
                 
                 # Update report with success
                 report.status = 'completed'
+                report.current_stage = 'Completed'
                 report.report_title = format_report_title(case.name)
                 report.report_content = html_report  # Store as HTML for Word compatibility
                 report.generation_time_seconds = result['duration_seconds']
@@ -733,6 +776,7 @@ def generate_ai_report(self, report_id):
                 report.model_name = result.get('model', 'phi3:14b')
                 report.progress_percent = 100
                 report.progress_message = 'Report completed successfully!'
+                report.celery_task_id = None  # Clear task ID on completion
                 
                 # Store performance metrics
                 eval_count = result.get('eval_count', 0)
@@ -754,8 +798,10 @@ def generate_ai_report(self, report_id):
                 # Update report with failure
                 error_msg = result.get('error', 'Unknown error')
                 report.status = 'failed'
+                report.current_stage = 'Failed'
                 report.error_message = error_msg
                 report.generation_time_seconds = generation_time
+                report.celery_task_id = None  # Clear task ID on failure
                 
                 db.session.commit()
                 

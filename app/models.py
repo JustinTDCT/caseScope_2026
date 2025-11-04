@@ -284,8 +284,9 @@ class AIReport(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
     generated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    status = db.Column(db.String(20), default='pending', index=True)  # pending, generating, completed, failed
+    status = db.Column(db.String(20), default='pending', index=True)  # pending, generating, completed, failed, cancelled
     model_name = db.Column(db.String(50), default='phi3:14b')  # AI model used
+    celery_task_id = db.Column(db.String(255), index=True)  # Celery task ID for cancellation
     report_title = db.Column(db.String(500))
     report_content = db.Column(db.Text)  # Full report in markdown format
     generation_time_seconds = db.Column(db.Float)  # How long it took to generate
@@ -295,6 +296,7 @@ class AIReport(db.Model):
     error_message = db.Column(db.Text)  # Error details if failed
     progress_percent = db.Column(db.Integer, default=0)  # 0-100 progress indicator
     progress_message = db.Column(db.String(200))  # Current step description
+    current_stage = db.Column(db.String(50))  # Current generation stage
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
     completed_at = db.Column(db.DateTime)
     

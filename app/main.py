@@ -750,8 +750,63 @@ def get_ai_report(report_id):
         'error_message': report.error_message,
         'progress_percent': report.progress_percent or 0,
         'progress_message': report.progress_message or 'Initializing...',
+        'current_stage': report.current_stage or 'Initializing',
         'created_at': report.created_at.isoformat() if report.created_at else None,
         'completed_at': report.completed_at.isoformat() if report.completed_at else None
+    })
+
+
+@app.route('/ai/report/<int:report_id>/cancel', methods=['POST'])
+@login_required
+def cancel_ai_report(report_id):
+    """Cancel an AI report generation (revoke Celery task and kill Ollama)"""
+    from models import AIReport
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    report = db.session.get(AIReport, report_id)
+    if not report:
+        return jsonify({'success': False, 'error': 'Report not found'}), 404
+    
+    # Check case access
+    case = db.session.get(Case, report.case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    # Only allow cancelling if report is in progress
+    if report.status not in ['pending', 'generating']:
+        return jsonify({
+            'success': False,
+            'error': f'Cannot cancel report with status: {report.status}'
+        }), 400
+    
+    logger.info(f"[AI REPORT] Cancelling report #{report_id} (Task ID: {report.celery_task_id})")
+    
+    # Revoke the Celery task if it exists
+    if report.celery_task_id:
+        try:
+            from celery_app import celery_app
+            # Revoke the task (terminate=True kills the worker process if running)
+            celery_app.control.revoke(report.celery_task_id, terminate=True, signal='SIGKILL')
+            logger.info(f"[AI REPORT] Revoked Celery task: {report.celery_task_id}")
+        except Exception as e:
+            logger.error(f"[AI REPORT] Error revoking task: {e}")
+    
+    # Update database
+    report.status = 'cancelled'
+    report.current_stage = 'Cancelled'
+    report.error_message = f'Report generation cancelled by user ({current_user.username})'
+    report.completed_at = datetime.utcnow()
+    report.celery_task_id = None
+    db.session.commit()
+    
+    logger.info(f"[AI REPORT] Report #{report_id} cancelled successfully")
+    
+    return jsonify({
+        'success': True,
+        'message': 'Report generation cancelled',
+        'report_id': report_id
     })
 
 

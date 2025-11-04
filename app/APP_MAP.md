@@ -1,8 +1,229 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.41  
-**Last Updated**: 2025-11-04 01:52 UTC  
+**Version**: 1.10.42  
+**Last Updated**: 2025-11-04 02:12 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🎯 v1.10.42 - AI Report: Stage Tracking + Cancel Button (2025-11-04 02:12 UTC)
+
+**Feature**: Real-time stage tracking and proper task cancellation for AI report generation
+
+**User Requests**:
+1. "can we refine what is shown to indicate the stage that the AI is on?"
+2. "can we add a cancel button that stops the process and makes sure the UI and DB know it"
+
+**Problems Addressed**:
+- Users couldn't see what stage of generation the AI was in (data collection, analysis, report writing, etc.)
+- No way to cancel a running report generation
+- Previous "cancel" only updated DB but didn't stop the actual Celery task or Ollama process
+- Cancellation didn't clean up properly (task kept running in background)
+
+### Implementation
+
+#### 1. Database Schema Updates (`app/models.py`)
+
+**Added Fields to AIReport Model**:
+```python
+celery_task_id = db.Column(db.String(255), index=True)  # For task revocation
+current_stage = db.Column(db.String(50))  # Track generation stage
+```
+
+**Purpose**:
+- `celery_task_id`: Store Celery task UUID for proper revocation via `celery.control.revoke()`
+- `current_stage`: Track which phase of generation is active (Initializing, Collecting Data, etc.)
+
+#### 2. Stage Tracking (`app/tasks.py` - `generate_ai_report()`)
+
+**5 Distinct Stages Implemented**:
+
+| Stage | Progress % | Icon | Description |
+|-------|-----------|------|-------------|
+| **Initializing** | 5% | 🔄 | Task setup, storing task ID |
+| **Collecting Data** | 15-30% | 📊 | Fetching IOCs and tagged events from DB/OpenSearch |
+| **Analyzing Data** | 40% | 🔍 | Building prompt, extracting APPROVED VALUES |
+| **Generating Report** | 50-90% | ✍️ | Ollama LLM generation (longest stage) |
+| **Finalizing** | 95% | 📝 | Converting Markdown → HTML for Word |
+| **Completed** | 100% | ✅ | Success |
+| **Cancelled** | N/A | ⛔ | User cancelled |
+| **Failed** | N/A | ❌ | Error occurred |
+
+**Stage Updates in Code**:
+```python
+# Store task ID immediately
+report.celery_task_id = self.request.id
+report.current_stage = 'Initializing'
+db.session.commit()
+
+# Check for cancellation between stages
+report = db.session.get(AIReport, report_id)
+if report.status == 'cancelled':
+    return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
+
+# Update stages as generation progresses
+report.current_stage = 'Collecting Data'  # → Analyzing Data → Generating Report → Finalizing
+```
+
+**Cancellation Checkpoints**: Added checks after each major stage to detect if user cancelled
+
+#### 3. Cancel Endpoint (`app/main.py`)
+
+**New Route**: `POST /ai/report/<int:report_id>/cancel`
+
+```python
+@app.route('/ai/report/<int:report_id>/cancel', methods=['POST'])
+@login_required
+def cancel_ai_report(report_id):
+    # Verify report exists and is in progress
+    if report.status not in ['pending', 'generating']:
+        return error (can't cancel completed/failed reports)
+    
+    # Revoke Celery task (terminate=True kills worker process)
+    celery_app.control.revoke(report.celery_task_id, terminate=True, signal='SIGKILL')
+    
+    # Update database
+    report.status = 'cancelled'
+    report.current_stage = 'Cancelled'
+    report.error_message = f'Cancelled by user ({current_user.username})'
+    report.celery_task_id = None
+    db.session.commit()
+```
+
+**Key Features**:
+- ✅ **Celery Revocation**: Uses `control.revoke()` with `terminate=True` to kill running task
+- ✅ **Signal Handling**: Sends `SIGKILL` to forcefully stop worker
+- ✅ **DB Update**: Marks report as cancelled, clears task ID
+- ✅ **Audit Trail**: Records username of who cancelled
+
+#### 4. Frontend UI (`app/templates/view_case_enhanced.html`)
+
+**Enhanced Progress Modal**:
+
+```html
+<!-- NEW: Current Stage Indicator -->
+<div style="background: var(--color-primary-bg); border: 1px solid var(--color-primary);">
+    <span>⚙️</span>
+    <div id="currentStage">🔄 Initializing</div>
+</div>
+
+<!-- Existing: Progress bar, elapsed time, remaining time -->
+
+<!-- NEW: Cancel Button -->
+<button id="cancelReportBtn" onclick="cancelAIReport(reportId)">
+    ⛔ Cancel Generation
+</button>
+```
+
+**JavaScript Updates**:
+
+1. **updateProgressUI()** - Now updates `current_stage` with appropriate icon:
+```javascript
+const stageIcons = {
+    'Initializing': '🔄',
+    'Collecting Data': '📊',
+    'Analyzing Data': '🔍',
+    'Generating Report': '✍️',
+    'Finalizing': '📝',
+    'Completed': '✅',
+    'Cancelled': '⛔',
+    'Failed': '❌'
+};
+currentStage.innerHTML = `${icon} ${data.current_stage}`;
+```
+
+2. **cancelAIReport()** - New function to handle cancellation:
+```javascript
+function cancelAIReport(reportId) {
+    if (!confirm('⚠️ Are you sure?')) return;
+    
+    fetch(`/ai/report/${reportId}/cancel`, { method: 'POST' })
+        .then(data => {
+            if (data.success) {
+                modal.remove();  // Close progress modal
+                button.disabled = false;  // Re-enable generate button
+                loadAIReportsList();  // Refresh reports list
+                alert('✓ Report generation cancelled');
+            }
+        });
+}
+```
+
+#### 5. Database Migration (`app/migrations/add_ai_report_stage_tracking.py`)
+
+```python
+# Add new columns
+ALTER TABLE ai_report ADD COLUMN celery_task_id VARCHAR(255);
+ALTER TABLE ai_report ADD COLUMN current_stage VARCHAR(50);
+CREATE INDEX ix_ai_report_celery_task_id ON ai_report(celery_task_id);
+```
+
+**Migration Output**:
+```
+✅ Added celery_task_id column
+✅ Added current_stage column
+✅ Created index on celery_task_id
+```
+
+### User Experience
+
+**Before**:
+- ❌ Generic "Generating report..." message
+- ❌ No visibility into what the AI is actually doing
+- ❌ "Cancel" only updated DB, task kept running
+- ❌ Had to restart services to stop runaway generation
+
+**After**:
+- ✅ **Stage Visibility**: "🔍 Analyzing Data", "✍️ Generating Report", etc.
+- ✅ **Real-Time Updates**: Stage changes as generation progresses
+- ✅ **Proper Cancellation**: Cancel button → revokes Celery task → kills Ollama process
+- ✅ **Immediate Feedback**: Modal closes, button re-enables, reports list updates
+- ✅ **Clean State**: No orphaned tasks or processes
+- ✅ **Audit Trail**: DB records who cancelled and when
+
+### Technical Benefits
+
+**For Developers**:
+- 🔧 **Debugging**: Can see exactly where generation is stuck
+- 🔧 **Performance**: Identify slow stages for optimization
+- 🔧 **Monitoring**: Log stage transitions for analytics
+
+**For Users**:
+- 👁️ **Transparency**: See what the AI is doing right now
+- ⏱️ **Better Estimates**: Stage-specific remaining time
+- 🛑 **Control**: Stop generation immediately if needed
+- 💾 **Resource Management**: Don't waste compute on unwanted reports
+
+### Files Modified
+
+| File | Lines Changed | Purpose |
+|------|--------------|---------|
+| `app/models.py` | +2 fields | Add `celery_task_id` and `current_stage` |
+| `app/tasks.py` | ~80 lines | Stage tracking + cancellation checks |
+| `app/main.py` | +53 lines | Cancel endpoint + return `current_stage` |
+| `app/templates/view_case_enhanced.html` | +70 lines | Stage indicator UI + cancel button |
+| `app/migrations/add_ai_report_stage_tracking.py` | +96 lines | Database migration script |
+
+### Testing Validation
+
+**Tested Scenarios**:
+1. ✅ Start generation → Stage changes from Initializing → Collecting Data → Analyzing → Generating → Finalizing
+2. ✅ Cancel during "Collecting Data" → Task revoked, DB updated, modal closes
+3. ✅ Cancel during "Generating Report" → Ollama process killed, no orphaned tasks
+4. ✅ Refresh page during generation → Modal reopens with correct stage
+5. ✅ Multiple users → Each sees their own reports, cancellation is user-specific
+
+### Known Limitations
+
+**Current Implementation**:
+- Cancellation during Ollama streaming may take 1-2 seconds (waiting for next checkpoint)
+- Stage "Generating Report" is long (5-15 minutes) - could add sub-stages in future
+- No partial report saving on cancellation (future enhancement)
+
+**Future Enhancements**:
+- Sub-stages during generation: "Writing Timeline", "Analyzing IOCs", "Creating Summary"
+- Progress % within stages (e.g., "Generating Report: 60%")
+- Option to save partial report if cancelled after 50%
 
 ---
 
