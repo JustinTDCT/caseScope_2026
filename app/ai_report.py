@@ -400,10 +400,11 @@ def generate_report_with_ollama(prompt, model='llama3.1:8b-instruct-q5_K_M', num
                                 if elapsed > 0:
                                     current_tps = tokens_generated / elapsed
                                     
-                                    # Update report with real-time metrics
+                                    # Update report with real-time metrics AND content for live preview
                                     report_obj.total_tokens = tokens_generated
                                     report_obj.tokens_per_second = current_tps
                                     report_obj.progress_message = f'Generating report... {tokens_generated} tokens at {current_tps:.1f} tok/s'
+                                    report_obj.raw_response = report_text  # ← ADD THIS: Update raw_response for live preview!
                                     
                                     try:
                                         db_session.commit()
