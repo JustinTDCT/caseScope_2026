@@ -905,6 +905,36 @@ function loadAIReportsList() {
                                         <strong>Status:</strong> 
                                         <span style="color: ${statusColor}; font-weight: 600;">${report.status}</span>
                                     </span>
+                `
+;
+                
+                // Add validation badge if available
+                if (report.validation && report.status === 'completed') {
+                    let validationIcon, validationColor, validationText;
+                    if (report.validation.passed && report.validation.warnings.length === 0) {
+                        validationIcon = '✅';
+                        validationColor = 'var(--color-success)';
+                        validationText = 'Validated';
+                    } else if (report.validation.passed && report.validation.warnings.length > 0) {
+                        validationIcon = '⚠️';
+                        validationColor = 'var(--color-warning)';
+                        validationText = `${report.validation.warnings.length} Warnings`;
+                    } else {
+                        validationIcon = '❌';
+                        validationColor = 'var(--color-error)';
+                        validationText = `${report.validation.errors.length} Errors`;
+                    }
+                    
+                    html += `
+                                    <span>•</span>
+                                    <span title="Validation: ${validationText}">
+                                        <strong>Validation:</strong> 
+                                        <span style="color: ${validationColor}; font-weight: 600;">${validationIcon} ${validationText}</span>
+                                    </span>
+                    `;
+                }
+                
+                html += `
                                     <span>•</span>
                                     <span><strong>Created:</strong> ${createdDate}</span>
                 `;

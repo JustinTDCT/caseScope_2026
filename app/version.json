@@ -1,9 +1,10 @@
 {
-  "version": "1.10.45",
+  "version": "1.10.46",
   "release_date": "2025-11-04",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "\ud83c\udfaf PHASE 1 COMPLETE: Qwen 2.5 72B + Validation Engine - Auto-detects hallucinations (v1.10.46)",
     "\ud83d\udd0d AI Review Feature - Store & View Prompts/Responses for Debugging Hallucination (v1.10.45)",
     "\ud83d\udd12 CRITICAL FIX: HARD RESET CONTEXT Prompt - Eliminates AI Hallucination with Strict Data Boundaries (v1.10.44)",
     "\ud83d\udeab AI Report Anti-Truncation & Anti-Hallucination Fix - Prompt Rewrite + num_predict=8192 + stop:[] (v1.10.43)",

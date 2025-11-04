@@ -82,7 +82,37 @@ MODEL_INFO = {
         'description': 'Custom Mixtral model optimized for long-form report generation. Has num_predict=4096 built-in.',
         'speed_estimate': '~3-5 tok/s CPU, ~15-25 tok/s GPU',
         'time_estimate': '10-15 minutes (CPU), 3-5 minutes (GPU)',
+        'recommended': False
+    },
+    'qwen2.5:72b': {
+        'name': 'Qwen 2.5 72B (Q4_K_M)',
+        'speed': 'Slow',
+        'quality': 'Outstanding',
+        'size': '47 GB',
+        'description': 'Best open-source instruction follower. Extremely low hallucination rate. 128K context. RECOMMENDED for accuracy.',
+        'speed_estimate': '~2-4 tok/s CPU, ~10-20 tok/s GPU',
+        'time_estimate': '15-25 minutes (CPU), 4-8 minutes (GPU)',
         'recommended': True
+    },
+    'qwen2.5:32b': {
+        'name': 'Qwen 2.5 32B (Q4_K_M)',
+        'speed': 'Moderate',
+        'quality': 'Excellent',
+        'size': '20 GB',
+        'description': 'Balanced Qwen model. Better instruction following than Mixtral. 128K context.',
+        'speed_estimate': '~4-6 tok/s CPU, ~18-28 tok/s GPU',
+        'time_estimate': '8-15 minutes (CPU), 3-5 minutes (GPU)',
+        'recommended': False
+    },
+    'qwen2.5:14b': {
+        'name': 'Qwen 2.5 14B (Q4_K_M)',
+        'speed': 'Fast',
+        'quality': 'Very Good',
+        'size': '9 GB',
+        'description': 'Faster Qwen model. Good for quick reports. 128K context.',
+        'speed_estimate': '~7-10 tok/s CPU, ~25-35 tok/s GPU',
+        'time_estimate': '5-10 minutes (CPU), 2-4 minutes (GPU)',
+        'recommended': False
     }
 }
 

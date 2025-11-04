@@ -771,12 +771,28 @@ def generate_ai_report(self, report_id):
                 markdown_report = result['report']
                 html_report = markdown_to_html(markdown_report, case.name, case.company)
                 
+                # VALIDATION: Check for hallucinations
+                from validation import validate_report
+                import json
+                
+                logger.info(f"[AI REPORT] Validating report for hallucinations...")
+                validation_results = validate_report(markdown_report, prompt, case.name)
+                
+                # Log validation results
+                if validation_results['passed']:
+                    logger.info(f"[AI REPORT] ✅ Validation PASSED - {len(validation_results['warnings'])} warnings")
+                else:
+                    logger.warning(f"[AI REPORT] ❌ Validation FAILED - {len(validation_results['errors'])} errors")
+                    for error in validation_results['errors']:
+                        logger.warning(f"[AI REPORT]   - {error['type']}: {error['message']}")
+                
                 # Update report with success
                 report.status = 'completed'
                 report.current_stage = 'Completed'
                 report.report_title = format_report_title(case.name)
                 report.report_content = html_report  # Store as HTML for Word compatibility
                 report.raw_response = markdown_report  # Store raw markdown response for debugging
+                report.validation_results = json.dumps(validation_results)  # Store validation results
                 report.generation_time_seconds = result['duration_seconds']
                 report.completed_at = datetime.utcnow()
                 report.model_name = result.get('model', 'phi3:14b')

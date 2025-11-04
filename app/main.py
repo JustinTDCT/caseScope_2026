@@ -735,6 +735,15 @@ def get_ai_report(report_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
+    # Parse validation results if available
+    validation_data = None
+    if report.validation_results:
+        try:
+            import json
+            validation_data = json.loads(report.validation_results)
+        except:
+            validation_data = None
+    
     return jsonify({
         'id': report.id,
         'case_id': report.case_id,
@@ -751,6 +760,7 @@ def get_ai_report(report_id):
         'progress_percent': report.progress_percent or 0,
         'progress_message': report.progress_message or 'Initializing...',
         'current_stage': report.current_stage or 'Initializing',
+        'validation': validation_data,
         'created_at': report.created_at.isoformat() if report.created_at else None,
         'completed_at': report.completed_at.isoformat() if report.completed_at else None
     })
