@@ -664,8 +664,9 @@ def generate_ai_report(self, report_id):
             logger.info(f"[AI REPORT] Found {len(iocs)} IOCs")
             
             # Get tagged events from OpenSearch (using TimelineTag table)
+            # Limit to 50 events to prevent context window overflow (was 100)
             report.progress_percent = 30
-            report.progress_message = 'Fetching tagged events from database...'
+            report.progress_message = 'Fetching top 50 tagged events from database...'
             db.session.commit()
             
             tagged_events = []
@@ -680,7 +681,7 @@ def generate_ai_report(self, report_id):
                     # Get event_ids for OpenSearch query
                     tagged_event_ids = [tag.event_id for tag in timeline_tags]
                     
-                    # Fetch full event data from OpenSearch (limit to 100 most recent)
+                    # Fetch full event data from OpenSearch (limit to 50 to prevent context overflow)
                     if len(tagged_event_ids) > 0:
                         # Build index pattern
                         index_pattern = f"case_{case.id}_*"
@@ -688,10 +689,10 @@ def generate_ai_report(self, report_id):
                         search_body = {
                             "query": {
                                 "ids": {
-                                    "values": tagged_event_ids[:100]  # Limit to first 100
+                                    "values": tagged_event_ids[:50]  # Limit to 50 to prevent context overflow
                                 }
                             },
-                            "size": 100,
+                            "size": 50,
                             "sort": [{"timestamp": {"order": "asc", "unmapped_type": "date"}}]
                         }
                         
