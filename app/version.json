@@ -1,9 +1,10 @@
 {
-  "version": "1.10.40",
+  "version": "1.10.41",
   "release_date": "2025-11-04",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "🔧 FIXED: Model Selector Shows ALL Models (Installed + Not Installed) with Download Instructions (v1.10.41)",
     "🤖 Mixtral 8x7B Models + Admin Report Delete (v1.10.40)",
     "🛡️ CRITICAL: Anti-Hallucination Protection - Whitelist-Based Validation (v1.10.39)",
     "💬 Interactive AI Report Refinement Chat - Real-Time Conversational Report Editing (v1.10.38)",

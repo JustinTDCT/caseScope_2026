@@ -1,8 +1,117 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.39  
-**Last Updated**: 2025-11-03 23:30 UTC  
+**Version**: 1.10.41  
+**Last Updated**: 2025-11-04 01:52 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔧 v1.10.41 - FIXED: Model Selector Shows ALL Models with Install Status (2025-11-04 01:52 UTC)
+
+**Feature**: Settings page now displays ALL available models (LLaMA, Phi-3, Mixtral) regardless of installation status, with clear install/download indicators.
+
+**Problem Discovered**:
+- User added Mixtral models to `MODEL_INFO` in `app/ai_report.py`
+- Updated `routes/settings.py` to import `MODEL_INFO`
+- **But Mixtral models still not showing in Settings UI**
+- Only 4 models visible (LLaMA 3.1 x2, Phi-3 x2) - Mixtral missing
+
+**Root Cause**:
+The template (`templates/settings.html`) was iterating over `ai_status.models`, which comes from `check_ollama_status()`. This function only returns models that are **actually installed** via `ollama list`.
+
+Since Mixtral wasn't pulled yet (`ollama pull mixtral:8x7b-instruct-v0.1-q4_K_M`), it wasn't in the installed list, so it didn't appear in the UI.
+
+**Solutions Implemented**:
+
+1. **Show All Models from MODEL_INFO** (`app/routes/settings.py` lines 67-110):
+   ```python
+   # Get list of installed model names
+   installed_model_names = [m['name'] for m in ai_status.get('models', [])]
+   
+   # Create a list of ALL models from MODEL_INFO
+   for model_id, model_data in MODEL_INFO.items():
+       is_installed = model_id in installed_model_names
+       all_models.append({
+           'name': model_id,
+           'display_name': model_data['name'],
+           # ... other fields ...
+           'installed': is_installed  # NEW: Track install status
+       })
+   
+   # Sort: installed first, then by recommended
+   all_models.sort(key=lambda x: (not x['installed'], not x['recommended'], x['display_name']))
+   ```
+
+2. **Visual Install Status Badges** (`app/templates/settings.html` lines 355-368):
+   ```html
+   {% if not model.installed %}
+   <span style="background: #ff6b6b;">NOT INSTALLED</span>
+   {% else %}
+   <span style="background: #51cf66;">✓ INSTALLED</span>
+   {% endif %}
+   ```
+
+3. **Download Instructions for Uninstalled Models**:
+   ```html
+   {% if not model.installed %}
+   <p>📥 Download: <code>ollama pull {{ model.name }}</code></p>
+   {% endif %}
+   ```
+
+4. **Dimmed Appearance for Uninstalled Models**:
+   ```css
+   {% if not model.installed %}opacity: 0.7;{% endif %}
+   ```
+
+**How It Works**:
+
+1. **Backend** (`routes/settings.py`):
+   - Import `MODEL_INFO` (the master list of all supported models)
+   - Get installed models from `check_ollama_status()`
+   - Create `all_models` list with every model from `MODEL_INFO`
+   - Mark each model as `installed: True/False`
+   - Sort so installed models appear first
+
+2. **Frontend** (`templates/settings.html`):
+   - Loop through `all_models` instead of `ai_status.models`
+   - Show "✓ INSTALLED" badge (green) for installed models
+   - Show "NOT INSTALLED" badge (red) for models that need downloading
+   - Display `ollama pull` command for uninstalled models
+   - Dim uninstalled models slightly (opacity: 0.7)
+
+**Result - All 6 Models Now Visible**:
+
+**Installed (First):**
+- ⭐ LLaMA 3.1 8B (Q4_K_M) - ✓ INSTALLED
+- LLaMA 3.1 8B (Q5_K_M) - ✓ INSTALLED
+- Phi-3 Medium 14B (Q4_0) - ✓ INSTALLED
+- Phi-3 Medium 14B (Q4_K_M) - ✓ INSTALLED
+
+**Not Installed (Shown with Download Instructions):**
+- Mixtral 8x7B Instruct (Q4_K_M) - NOT INSTALLED
+  - 📥 Download: `ollama pull mixtral:8x7b-instruct-v0.1-q4_K_M`
+- Mixtral 8x7B Instruct (Q3_K_M) - NOT INSTALLED
+  - 📥 Download: `ollama pull mixtral:8x7b-instruct-v0.1-q3_K_M`
+
+**Benefits**:
+- ✅ **Users see all options** - Can plan which models to download
+- ✅ **Clear install status** - Know which models are ready to use
+- ✅ **Easy installation** - Copy-paste `ollama pull` commands directly
+- ✅ **Better UX** - No mystery about why a model isn't showing
+- ✅ **Model comparison** - Can compare all options before downloading
+- ✅ **Smart sorting** - Installed models first, then by recommendation
+
+**Files Modified**:
+- `app/routes/settings.py` (lines 67-110) - Generate `all_models` list with install status
+- `app/templates/settings.html` (lines 336-394) - Show all models with status badges
+- `app/version.json` - Updated to v1.10.41
+- `app/APP_MAP.md` - This documentation
+
+**Testing**:
+- ✅ Flask service restarted
+- ✅ Settings page now shows 6 models total
+- ✅ Mixtral models visible with "NOT INSTALLED" badge
+- ✅ Download instructions displayed for uninstalled models
 
 ---
 

@@ -333,28 +333,39 @@
                         AI Model Selection
                     </label>
                     
-                    {% if ai_status.models %}
+                    {% if all_models %}
                     <!-- Available Models -->
                     <div style="display: grid; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
-                        {% for model in ai_status.models %}
+                        {% for model in all_models %}
                         <label style="cursor: pointer;">
                             <input type="radio" 
                                    name="ai_model_name" 
                                    value="{{ model.name }}"
                                    {% if ai_model_name == model.name %}checked{% endif %}
+                                   {% if not model.installed %}title="This model needs to be downloaded first"{% endif %}
                                    style="display: none;">
-                            <div class="model-card" style="border: 2px solid {% if ai_model_name == model.name %}var(--color-primary){% else %}var(--color-border){% endif %}; padding: var(--spacing-md); border-radius: var(--border-radius); background: {% if ai_model_name == model.name %}var(--color-primary-bg){% else %}var(--color-background){% endif %}; transition: all 0.2s ease;">
+                            <div class="model-card" style="border: 2px solid {% if ai_model_name == model.name %}var(--color-primary){% elif not model.installed %}#666{% else %}var(--color-border){% endif %}; padding: var(--spacing-md); border-radius: var(--border-radius); background: {% if ai_model_name == model.name %}var(--color-primary-bg){% elif not model.installed %}#1a1a1a{% else %}var(--color-background){% endif %}; transition: all 0.2s ease; {% if not model.installed %}opacity: 0.7;{% endif %}">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-xs);">
-                                    <div>
+                                    <div style="flex: 1;">
                                         <h4 style="margin: 0; font-size: 1rem; color: var(--color-text);">
                                             {% if model.recommended %}⭐ {% endif %}{{ model.display_name }}
                                             {% if ai_model_name == model.name %}
                                             <span style="background: var(--color-primary); color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">SELECTED</span>
                                             {% endif %}
+                                            {% if not model.installed %}
+                                            <span style="background: #ff6b6b; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">NOT INSTALLED</span>
+                                            {% else %}
+                                            <span style="background: #51cf66; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">✓ INSTALLED</span>
+                                            {% endif %}
                                         </h4>
                                         <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
                                             {{ model.description }}
                                         </p>
+                                        {% if not model.installed %}
+                                        <p style="margin: var(--spacing-xs) 0 0 0; color: #ffa94d; font-size: 0.8rem; font-family: monospace;">
+                                            📥 Download: <code style="background: #2a2a2a; padding: 2px 6px; border-radius: 3px;">ollama pull {{ model.name }}</code>
+                                        </p>
+                                        {% endif %}
                                     </div>
                                 </div>
                                 

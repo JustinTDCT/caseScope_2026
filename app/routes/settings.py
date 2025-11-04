@@ -66,11 +66,33 @@ def index():
     
     # Check AI system status
     ai_status = {'installed': False, 'running': False, 'model_available': False, 'models': []}
-    model_info = {}
+    all_models = []
     try:
         from ai_report import check_ollama_status, MODEL_INFO
         ai_status = check_ollama_status()
-        model_info = MODEL_INFO
+        
+        # Get list of installed model names
+        installed_model_names = [m['name'] for m in ai_status.get('models', [])]
+        
+        # Create a list of ALL models from MODEL_INFO, marking which are installed
+        for model_id, model_data in MODEL_INFO.items():
+            is_installed = model_id in installed_model_names
+            all_models.append({
+                'name': model_id,
+                'display_name': model_data['name'],
+                'speed': model_data['speed'],
+                'quality': model_data['quality'],
+                'size': model_data['size'],
+                'description': model_data['description'],
+                'speed_estimate': model_data['speed_estimate'],
+                'time_estimate': model_data['time_estimate'],
+                'recommended': model_data.get('recommended', False),
+                'installed': is_installed
+            })
+        
+        # Sort: installed first, then by recommended, then alphabetically
+        all_models.sort(key=lambda x: (not x['installed'], not x['recommended'], x['display_name']))
+        
     except:
         pass
     
@@ -85,7 +107,7 @@ def index():
                          ai_enabled=ai_enabled,
                          ai_model_name=ai_model_name,
                          ai_status=ai_status,
-                         model_info=model_info)
+                         all_models=all_models)
 
 
 @settings_bp.route('/save', methods=['POST'])
