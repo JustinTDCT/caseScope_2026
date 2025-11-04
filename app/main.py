@@ -955,6 +955,39 @@ def apply_ai_chat_refinement(report_id):
     })
 
 
+@app.route('/ai/report/<int:report_id>', methods=['DELETE'])
+@login_required
+def delete_ai_report(report_id):
+    """Delete an AI report (admin only)"""
+    from models import AIReport, AIReportChat
+    
+    # Check if user is administrator
+    if current_user.role != 'administrator':
+        return jsonify({'error': 'Unauthorized - Administrator access required'}), 403
+    
+    report = db.session.get(AIReport, report_id)
+    if not report:
+        return jsonify({'error': 'Report not found'}), 404
+    
+    # Store case_id for response
+    case_id = report.case_id
+    
+    # Delete associated chat messages first (cascade should handle this, but be explicit)
+    AIReportChat.query.filter_by(report_id=report_id).delete()
+    
+    # Delete the report
+    db.session.delete(report)
+    db.session.commit()
+    
+    logger.info(f"[ADMIN] User {current_user.username} deleted AI Report #{report_id} from Case {case_id}")
+    
+    return jsonify({
+        'success': True,
+        'message': f'Report #{report_id} deleted successfully',
+        'case_id': case_id
+    })
+
+
 @app.route('/case/<int:case_id>/ai/reports')
 @login_required
 def list_ai_reports(case_id):

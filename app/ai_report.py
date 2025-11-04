@@ -53,6 +53,26 @@ MODEL_INFO = {
         'speed_estimate': '~6-9 tok/s CPU, ~25-35 tok/s GPU',
         'time_estimate': '25-30 minutes (CPU), 4-6 minutes (GPU)',
         'recommended': False
+    },
+    'mixtral:8x7b-instruct-v0.1-q4_K_M': {
+        'name': 'Mixtral 8x7B Instruct (Q4_K_M)',
+        'speed': 'Moderate',
+        'quality': 'Excellent',
+        'size': '26 GB',
+        'description': 'Mixture-of-Experts model. Superior reasoning and instruction following. 32K context window.',
+        'speed_estimate': '~3-5 tok/s CPU, ~15-25 tok/s GPU',
+        'time_estimate': '10-15 minutes (CPU), 3-5 minutes (GPU)',
+        'recommended': False
+    },
+    'mixtral:8x7b-instruct-v0.1-q3_K_M': {
+        'name': 'Mixtral 8x7B Instruct (Q3_K_M)',
+        'speed': 'Fast',
+        'quality': 'Very Good',
+        'size': '20 GB',
+        'description': 'Faster Mixtral variant. Good balance of speed and quality. 32K context window.',
+        'speed_estimate': '~5-8 tok/s CPU, ~20-30 tok/s GPU',
+        'time_estimate': '8-12 minutes (CPU), 2-4 minutes (GPU)',
+        'recommended': False
     }
 }
 
