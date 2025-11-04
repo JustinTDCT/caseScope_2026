@@ -1,8 +1,146 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.43  
-**Last Updated**: 2025-11-04 11:42 UTC  
+**Version**: 1.10.44  
+**Last Updated**: 2025-11-04 12:16 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔒 v1.10.44 - CRITICAL FIX: HARD RESET CONTEXT Prompt (2025-11-04 12:16 UTC)
+
+**Feature**: Complete prompt rewrite using "HARD RESET CONTEXT" structure to eliminate AI hallucination
+
+**User Report**:
+"the new report is completely inaccurate! many falsehoods and made up items"
+
+Even though v1.10.43 generated 2,380 tokens (vs 134-168 before), the content was **still hallucinated** - AI was inventing systems, events, and details not present in the data.
+
+**Root Cause Analysis**:
+- Previous prompts were too verbose and complex (8 sections, 500+ lines of instructions)
+- No clear data boundaries - AI couldn't distinguish between instructions and actual data
+- Too many conflicting rules confused the model
+- APPROVED VALUES lists were buried in the prompt
+
+**Solution**: Complete prompt rewrite using proven two-phase structure
+
+### New Prompt Structure (HARD RESET CONTEXT)
+
+```
+HARD RESET CONTEXT.
+
+YOU MUST FOLLOW THESE RULES — NO EXCEPTIONS:
+
+1. ONLY use the data between <<<DATA>>> and <<<END DATA>>>.
+2. If a detail is not in the dataset, write "NO DATA PRESENT".
+3. Produce ALL sections before stopping:
+   A. Executive Summary (3–5 paragraphs)
+   B. Timeline (every event in chronological order)
+   C. IOCs (table)
+   D. MITRE Mapping
+   E. What Happened / Why / How to Prevent
+4. Minimum output length = 1200 words.
+5. Do NOT summarize. Do NOT infer. Do NOT make up ANY details.
+6. When finished, output exactly: ***END OF REPORT***
+7. If output reaches token limit, CONTINUE WRITING without waiting.
+8. Use term "destination systems" NOT "target systems".
+9. IPs listed are SSLVPN assigned IPs.
+10. All timestamps are in UTC format.
+
+<<<DATA>>>
+CASE INFORMATION:
+...
+
+INDICATORS OF COMPROMISE:
+- IOC: value | Type: type | ...
+
+TAGGED EVENTS:
+Event 1:
+  Timestamp: ...
+  Event ID: ...
+  Computer: ...
+  (all fields)
+
+Event 2:
+  ...
+
+<<<END DATA>>>
+
+Generate a professional DFIR investigation report with ALL sections (A through E).
+Use markdown formatting. Be thorough and detailed. Minimum 1200 words.
+Begin now.
+```
+
+### Key Improvements
+
+**1. HARD RESET CONTEXT**
+- Clears any previous context/confusion
+- Tells AI to forget everything and start fresh
+
+**2. Strict Data Boundaries**
+- `<<<DATA>>>` and `<<<END DATA>>>` markers
+- AI can ONLY use what's between these markers
+- Everything outside is instructions, not data
+
+**3. Simplified Rules**
+- 10 clear rules (was 30+ verbose instructions)
+- Rule #1 is paramount: "ONLY use data between markers"
+- "NO DATA PRESENT" instead of inventing
+
+**4. Simplified Data Format**
+- CSV-like format instead of verbose markdown
+- All event fields included (no filtering)
+- Simple, parseable structure
+
+**5. Word Count Instead of Token Count**
+- "1200 words minimum" more reliable than token-based limits
+- Prevents premature truncation
+
+**6. Clear Completion Marker**
+- `***END OF REPORT***` (three asterisks)
+- Easy to detect when report is complete
+
+### Files Modified
+
+- **`app/ai_report.py`**:
+  - `generate_case_report_prompt()` - **COMPLETE REWRITE**
+    - Removed verbose 500-line instruction section
+    - Removed APPROVED VALUES lists (causing confusion)
+    - Added HARD RESET CONTEXT header
+    - Added <<<DATA>>> / <<<END DATA>>> markers
+    - Simplified data format (CSV-like)
+    - Reduced prompt from ~170KB to ~60KB
+    - 10 simple rules instead of complex multi-section instructions
+
+### Expected Results
+
+**Before v1.10.44**:
+- ❌ 2,380 tokens but **full of hallucinated data**
+- ❌ Mentioned systems not in the dataset
+- ❌ Invented timestamps and events
+- ❌ Mixed data from different cases
+
+**After v1.10.44** (Expected):
+- ✅ Accurate data - only references what's in <<<DATA>>> section
+- ✅ "NO DATA PRESENT" when information missing
+- ✅ No cross-case contamination
+- ✅ Proper chronological order
+- ✅ 1200+ word reports
+- ✅ ***END OF REPORT*** marker present
+
+### Testing Required
+
+Generate a NEW report and verify:
+1. ✅ All mentioned systems exist in the tagged events
+2. ✅ All timestamps are from actual events (no invented times)
+3. ✅ No JELLY data in EGAGE reports (cross-case bleeding)
+4. ✅ "NO DATA PRESENT" used appropriately
+5. ✅ Report uses markdown formatting
+6. ✅ Minimum 1200 words
+7. ✅ Ends with ***END OF REPORT***
+
+### Credits
+
+Prompt structure provided by user - proven effective at preventing hallucination.
 
 ---
 

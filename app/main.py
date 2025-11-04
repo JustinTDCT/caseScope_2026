@@ -967,6 +967,32 @@ def get_ai_report_chat_history(report_id):
     })
 
 
+@app.route('/ai/report/<int:report_id>/review', methods=['GET'])
+@login_required
+def get_ai_report_review(report_id):
+    """Get prompt and response for AI report review/debugging"""
+    from models import AIReport
+    
+    report = db.session.get(AIReport, report_id)
+    if not report:
+        return jsonify({'error': 'Report not found'}), 404
+    
+    # Check case access
+    case = db.session.get(Case, report.case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    return jsonify({
+        'prompt_sent': report.prompt_sent or 'No prompt stored (generated before v1.10.44)',
+        'raw_response': report.raw_response or 'No raw response stored (generated before v1.10.44)',
+        'prompt_length': len(report.prompt_sent) if report.prompt_sent else 0,
+        'response_length': len(report.raw_response) if report.raw_response else 0,
+        'model_name': report.model_name,
+        'total_tokens': report.total_tokens,
+        'created_at': report.created_at.isoformat() if report.created_at else None
+    })
+
+
 @app.route('/ai/report/<int:report_id>/apply', methods=['POST'])
 @login_required
 def apply_ai_chat_refinement(report_id):

@@ -934,6 +934,9 @@ function loadAIReportsList() {
                         <button onclick="showAIReportChat(${report.id})" class="btn btn-sm btn-success" title="Refine this report with AI">
                             <span>🤖 Refine with AI</span>
                         </button>
+                        <button onclick="showAIReportReview(${report.id})" class="btn btn-sm btn-info" title="Review AI prompts and responses">
+                            <span>🔍 Review AI</span>
+                        </button>
                         <a href="/ai/report/${report.id}/download" class="btn btn-sm btn-primary" title="Download report">
                             <span>💾 Download</span>
                         </a>
@@ -1305,6 +1308,104 @@ function applyRefinement(messageId, button) {
         console.error('Apply error:', err);
         alert(`❌ Error applying refinement: ${err.message}`);
     });
+}
+
+function showAIReportReview(reportId) {
+    // Fetch prompt and response data
+    fetch(`/ai/report/${reportId}/review`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(`Error: ${data.error}`);
+                return;
+            }
+            
+            // Create review modal
+            const modal = document.createElement('div');
+            modal.id = 'aiReviewModal';
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 10000;
+            `;
+            
+            modal.innerHTML = `
+                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                    <!-- Header -->
+                    <div style="padding: 20px; border-bottom: 2px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h2 style="margin: 0; font-size: 1.5rem;">🔍 AI Report Review</h2>
+                            <p style="margin: 5px 0 0 0; font-size: 0.875rem; color: #666;">
+                                Model: ${data.model_name} | Tokens: ${data.total_tokens || 'N/A'} | Prompt: ${(data.prompt_length / 1024).toFixed(1)}KB | Response: ${(data.response_length / 1024).toFixed(1)}KB
+                            </p>
+                        </div>
+                        <button onclick="document.getElementById('aiReviewModal').remove()" style="background: none; border: none; font-size: 2rem; cursor: pointer; color: #666;">
+                            ×
+                        </button>
+                    </div>
+                    
+                    <!-- Content -->
+                    <div style="flex: 1; display: flex; gap: 20px; padding: 20px; overflow: hidden;">
+                        <!-- Prompt Section -->
+                        <div style="flex: 1; display: flex; flex-direction: column;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <h3 style="margin: 0; font-size: 1.125rem;">📤 Prompt Sent to AI</h3>
+                                <button onclick="navigator.clipboard.writeText(document.getElementById('promptText').textContent)" class="btn btn-sm btn-primary">
+                                    📋 Copy
+                                </button>
+                            </div>
+                            <div style="flex: 1; background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 15px; overflow-y: auto;">
+                                <pre id="promptText" style="margin: 0; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(data.prompt_sent)}</pre>
+                            </div>
+                        </div>
+                        
+                        <!-- Response Section -->
+                        <div style="flex: 1; display: flex; flex-direction: column;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <h3 style="margin: 0; font-size: 1.125rem;">📥 Raw AI Response</h3>
+                                <button onclick="navigator.clipboard.writeText(document.getElementById('responseText').textContent)" class="btn btn-sm btn-primary">
+                                    📋 Copy
+                                </button>
+                            </div>
+                            <div style="flex: 1; background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 15px; overflow-y: auto;">
+                                <pre id="responseText" style="margin: 0; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(data.raw_response)}</pre>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Footer -->
+                    <div style="padding: 15px 20px; border-top: 2px solid #e0e0e0; background: #f8f9fa; text-align: center; font-size: 0.875rem; color: #666;">
+                        Use this to verify data accuracy and debug hallucination issues. Compare the prompt data with what appears in the response.
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Close modal on background click
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        })
+        .catch(err => {
+            console.error('Failed to load review data:', err);
+            alert(`❌ Error loading review data: ${err.message}`);
+        });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 </script>
 {% endblock %}

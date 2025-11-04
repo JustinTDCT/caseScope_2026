@@ -289,6 +289,8 @@ class AIReport(db.Model):
     celery_task_id = db.Column(db.String(255), index=True)  # Celery task ID for cancellation
     report_title = db.Column(db.String(500))
     report_content = db.Column(db.Text)  # Full report in markdown format
+    prompt_sent = db.Column(db.Text)  # The full prompt sent to the AI (for debugging)
+    raw_response = db.Column(db.Text)  # The raw markdown response from AI before HTML conversion
     generation_time_seconds = db.Column(db.Float)  # How long it took to generate
     estimated_duration_seconds = db.Column(db.Float)  # Estimated time based on IOC/event counts
     tokens_per_second = db.Column(db.Float)  # Generation speed (tokens/second)

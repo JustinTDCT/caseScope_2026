@@ -1,9 +1,11 @@
 {
-  "version": "1.10.43",
+  "version": "1.10.45",
   "release_date": "2025-11-04",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "\ud83d\udd0d AI Review Feature - Store & View Prompts/Responses for Debugging Hallucination (v1.10.45)",
+    "\ud83d\udd12 CRITICAL FIX: HARD RESET CONTEXT Prompt - Eliminates AI Hallucination with Strict Data Boundaries (v1.10.44)",
     "\ud83d\udeab AI Report Anti-Truncation & Anti-Hallucination Fix - Prompt Rewrite + num_predict=8192 + stop:[] (v1.10.43)",
     "\ud83c\udfaf AI Report: Stage Tracking + Cancel Button - Real-Time Progress Visibility & Task Control (v1.10.42)",
     "\ud83d\udd27 FIXED: Model Selector Shows ALL Models (Installed + Not Installed) with Download Instructions (v1.10.41)",

@@ -727,6 +727,10 @@ def generate_ai_report(self, report_id):
             prompt = generate_case_report_prompt(case, iocs, tagged_events)
             logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters)")
             
+            # Store the prompt for debugging/review
+            report.prompt_sent = prompt
+            db.session.commit()
+            
             # Check for cancellation before AI generation
             report = db.session.get(AIReport, report_id)
             if report.status == 'cancelled':
@@ -772,6 +776,7 @@ def generate_ai_report(self, report_id):
                 report.current_stage = 'Completed'
                 report.report_title = format_report_title(case.name)
                 report.report_content = html_report  # Store as HTML for Word compatibility
+                report.raw_response = markdown_report  # Store raw markdown response for debugging
                 report.generation_time_seconds = result['duration_seconds']
                 report.completed_at = datetime.utcnow()
                 report.model_name = result.get('model', 'phi3:14b')

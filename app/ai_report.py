@@ -184,7 +184,7 @@ def check_ollama_status():
 
 def generate_case_report_prompt(case, iocs, tagged_events):
     """
-    Build the prompt for AI report generation following client's proven DFIR report structure
+    Build the prompt for AI report generation using HARD RESET structure to prevent hallucination
     
     Args:
         case: Case object
@@ -192,360 +192,105 @@ def generate_case_report_prompt(case, iocs, tagged_events):
         tagged_events: List of tagged event dicts from OpenSearch
         
     Returns:
-        str: Formatted prompt for the LLM
+        str: Formatted prompt for the LLM with strict data boundaries
     """
     
-    # ANTI-HALLUCINATION: Extract actual values from events
-    systems_found = set()
-    usernames_found = set()
-    ips_found = set()
-    
-    for evt in tagged_events:
-        source = evt.get('_source', {})
-        
-        # Extract system/computer names (try multiple field names)
-        for field in ['Computer', 'computer', 'computer_name', 'ComputerName', 'System', 'hostname', 'Hostname']:
-            computer = source.get(field)
-            if computer and isinstance(computer, str) and computer not in ['-', 'N/A', '', 'Unknown']:
-                systems_found.add(computer)
-        
-        # Check nested host object
-        if 'host' in source and isinstance(source['host'], dict):
-            hostname = source['host'].get('name')
-            if hostname and isinstance(hostname, str):
-                systems_found.add(hostname)
-        
-        # Extract usernames
-        for field in ['Target_User_Name', 'TargetUserName', 'target_user', 'SubjectUserName', 'user', 'User', 'username', 'UserName']:
-            username = source.get(field)
-            if username and isinstance(username, str) and username not in ['-', 'N/A', 'SYSTEM', 'ANONYMOUS LOGON', '']:
-                usernames_found.add(username)
-        
-        # Extract IPs
-        for field in ['Source_Network_Address', 'SourceNetworkAddress', 'source_ip', 'src_ip', 'IpAddress', 'ip', 'dest_ip', 'destination_ip']:
-            ip = source.get(field)
-            if ip and isinstance(ip, str) and ip not in ['-', '127.0.0.1', '::1', '0.0.0.0', 'N/A']:
-                ips_found.add(ip)
-    
-    # Build allowed values lists
-    systems_list = "\n".join([f"  • {s}" for s in sorted(systems_found)]) if systems_found else "  (No system names found)"
-    usernames_list = "\n".join([f"  • {u}" for u in sorted(usernames_found)]) if usernames_found else "  (No usernames found)"
-    ips_list = "\n".join([f"  • {ip}" for ip in sorted(ips_found)]) if ips_found else "  (No IP addresses found)"
-    
-    # Build case summary with APPROVED VALUES section
-    prompt = f"""You are a senior DFIR (Digital Forensics and Incident Response) analyst generating a professional investigation report for: **{case.name}**
+    # Build the prompt with HARD RESET CONTEXT structure
+    prompt = f"""HARD RESET CONTEXT.
 
-**Company**: {case.company or 'N/A'}  
-**Investigation Date**: {case.created_at.strftime('%Y-%m-%d') if case.created_at else 'N/A'}
+YOU MUST FOLLOW THESE RULES — NO EXCEPTIONS:
+
+1. ONLY use the data between <<<DATA>>> and <<<END DATA>>>.
+
+2. If a detail is not in the dataset, write "NO DATA PRESENT".
+
+3. Produce ALL sections before stopping:
+   A. Executive Summary (3–5 paragraphs)
+   B. Timeline (every event in chronological order, earliest first)
+   C. IOCs (table format with all IOCs listed)
+   D. MITRE Mapping
+   E. What Happened / Why / How to Prevent
+
+4. Minimum output length = 1200 words.
+
+5. Do NOT summarize. Do NOT infer. Do NOT make up ANY details.
+
+6. When finished, output exactly: ***END OF REPORT***
+
+7. If output reaches token limit, CONTINUE WRITING without waiting for user.
+
+8. Use term "destination systems" NOT "target systems".
+
+9. IPs listed are SSLVPN assigned IPs (not public internet IPs).
+
+10. All timestamps are in UTC format.
 
 ---
 
-# 🚨 CRITICAL ANTI-HALLUCINATION RULES 🚨
+<<<DATA>>>
 
-**⚠️ DATA INTEGRITY - FOLLOW STRICTLY:**
-1. **ONLY USE APPROVED VALUES BELOW** - Do NOT invent ANY details
-2. **FORBIDDEN**: Creating fake system names, IP addresses, or usernames
-3. **MANDATORY**: Only mention systems/IPs/users from the "APPROVED VALUES" list
-4. **NO SPECULATION** - If it's not in the data below, don't mention it
-5. **EXACT REFERENCES** - Copy names/IPs exactly as shown (case-sensitive)
-6. **DESTINATIONS NOT TARGETS** - Call systems "destination systems" not "target systems"
-
----
-
-# ✅ APPROVED VALUES (ONLY USE THESE)
-
-**APPROVED SYSTEM NAMES** ({len(systems_found)} unique systems):
-{systems_list}
-
-**APPROVED USERNAMES** ({len(usernames_found)} unique users):
-{usernames_list}
-
-**APPROVED IP ADDRESSES** ({len(ips_found)} unique IPs):
-{ips_list}
-
-⚠️ **WARNING**: If you mention ANY system/IP/username NOT in the above lists, you are HALLUCINATING and the report will be REJECTED.
-
----
-
-# DATA PROVIDED FOR ANALYSIS:
+CASE INFORMATION:
+Case Name: {case.name}
+Company: {case.company or 'N/A'}
+Investigation Date: {case.created_at.strftime('%Y-%m-%d') if case.created_at else 'N/A'}
 
 """
     
-    # Add IOCs with full details
+    # Add IOCs in simple CSV-like format
     if iocs:
-        prompt += f"\n## INDICATORS OF COMPROMISE ({len(iocs)} IOCs)\n\n"
-        prompt += "**These are known malicious indicators identified in the investigation:**\n\n"
-        
-        # Group IOCs by type
-        ioc_by_type = {}
+        prompt += f"INDICATORS OF COMPROMISE ({len(iocs)} total):\n"
         for ioc in iocs:
-            ioc_type = ioc.ioc_type or 'unknown'
-            if ioc_type not in ioc_by_type:
-                ioc_by_type[ioc_type] = []
-            ioc_by_type[ioc_type].append(ioc)
-        
-        for ioc_type, ioc_list in sorted(ioc_by_type.items()):
-            prompt += f"\n### {ioc_type.upper()} ({len(ioc_list)} indicators)\n"
-            for ioc in ioc_list:
-                flags = []
-                if ioc.threat_level:
-                    flags.append(f"Threat: {ioc.threat_level}")
-                if not ioc.is_active:
-                    flags.append("INACTIVE")
-                flag_str = f" [{', '.join(flags)}]" if flags else ""
-                
-                prompt += f"- **{ioc.ioc_value}**{flag_str}"
-                if ioc.description:
-                    prompt += f"\n  Description: {ioc.description}"
-                prompt += "\n"
+            prompt += f"- IOC: {ioc.ioc_value} | Type: {ioc.ioc_type or 'unknown'}"
+            if ioc.threat_level:
+                prompt += f" | Threat Level: {ioc.threat_level}"
+            if ioc.description:
+                prompt += f" | Description: {ioc.description}"
+            prompt += "\n"
+        prompt += "\n"
     else:
-        prompt += "\n## INDICATORS OF COMPROMISE\n**No IOCs defined for this case.**\n\n"
+        prompt += "INDICATORS OF COMPROMISE: None defined\n\n"
     
-    # Add tagged events with ALL available fields
+    # Add tagged events in simple format (CSV-like)
     if tagged_events:
-        prompt += f"\n## TAGGED EVENTS ({len(tagged_events)} events)\n\n"
-        prompt += "**These events were manually tagged by analysts as significant to the investigation.**\n"
-        prompt += "**Extract ALL details from these events for your analysis - these are your PRIMARY data source.**\n\n"
+        prompt += f"TAGGED EVENTS ({len(tagged_events)} events):\n\n"
         
         for i, event in enumerate(tagged_events, 1):
             source = event.get('_source', {})
             
-            # Always show these core fields
+            # Get core fields
             timestamp = source.get('timestamp', source.get('@timestamp', 'Unknown'))
             event_id = source.get('event_id', source.get('EventID', 'N/A'))
             computer = source.get('computer_name', source.get('computer', source.get('Computer', 'N/A')))
             description = source.get('description', 'No description')
             
-            prompt += f"### Event {i} [{event_id}] - {timestamp}\n"
-            prompt += f"**Computer**: {computer}\n"
-            prompt += f"**Description**: {description}\n"
+            prompt += f"Event {i}:\n"
+            prompt += f"  Timestamp: {timestamp}\n"
+            prompt += f"  Event ID: {event_id}\n"
+            prompt += f"  Computer: {computer}\n"
+            prompt += f"  Description: {description}\n"
             
-            # Extract ALL other fields dynamically (don't filter)
+            # Add ALL other fields (don't filter - give AI all data)
             exclude_fields = {'timestamp', '@timestamp', 'event_id', 'EventID', 'computer_name', 'computer', 
                             'Computer', 'description', 'source_type', 'source_file', 'has_sigma', 'has_ioc',
-                            '@version', '_index', '_type', '_score'}
+                            '@version', '_index', '_type', '_score', 'tags'}
             
-            other_fields = []
             for key, value in source.items():
                 if key not in exclude_fields and value and str(value).strip():
-                    # Format field names nicely
-                    field_name = key.replace('_', ' ').title()
-                    other_fields.append(f"  - **{field_name}**: {value}")
-            
-            if other_fields:
-                prompt += "\n".join(other_fields) + "\n"
+                    prompt += f"  {key}: {value}\n"
             
             prompt += "\n"
-        
-        if len(tagged_events) > 100:
-            prompt += f"\n... (showing first 100 of {len(tagged_events)} tagged events)\n"
     else:
-        prompt += "\n## TAGGED EVENTS\n**⚠️ No tagged events available.** Report cannot be generated without event data.\n"
+        prompt += "TAGGED EVENTS: None available\n\n"
     
-    # Add the EXACT structure the user requires
+    # Close the data section
     prompt += """
+<<<END DATA>>>
 
----
+Generate a professional DFIR investigation report with ALL sections (A through E) listed in the rules above.
 
-# YOUR TASK: GENERATE COMPLETE PROFESSIONAL DFIR REPORT
+Use markdown formatting. Be thorough and detailed. Minimum 1200 words.
 
-🚨 **CRITICAL OUTPUT RULES** 🚨
-
-**YOU MUST NOT SUMMARIZE. GENERATE A FULL COMPLETE REPORT.**
-
-**STRICT RULE**: If the dataset does not explicitly contain a detail, write "**NO DATA**" — do NOT infer or invent.
-
-**DO NOT STOP UNTIL ALL SECTIONS ARE COMPLETED.**
-
-**After generating the FULL report, output exactly: "### END OF REPORT"**
-
----
-
-**Format**: Professional document suitable for Microsoft Word (markdown with headers, bold, lists)
-**Audience**: Both technical IR professionals AND non-technical executives  
-**Tone**: Professional, precise, factual, NO speculation
-
----
-
-## MANDATORY REPORT STRUCTURE - COMPLETE ALL SECTIONS:
-
-### 1. EXECUTIVE SUMMARY (MINIMUM 3-5 PARAGRAPHS)
-Write **3-5 detailed paragraphs** explaining the incident:
-- **Paragraph 1**: What happened - the complete sequence of events from initial access through final actions
-- **Paragraph 2**: How they gained entry, what specific actions they performed, what data/credentials they accessed
-- **Paragraph 3**: Impact assessment and attacker objectives based on observed behavior
-- **Paragraph 4** (if applicable): Persistence mechanisms or data exfiltration
-- **Paragraph 5** (if applicable): Overall risk assessment and business impact
-
-**REQUIREMENTS - DO NOT SKIP**:
-- Use ONLY exact hostnames, usernames, IPs, commands from the events above
-- Reference specific Event IDs inline (e.g., "Event 4624 on EGAGE-SRV01 at 01:41:39")
-- Include MITRE ATT&CK technique IDs inline (e.g., T1555.004 for credential access)
-- Use **bold** for critical artifacts
-- Use `code formatting` for commands/file paths
-- If any detail is not in the data, write "**NO DATA**" instead of guessing
-
----
-
-### 2. DETAILED TIMELINE (CHRONOLOGICAL ORDER - EARLIEST FIRST)
-
-⚠️ **CRITICAL: SORT BY TIMESTAMP - EARLIEST EVENT FIRST, LATEST LAST**
-
-Create a complete forensic timeline of the attack with MITRE ATT&CK mapping.
-
-**Format for EVERY event** (include ALL tagged events):
-```
-**YYYY-MM-DD HH:MM:SS UTC** - [Brief description]
-- **Event ID**: XXXX
-- **Computer**: hostname  
-- **MITRE ATT&CK**: TXXXX.XXX - [Technique Name]
-- **Details**: [All forensic details - usernames, IPs, commands, processes, etc.]
-- **Significance**: [Why this matters to the investigation]
-```
-
-**REQUIREMENTS - MANDATORY**:
-- ⚠️ **SORT CHRONOLOGICALLY** - Check every timestamp, earliest first!
-- Include ALL key events (don't skip any)
-- Map EVERY event to appropriate MITRE ATT&CK technique
-- Include ALL details from each event
-- If no MITRE mapping exists, write "**NO DATA**"
-
----
-
-### 3. SYSTEMS IMPACTED (LIST ALL VICTIM SYSTEMS)
-
-⚠️ **ONLY list DESTINATION/VICTIM systems (systems the attacker accessed), NOT attacker sources**
-
-**Format** (EACH attribute on NEW line):
-```
-- **[Hostname]**  
-  - **Role**: [description]  
-  - **Impact Level**: [Critical/High/Medium/Low]  
-  - **Activities**: [What happened on this system - list all]  
-  - **Event IDs**: [List all Event IDs for this system]
-```
-
-**REQUIREMENTS**:
-- Use term "destination systems" NOT "target systems"  
-- **ONLY** list systems the attacker accessed/compromised (APPROVED SYSTEMS from above)
-- Assess impact: Critical=DC/sensitive servers, High=RDS/file servers, Medium=workstations, Low=monitoring
-- List ALL activities per system (each on new line)
-
----
-
-### 4. INDICATORS OF COMPROMISE (IOCs) FOUND
-
-⚠️ **EACH IOC ATTRIBUTE MUST BE ON ITS OWN LINE** - Do NOT merge into paragraphs
-
-**Format** (EACH bullet on SEPARATE line):
-```
-- **[IOC Value]** ([IOC Type])  
-- **What it is**: [Explain what this indicator represents]  
-- **System Role**: [State "Attacker's source system/IP" OR "Destination/victim system accessed"]  
-- **How it was used**: [How the attacker used this in the attack]  
-- **Event IDs**: [Which specific events contain this IOC]  
-- **MITRE ATT&CK**: [Associated technique(s)]
-
-(blank line before next IOC)
-```
-
-**REQUIREMENTS - STRICT FORMATTING**:
-- **EACH ATTRIBUTE ON NEW LINE** with `-` bullet
-- Explain each IOC for both technical and non-technical audiences
-- **Clearly distinguish**: "Attacker's IP/system" vs "Destination system accessed"
-- Show connections to specific events
-- If no data for an attribute, write "**NO DATA**"
-
----
-
-### 5. MITRE ATT&CK MAPPING (COMPLETE LIST)
-
-List ALL MITRE ATT&CK techniques observed with full details.
-
-**Format**:
-```
-- **TXXXX.XXX** - [Technique Name]  
-  - **Observed**: X times  
-  - **Event IDs**: [List all Event IDs showing this technique]  
-  - **Evidence**: [Detailed description of how technique was used with specific examples]
-```
-
-**REQUIREMENTS**:
-- Map ALL techniques observed in the data
-- Provide accurate counts
-- List ALL Event IDs for each technique
-- If technique unclear, write "**NO DATA**"
-
----
-
-### 6. FINDINGS / ANALYSIS (MINIMUM 4 PARAGRAPHS)
-
-Write a minimum of 4 detailed analytical paragraphs covering:
-
-#### What Happened (Paragraph 1 - detailed)
-Complete narrative of the attack sequence from initial access to final actions. Include specific systems, timestamps, and techniques used.
-
-#### How They Got In (Paragraph 2 - detailed)
-Detailed analysis of initial access vector. What vulnerability or weakness was exploited? What credentials were used? Include specific technical details.
-
-#### Why It Happened (Paragraph 3 - detailed)  
-Root cause analysis:
-- What specific security controls were missing or failed?
-- What specific vulnerabilities were exploited?
-- Why did existing defenses not prevent or detect the attack?
-
-#### What They Accomplished (Paragraph 4 - detailed)
-What did the attacker achieve? What systems did they access? What data did they view/steal? What credentials were compromised? What is the business impact?
-
----
-
-### 7. RECOMMENDATIONS (MINIMUM 5 SPECIFIC ACTIONS)
-
-Provide specific, actionable recommendations to prevent recurrence:
-
-**MINIMUM 5 RECOMMENDATIONS including**:
-- **DUO 2FA/MFA**: Specific implementation plan for remote access (VPN, RDP, etc.)
-- **Blackpoint MDR**: Enhanced detection for lateral movement, credential theft, and suspicious activity across all systems
-- **Huntress**: Endpoint detection and response deployment status (note if already present and effectiveness)
-- **[Additional specific control 1]**: Based on the attack vector observed
-- **[Additional specific control 2]**: Based on the techniques observed
-- **[Additional specific control 3+]**: Based on the gaps identified
-
-**REQUIREMENTS**:
-- Each recommendation must be specific and actionable
-- Link each recommendation to specific findings from the report
-- Prioritize based on impact and observed attack techniques
-
----
-
-### 8. APPENDIX - RAW DATA SUMMARY
-
-**Summarize the data sources used**:
-- Total Events Analyzed: [number]
-- Total IOCs Identified: [number]  
-- Systems Affected: [number]
-- Time Range: [earliest] to [latest]
-
----
-
-## 🚨 FINAL CRITICAL REMINDERS 🚨
-
-1. ✅ **COMPLETE ALL SECTIONS** - Do not stop early
-2. ✅ **USE ONLY APPROVED VALUES** from the lists at the top
-3. ✅ **NO HALLUCINATION** - Only reference data explicitly provided
-4. ✅ **"NO DATA"** if information is missing - do NOT invent
-5. ✅ **DESTINATIONS NOT TARGETS** - Use correct terminology
-6. ✅ **CHRONOLOGICAL ORDER** - Timeline must be earliest-to-latest
-7. ✅ **SEPARATE LINES** - IOC attributes each on own line
-8. ✅ **END MARKER** - Write "### END OF REPORT" when complete
-9. ❌ **NO SPECULATION** - Only state facts from the evidence
-10. ❌ **NO SHORTCUTS** - Generate FULL detailed report
-
-**If you reach any generation limit, automatically continue writing the next section without stopping.**
-
----
-
-BEGIN GENERATING THE COMPLETE PROFESSIONAL DFIR REPORT NOW:
+Begin now.
 """
     
     return prompt
