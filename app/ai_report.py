@@ -510,6 +510,7 @@ def generate_report_with_ollama(prompt, model='llama3.1:8b-instruct-q5_K_M', num
             'options': {
                 'num_ctx': num_ctx,
                 'num_thread': num_thread,
+                'num_predict': 4096,  # CRITICAL: Allow long responses (default is ~128)
                 'temperature': temperature,
                 'top_p': 0.9,
                 'top_k': 40
