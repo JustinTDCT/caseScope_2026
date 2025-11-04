@@ -1,9 +1,10 @@
 {
-  "version": "1.10.46",
+  "version": "1.10.47",
   "release_date": "2025-11-04",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "\ud83d\udd27 HOTFIX: Increased Qwen timeout from 20 to 40 minutes (v1.10.47)",
     "\ud83c\udfaf PHASE 1 COMPLETE: Qwen 2.5 72B + Validation Engine - Auto-detects hallucinations (v1.10.46)",
     "\ud83d\udd0d AI Review Feature - Store & View Prompts/Responses for Debugging Hallucination (v1.10.45)",
     "\ud83d\udd12 CRITICAL FIX: HARD RESET CONTEXT Prompt - Eliminates AI Hallucination with Strict Data Boundaries (v1.10.44)",
