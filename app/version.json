@@ -1,9 +1,10 @@
 {
-  "version": "1.10.48",
+  "version": "1.10.49",
   "release_date": "2025-11-04",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "\ud83d\udd27 HOTFIX: Removed Celery task time limits (v1.10.49)",
     "\ud83d\udd27 HOTFIX: Removed timeout completely - Let models run as long as needed (v1.10.48)",
     "\ud83d\udd27 HOTFIX: Increased Qwen timeout from 20 to 40 minutes (v1.10.47)",
     "\ud83c\udfaf PHASE 1 COMPLETE: Qwen 2.5 72B + Validation Engine - Auto-detects hallucinations (v1.10.46)",
