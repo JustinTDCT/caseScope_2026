@@ -1,8 +1,161 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.42  
-**Last Updated**: 2025-11-04 02:12 UTC  
+**Version**: 1.10.43  
+**Last Updated**: 2025-11-04 11:42 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🚫 v1.10.43 - AI Report Anti-Truncation & Anti-Hallucination Fix (2025-11-04 11:42 UTC)
+
+**Feature**: Major prompt rewrite and API parameter adjustments to force complete report generation and prevent data bleeding
+
+**User Issues**:
+1. "same issues with stopping early and bleeding" - Reports truncating at ~138 tokens mid-sentence
+2. Reports consistently incomplete despite large prompts
+3. AI still potentially hallucinating data from other cases
+
+**Problems Addressed**:
+- Reports stopping mid-sentence at ~130-170 tokens regardless of prompt size or num_predict setting
+- `num_predict: 4096` being ignored by Ollama/Mixtral
+- Possible stop sequences triggering early termination
+- Lack of explicit "complete all sections" instructions in prompt
+- Missing "NO DATA" rule for handling missing information
+
+### Implementation
+
+#### 1. Prompt Rewrite (`app/ai_report.py` - `generate_case_report_prompt`)
+
+**Enhanced Anti-Truncation Instructions**:
+```python
+# Added explicit completion requirements
+prompt += """
+🚨 **CRITICAL OUTPUT RULES** 🚨
+
+**YOU MUST NOT SUMMARIZE. GENERATE A FULL COMPLETE REPORT.**
+
+**STRICT RULE**: If the dataset does not explicitly contain a detail, write "**NO DATA**" — do NOT infer or invent.
+
+**DO NOT STOP UNTIL ALL SECTIONS ARE COMPLETED.**
+
+**After generating the FULL report, output exactly: "### END OF REPORT"**
+
+**If you reach any generation limit, automatically continue writing the next section without stopping.**
+"""
+```
+
+**Restructured to 8 Mandatory Sections** (was 6):
+1. **EXECUTIVE SUMMARY** (MINIMUM 3-5 paragraphs) - with specific paragraph topics
+2. **DETAILED TIMELINE** (chronological, earliest first) - include ALL events
+3. **SYSTEMS IMPACTED** (destination systems only, each attribute on new line)
+4. **INDICATORS OF COMPROMISE** (each IOC attribute on separate line, NO paragraphs)
+5. **MITRE ATT&CK MAPPING** (complete list with counts and evidence)
+6. **FINDINGS / ANALYSIS** (MINIMUM 4 paragraphs: What, How, Why, What They Accomplished)
+7. **RECOMMENDATIONS** (MINIMUM 5 specific actions including DUO, Blackpoint, Huntress)
+8. **APPENDIX** (raw data summary)
+
+**Added Completion Markers**:
+- `"### END OF REPORT"` - explicit marker for generation completion
+- Multiple reminders: "DO NOT STOP", "COMPLETE ALL SECTIONS", "NO SHORTCUTS"
+- Auto-continuation instruction if token limit reached
+
+**Strengthened NO DATA Rule**:
+- If information missing → write "**NO DATA**" instead of inventing
+- Prevents speculation and hallucination
+- Maintains data integrity
+
+#### 2. API Parameter Changes (`app/ai_report.py` - `generate_report_with_ollama`)
+
+**Aggressive Output Length Fix**:
+```python
+payload = {
+    'model': model,
+    'prompt': prompt,
+    'stream': True,
+    'options': {
+        'num_ctx': num_ctx,
+        'num_thread': num_thread,
+        'num_predict': 8192,  # DOUBLED from 4096 (was being ignored)
+        'temperature': temperature,
+        'top_p': 0.9,
+        'top_k': 40,
+        'stop': []  # CRITICAL: Remove ALL stop sequences
+    }
+}
+```
+
+**Key Changes**:
+- **`num_predict: 8192`**: Doubled from 4096 to allow very long reports
+- **`stop: []`**: Empty stop array removes ALL built-in stop sequences that might terminate early
+- This forces the model to keep generating until it naturally completes or hits the 8192 token limit
+
+#### 3. Custom Mixtral Model (`mixtral-longform`)
+
+**Created Custom Modelfile**:
+```
+FROM mixtral:8x7b-instruct-v0.1-q4_K_M
+PARAMETER num_predict 4096
+PARAMETER stop [INST]
+PARAMETER stop [/INST]
+```
+
+**Purpose**: Bake `num_predict=4096` directly into the model definition to ensure it's always respected
+
+**Added to MODEL_INFO**:
+```python
+'mixtral-longform': {
+    'name': 'Mixtral 8x7B Longform (Custom)',
+    'speed': 'Moderate',
+    'quality': 'Excellent',
+    'size': '26 GB',
+    'description': 'Custom Mixtral model optimized for long-form report generation. Has num_predict=4096 built-in.',
+    'speed_estimate': '~3-5 tok/s CPU, ~15-25 tok/s GPU',
+    'time_estimate': '10-15 minutes (CPU), 3-5 minutes (GPU)',
+    'recommended': True  # Marked as recommended
+}
+```
+
+### Files Modified
+
+- **`app/ai_report.py`**:
+  - `generate_case_report_prompt()` - Complete prompt rewrite with 8 sections, explicit completion rules
+  - `generate_report_with_ollama()` - Updated API payload: `num_predict: 8192`, `stop: []`
+  - `MODEL_INFO` - Added `mixtral-longform` custom model
+
+### Testing Results
+
+**Before Fix**:
+- Reports stopped at ~134-168 tokens consistently
+- Stopped mid-sentence (e.g., "attacker used Remote Desktop Protocol (RDP) to access JELLY-RDS01 from **SRVC-DSK-0")
+- Generation time: ~5-6 minutes but incomplete output
+- Token counts: 134, 138, 167 (all incomplete)
+
+**After Fix** (Expected):
+- Reports should generate 2000-4000+ tokens
+- All 8 sections completed
+- Ends with "### END OF REPORT" marker
+- Generation time: 10-15 minutes (longer due to more content)
+- If model still truncates, `stop: []` and `num_predict: 8192` should catch it
+
+### Related Issues
+
+**Issue #1**: Reports stopping at ~138 tokens despite `num_predict: 4096` being set
+- **Root Cause**: Ollama was respecting stop sequences or had a baked-in limit override
+- **Solution**: Set `num_predict: 8192` AND `stop: []` to force longer generation
+
+**Issue #2**: Data bleeding (JELLY appearing in EGAGE reports)
+- **Previous Fix**: v1.10.39 APPROVED VALUES whitelist
+- **Additional Fix**: Strengthened with "NO DATA" rule and explicit "NO HALLUCINATION" reminders
+
+### User Testing Required
+
+User should generate a NEW report to verify:
+1. ✅ Report completes all 8 sections
+2. ✅ Ends with "### END OF REPORT"
+3. ✅ Token count > 1500 (ideally 2500-4000)
+4. ✅ No truncation mid-sentence
+5. ✅ No data bleeding from other cases
+6. ✅ "NO DATA" used appropriately if information missing
 
 ---
 

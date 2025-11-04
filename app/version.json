@@ -1,20 +1,21 @@
 {
-  "version": "1.10.42",
+  "version": "1.10.43",
   "release_date": "2025-11-04",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
-    "🎯 AI Report: Stage Tracking + Cancel Button - Real-Time Progress Visibility & Task Control (v1.10.42)",
-    "🔧 FIXED: Model Selector Shows ALL Models (Installed + Not Installed) with Download Instructions (v1.10.41)",
-    "🤖 Mixtral 8x7B Models + Admin Report Delete (v1.10.40)",
-    "🛡️ CRITICAL: Anti-Hallucination Protection - Whitelist-Based Validation (v1.10.39)",
-    "💬 Interactive AI Report Refinement Chat - Real-Time Conversational Report Editing (v1.10.38)",
-    "🤖 AI Report Generation with Real-Time Streaming & Live Token Monitoring - Local LLM via Ollama (v1.10.35)",
-    "📝 Professional DFIR Report Structure - Client-Proven Format with HTML/Word Output (v1.10.36)",
-    "🔧 AI Report Fixes - Timeline Sorting, IOC Formatting, System Role Clarity (v1.10.37)",
+    "\ud83d\udeab AI Report Anti-Truncation & Anti-Hallucination Fix - Prompt Rewrite + num_predict=8192 + stop:[] (v1.10.43)",
+    "\ud83c\udfaf AI Report: Stage Tracking + Cancel Button - Real-Time Progress Visibility & Task Control (v1.10.42)",
+    "\ud83d\udd27 FIXED: Model Selector Shows ALL Models (Installed + Not Installed) with Download Instructions (v1.10.41)",
+    "\ud83e\udd16 Mixtral 8x7B Models + Admin Report Delete (v1.10.40)",
+    "\ud83d\udee1\ufe0f CRITICAL: Anti-Hallucination Protection - Whitelist-Based Validation (v1.10.39)",
+    "\ud83d\udcac Interactive AI Report Refinement Chat - Real-Time Conversational Report Editing (v1.10.38)",
+    "\ud83e\udd16 AI Report Generation with Real-Time Streaming & Live Token Monitoring - Local LLM via Ollama (v1.10.35)",
+    "\ud83d\udcdd Professional DFIR Report Structure - Client-Proven Format with HTML/Word Output (v1.10.36)",
+    "\ud83d\udd27 AI Report Fixes - Timeline Sorting, IOC Formatting, System Role Clarity (v1.10.37)",
     "Centralized Logging System with Configurable Log Levels (v1.10.33)",
     "CRITICAL FIX: Read-Only User Permission Lockdown (v1.10.32)",
-    "CRITICAL FIX: Role Check Consistency - admin → administrator (v1.10.31)",
+    "CRITICAL FIX: Role Check Consistency - admin \u2192 administrator (v1.10.31)",
     "Enhanced EVTX UI - Added 3 New Sources with Statistics (v1.10.30)",
     "Event Search - Fixed Hide/Unhide Button & Added Bulk Untag (v1.10.25)",
     "Event Search - Enhanced Visibility Filter & Bulk Unhide (v1.10.24)",
@@ -124,7 +125,7 @@
       "user_request": "Prevent data corruption from overnight worker crashes - files marked 'Completed' but OpenSearch indices missing",
       "root_cause": {
         "problem": "Celery worker crash during bulk import caused files to be marked 'Completed' with event_count > 0 but no OpenSearch index",
-        "scenario": "Worker crashes → queued tasks lost → database commits but indexing incomplete → files in inconsistent state",
+        "scenario": "Worker crashes \u2192 queued tasks lost \u2192 database commits but indexing incomplete \u2192 files in inconsistent state",
         "impact": "38 NDJSON files showed 'Completed' status with event counts but had no searchable data in OpenSearch"
       },
       "fixes_implemented": {
@@ -175,7 +176,7 @@
             "main.py - bulk_reindex_route, bulk_rechainsaw_route, bulk_rehunt_iocs_route",
             "routes/files.py - bulk_reindex_selected, bulk_rechainsaw_selected, bulk_rehunt_selected"
           ],
-          "user_feedback": "⚠️ Cannot start bulk operation: No Celery workers are running. Please check Celery workers."
+          "user_feedback": "\u26a0\ufe0f Cannot start bulk operation: No Celery workers are running. Please check Celery workers."
         }
       },
       "safety_improvements": {
@@ -190,7 +191,7 @@
           "Recovery script detects and fixes inconsistent states"
         ],
         "monitoring": [
-          "Enhanced logging with ❌ and ✅ indicators",
+          "Enhanced logging with \u274c and \u2705 indicators",
           "Detailed error messages in file status",
           "System logs show validation failures"
         ]
@@ -265,7 +266,12 @@
             "status - success, failed, or error",
             "created_at - Timestamp (indexed)"
           ],
-          "indexes": ["user_id", "action", "resource_type", "created_at"],
+          "indexes": [
+            "user_id",
+            "action",
+            "resource_type",
+            "created_at"
+          ],
           "migration": "migrate_audit_log.py - creates audit_log table"
         },
         "audit_logging": {
@@ -281,7 +287,11 @@
             "log_settings_action() - Settings changes",
             "log_search() - Search queries"
           ],
-          "auto_capture": ["IP address", "User agent", "Timestamp"],
+          "auto_capture": [
+            "IP address",
+            "User agent",
+            "Timestamp"
+          ],
           "error_handling": "Non-blocking - audit failures don't break app"
         },
         "routes": {
@@ -365,8 +375,8 @@
         "future_integration": "All CRUD operations should call audit_logger functions"
       },
       "menu_integration": {
-        "audit_trail": "📋 Audit Trail (position 13, admin only)",
-        "system_logs": "🔧 System Logs (position 14, admin only)",
+        "audit_trail": "\ud83d\udccb Audit Trail (position 13, admin only)",
+        "system_logs": "\ud83d\udd27 System Logs (position 14, admin only)",
         "placement": "Between User Management and Settings"
       },
       "use_cases": {
@@ -507,18 +517,18 @@
           "location": "Below Settings, above logout"
         },
         "role_badges": {
-          "administrator": "🛡️ Administrator (red badge)",
-          "analyst": "🔍 Analyst (blue badge)",
-          "read_only": "👁️ Read-Only (gray badge)"
+          "administrator": "\ud83d\udee1\ufe0f Administrator (red badge)",
+          "analyst": "\ud83d\udd0d Analyst (blue badge)",
+          "read_only": "\ud83d\udc41\ufe0f Read-Only (gray badge)"
         },
         "status_badges": {
-          "active": "✅ Active (green)",
-          "inactive": "🔴 Inactive (gray)"
+          "active": "\u2705 Active (green)",
+          "inactive": "\ud83d\udd34 Inactive (gray)"
         },
         "actions": {
-          "edit": "✏️ Edit button (permission-based)",
-          "toggle_status": "🔒/🔓 Lock/Unlock button (permission-based)",
-          "delete": "🗑️ Delete button (admin only, not for self)"
+          "edit": "\u270f\ufe0f Edit button (permission-based)",
+          "toggle_status": "\ud83d\udd12/\ud83d\udd13 Lock/Unlock button (permission-based)",
+          "delete": "\ud83d\uddd1\ufe0f Delete button (admin only, not for self)"
         }
       },
       "security": {
@@ -610,17 +620,17 @@
       "user_observation": "All other case tabs work fine, only Assets page affected",
       "root_cause": "Missing REQUIRED field: analysis_status_id",
       "investigation_journey": [
-        "Initial hypothesis: Empty asset_ip and asset_domain fields → tested, not the issue",
-        "Second hypothesis: Case access permissions → tested, not the issue (Timeline/IOC worked)",
-        "Third hypothesis: case_classification as string → fixed (now integer 36), but didn't solve asset issue",
+        "Initial hypothesis: Empty asset_ip and asset_domain fields \u2192 tested, not the issue",
+        "Second hypothesis: Case access permissions \u2192 tested, not the issue (Timeline/IOC worked)",
+        "Third hypothesis: case_classification as string \u2192 fixed (now integer 36), but didn't solve asset issue",
         "User breakthrough: Manually created asset with 'REQUIRED' in required fields",
-        "Checked DFIR-IRIS API documentation → found analysis_status_id is REQUIRED"
+        "Checked DFIR-IRIS API documentation \u2192 found analysis_status_id is REQUIRED"
       ],
       "required_fields_per_api_docs": {
-        "asset_name": "✓ We had this",
-        "asset_type_id": "✓ We had this",
-        "analysis_status_id": "✗ WE WERE MISSING THIS!",
-        "cid": "✓ We had this"
+        "asset_name": "\u2713 We had this",
+        "asset_type_id": "\u2713 We had this",
+        "analysis_status_id": "\u2717 WE WERE MISSING THIS!",
+        "cid": "\u2713 We had this"
       },
       "fix": "Added analysis_status_id: 1 (Unspecified) to asset creation payload",
       "analysis_status_options": {
@@ -642,10 +652,10 @@
       "symptom": "400 Bad Request: 'Asset name already exists in this case'",
       "root_cause": "Multiple events from same hostname caused repeated asset creation attempts",
       "explanation": [
-        "Event 1 from ENGINEERING004 → Create asset (ID: 33) ✓",
-        "Event 2 from ENGINEERING004 → Query DFIR-IRIS for assets",
-        "DFIR-IRIS hadn't updated its list yet → Asset not found",
-        "Try to create ENGINEERING004 again → ❌ Error"
+        "Event 1 from ENGINEERING004 \u2192 Create asset (ID: 33) \u2713",
+        "Event 2 from ENGINEERING004 \u2192 Query DFIR-IRIS for assets",
+        "DFIR-IRIS hadn't updated its list yet \u2192 Asset not found",
+        "Try to create ENGINEERING004 again \u2192 \u274c Error"
       ],
       "fix": "Implemented in-memory asset cache during sync run",
       "cache_behavior": {
@@ -731,9 +741,9 @@
     "v1_7_3_ioc_type_mapping": {
       "issue": "IOC type mapping used incorrect DFIR-IRIS type IDs",
       "user_request": [
-        "command → other (not command line)",
-        "hostname → hostname (correct)",
-        "username → target-user (not username)"
+        "command \u2192 other (not command line)",
+        "hostname \u2192 hostname (correct)",
+        "username \u2192 target-user (not username)"
       ],
       "investigation": {
         "method": "Queried /manage/ioc-types/list endpoint to get actual DFIR-IRIS type IDs",
@@ -811,9 +821,9 @@
         "method": "Systematic endpoint testing with actual API using Python + requests",
         "tested_endpoints": [
           "/manage/case/ioc/list (404)",
-          "/case/ioc/list (200 ✓)",
+          "/case/ioc/list (200 \u2713)",
           "/manage/case/timeline/list (404)",
-          "/case/timeline/events/list (200 ✓)",
+          "/case/timeline/events/list (200 \u2713)",
           "/manage/cases/update (404)",
           "/case/update (404)"
         ],
@@ -824,15 +834,15 @@
       },
       "fixes": {
         "ioc_endpoints": {
-          "list": "/manage/case/ioc/list?cid=X → /case/ioc/list?cid=X",
-          "add": "/manage/case/ioc/add → /case/ioc/add",
-          "update": "/manage/case/ioc/update/{id} → /case/ioc/update/{id}",
+          "list": "/manage/case/ioc/list?cid=X \u2192 /case/ioc/list?cid=X",
+          "add": "/manage/case/ioc/add \u2192 /case/ioc/add",
+          "update": "/manage/case/ioc/update/{id} \u2192 /case/ioc/update/{id}",
           "structure": "Access result['data']['ioc'] instead of result['data']"
         },
         "timeline_endpoints": {
-          "list": "/manage/case/timeline/list?cid=X → /case/timeline/events/list?cid=X",
-          "add": "/manage/case/timeline/add → /case/timeline/events/add",
-          "delete": "/manage/case/timeline/delete/{id} → /case/timeline/events/delete/{id}",
+          "list": "/manage/case/timeline/list?cid=X \u2192 /case/timeline/events/list?cid=X",
+          "add": "/manage/case/timeline/add \u2192 /case/timeline/events/add",
+          "delete": "/manage/case/timeline/delete/{id} \u2192 /case/timeline/events/delete/{id}",
           "structure": "Access result['data']['timeline'] instead of result['data']"
         },
         "case_status_sync": {
@@ -865,10 +875,10 @@
         "lines_changed": "~35 lines across 5 functions"
       },
       "results": {
-        "case_reuse": "✓ Existing cases matched correctly (substring + client_name)",
-        "ioc_sync": "✓ IOC endpoints working, ready to sync",
-        "timeline_sync": "✓ Timeline endpoints working, ready to sync",
-        "non_blocking": "✓ Case status failure doesn't block IOC/timeline sync"
+        "case_reuse": "\u2713 Existing cases matched correctly (substring + client_name)",
+        "ioc_sync": "\u2713 IOC endpoints working, ready to sync",
+        "timeline_sync": "\u2713 Timeline endpoints working, ready to sync",
+        "non_blocking": "\u2713 Case status failure doesn't block IOC/timeline sync"
       },
       "benefits": [
         "IOCs now sync to DFIR-IRIS for enrichment and tracking",
@@ -969,7 +979,9 @@
         "Added 'Case Name' header (column already existed in rows)",
         "Added 'Actions' header for action buttons column"
       ],
-      "files_modified": ["templates/global_files.html"]
+      "files_modified": [
+        "templates/global_files.html"
+      ]
     },
     "v1_6_9_global_files_template": {
       "issue": "Global Files page error 500 with multiple template issues",
@@ -1055,7 +1067,7 @@
       ],
       "features": [
         "List: Case ID, Name, Status, Creator, Assignee, File Count, Created Date",
-        "Actions: Edit (✏️), Close/Reopen (🔒/🔓), Delete (🗑️)",
+        "Actions: Edit (\u270f\ufe0f), Close/Reopen (\ud83d\udd12/\ud83d\udd13), Delete (\ud83d\uddd1\ufe0f)",
         "Edit: Name, Description, Company, Status, Assignment (admin only)",
         "Delete: Removes all OpenSearch indices, DB records (SIGMA, IOC, Timeline, Files)",
         "Confirmation: Type 'DELETE' to confirm case deletion",
@@ -1131,20 +1143,20 @@
       "root_cause": {
         "problem": "OpenSearch index creation failed (HTTP 400: cluster shard limit) but code continued and reported success",
         "silent_failure": "Index creation exception caught but only logged as WARNING, processing continued",
-        "false_success": "Code reported '✓ Indexed 66,536 events' but actually indexed 0 (no index existed)",
+        "false_success": "Code reported '\u2713 Indexed 66,536 events' but actually indexed 0 (no index existed)",
         "consequence": "Database: event_count=66536, is_indexed=True | OpenSearch: 0 events, index doesn't exist"
       },
       "investigation": {
         "symptoms": [
           "File status: Completed, Event Count: 66,536, IOC Count: 0",
-          "Search filter 'IOC Events Only' → 0 results",
+          "Search filter 'IOC Events Only' \u2192 0 results",
           "OpenSearch query: 404 NotFoundError - index case1_file8159 does not exist",
           "Database shows 7 active IOCs defined for the case",
           "IOC hunting log: 'Index does not exist (0-event file?), skipping IOC hunt'"
         ],
         "worker_logs_analysis": [
-          "07:50:27 - PUT case_1_atn44023_2099723 [status:400] ← Index creation FAILED",
-          "07:50:48 - [INFO] ✓ Indexed 66,536 events ← FALSE SUCCESS (actually indexed 0)",
+          "07:50:27 - PUT case_1_atn44023_2099723 [status:400] \u2190 Index creation FAILED",
+          "07:50:48 - [INFO] \u2713 Indexed 66,536 events \u2190 FALSE SUCCESS (actually indexed 0)",
           "07:50:48 - [HUNT IOCS] file_id=8159, index=case_1_atn44023_2099723",
           "07:50:48 - [WARNING] Index does not exist (0-event file?), skipping IOC hunt"
         ],
@@ -1158,10 +1170,10 @@
           "file": "file_processing.py lines 333-347 (original)",
           "logic": [
             "1. Try to create index",
-            "2. Exception caught → log WARNING, continue",
-            "3. opensearch_bulk() called on non-existent index → silently fails",
+            "2. Exception caught \u2192 log WARNING, continue",
+            "3. opensearch_bulk() called on non-existent index \u2192 silently fails",
             "4. event_count = number of events PARSED from file (not INDEXED)",
-            "5. Log: '✓ Indexed {event_count} events' ← MISLEADING",
+            "5. Log: '\u2713 Indexed {event_count} events' \u2190 MISLEADING",
             "6. Database updated: is_indexed=True, event_count=66536",
             "7. OpenSearch reality: 0 events, no index"
           ],
@@ -1195,7 +1207,7 @@
               "logic": [
                 "Log: 'Parsed X events, successfully indexed Y to {index}'",
                 "if indexed_count == 0 and event_count > 0:",
-                "  → Mark as Failed, set event_count=0, return error",
+                "  \u2192 Mark as Failed, set event_count=0, return error",
                 "Use indexed_count (actual) instead of event_count (parsed)"
               ]
             }
@@ -1232,14 +1244,16 @@
     },
     "v1_6_4_pagination_boundary_validation": {
       "issue": "Clicking 'Next' on last page navigated to non-existent page showing '0 events found'",
-      "user_observation": "Page 10 of 10 with 35 events → clicked Next → Page 11 of 10 with 0 events",
+      "user_observation": "Page 10 of 10 with 35 events \u2192 clicked Next \u2192 Page 11 of 10 with 0 events",
       "root_cause": "goToPage() JavaScript function didn't validate page number boundaries",
       "code_location": "templates/search_events.html line 507",
       "fix": {
         "added": "Boundary check: if (page < 1 || page > totalPages) return;",
         "benefit": "Prev/Next buttons now no-op when on first/last page"
       },
-      "files_modified": ["templates/search_events.html: goToPage() function (line 507)"]
+      "files_modified": [
+        "templates/search_events.html: goToPage() function (line 507)"
+      ]
     },
     "v1_6_3_cylr_artifact_detection": {
       "issue": "JSON files (CyLR artifacts) with 0-1 events showing as processed files",
@@ -1378,10 +1392,10 @@
           "file": "templates/case_files.html",
           "clickable_files": "File names now link to /case/<id>/file/<id>/details",
           "action_buttons": [
-            "📇 Re-Index - Full rebuild (clears all data: events, SIGMA, IOCs)",
-            "🛡️ Re-SIGMA - Re-run SIGMA only (clears violations)",
-            "🎯 Re-Hunt IOCs - Re-scan for IOCs (clears matches)",
-            "👁️ Hide - Manual file hiding (move to hidden files list)"
+            "\ud83d\udcc7 Re-Index - Full rebuild (clears all data: events, SIGMA, IOCs)",
+            "\ud83d\udee1\ufe0f Re-SIGMA - Re-run SIGMA only (clears violations)",
+            "\ud83c\udfaf Re-Hunt IOCs - Re-scan for IOCs (clears matches)",
+            "\ud83d\udc41\ufe0f Hide - Manual file hiding (move to hidden files list)"
           ],
           "display_logic": "Buttons only shown for completed files",
           "benefit": "Granular per-file control without affecting other files"
@@ -1462,7 +1476,7 @@
         ],
         "evtx_fallback_logic": [
           "Extract Channel/Provider from System or Event.System",
-          "Simplify channel names (Microsoft-Windows-Kernel-Boot → Kernel-Boot)",
+          "Simplify channel names (Microsoft-Windows-Kernel-Boot \u2192 Kernel-Boot)",
           "Add Task/Opcode if available",
           "Extract meaningful EventData fields (UserName, ProcessName, CommandLine)",
           "Format: 'Channel: Kernel-Boot/Operational' or 'Provider: EventLog'"
@@ -1531,7 +1545,7 @@
               "5. Filter 0-event files (filter_zero_event_files)",
               "6. Queue valid files for processing (queue_file_processing)"
             ],
-            "progress_tracking": "Updates task state at each step (0% → 10% → 30% → 50% → 70% → 90% → 100%)"
+            "progress_tracking": "Updates task state at each step (0% \u2192 10% \u2192 30% \u2192 50% \u2192 70% \u2192 90% \u2192 100%)"
           },
           "routes_files_py": {
             "blueprint": "files_bp",
@@ -1592,7 +1606,7 @@
           "4. Calculate SHA256 hashes for deduplication",
           "5. Skip duplicates, archive 0-event files",
           "6. Queue valid files for standard processing pipeline",
-          "7. Files processed: Indexing → SIGMA → IOC Hunting"
+          "7. Files processed: Indexing \u2192 SIGMA \u2192 IOC Hunting"
         ]
       },
       "benefits": [
@@ -1615,9 +1629,21 @@
       "technical_notes": {
         "no_chunking": "Files are local, so no HTTP chunking needed",
         "celery_task": "Runs in background, non-blocking",
-        "progress_states": ["PENDING", "PROGRESS", "SUCCESS", "FAILURE"],
+        "progress_states": [
+          "PENDING",
+          "PROGRESS",
+          "SUCCESS",
+          "FAILURE"
+        ],
         "file_cleanup": "Original files in bulk_import/ are moved (not copied) to staging, then deleted after processing",
-        "supported_formats": ["EVTX", "JSON", "JSONL", "NDJSON", "CSV", "ZIP"],
+        "supported_formats": [
+          "EVTX",
+          "JSON",
+          "JSONL",
+          "NDJSON",
+          "CSV",
+          "ZIP"
+        ],
         "zip_handling": "Nested ZIPs extracted recursively, all depths supported"
       },
       "hotfix": {
@@ -1641,7 +1667,7 @@
           "If normalized_event_id exists: take if branch (line 336)",
           "Variables event_id_raw and is_evtx_structure initialized in else block (lines 336-337)",
           "If branch skipped initialization",
-          "Line 349 checked 'if event_id_raw:' → UnboundLocalError"
+          "Line 349 checked 'if event_id_raw:' \u2192 UnboundLocalError"
         ],
         "trigger": "Events with normalized_event_id field (new CSV uploads)"
       },
@@ -1652,7 +1678,9 @@
         "result": "Variables always initialized before use"
       },
       "impact": "All event searches now work (CSV, EVTX, EDR, JSON)",
-      "files_changed": ["search_utils.py: Fixed variable initialization scope"]
+      "files_changed": [
+        "search_utils.py: Fixed variable initialization scope"
+      ]
     },
     "v1_5_6_hidden_flag_overwrite": {
       "issue": "Files with 0 events not hidden after bulk reindex",
@@ -1666,7 +1694,7 @@
           "file_processing.py commits to database",
           "tasks.py loads case_file object (has stale data)",
           "tasks.py sets indexing_status='Completed'",
-          "tasks.py commits → overwrites with stale is_indexed=False, is_hidden=False"
+          "tasks.py commits \u2192 overwrites with stale is_indexed=False, is_hidden=False"
         ],
         "database_issue": "SQLAlchemy session merging stale object data"
       },
@@ -1693,16 +1721,18 @@
         "after": 0
       },
       "impact": "New uploads correctly hide 0-event files, cleaner file lists",
-      "files_changed": ["tasks.py: Removed redundant commit for 0-event files"]
+      "files_changed": [
+        "tasks.py: Removed redundant commit for 0-event files"
+      ]
     },
     "v1_5_5_checkbox_filter_fix": {
       "issue": "File type checkboxes showed same result count regardless of selection",
       "root_cause": "Backward compatibility query included ALL events without source_file_type field (417K+ events)",
       "images_analysis": [
-        "Image 1: Only EVTX checked → 428,275 events",
-        "Image 2: Only JSON checked → 428,275 events",
-        "Image 3: Only EDR checked → 428,275 events",
-        "Image 4: Only CSV checked → 428,275 events",
+        "Image 1: Only EVTX checked \u2192 428,275 events",
+        "Image 2: Only JSON checked \u2192 428,275 events",
+        "Image 3: Only EDR checked \u2192 428,275 events",
+        "Image 4: Only CSV checked \u2192 428,275 events",
         "All showed same count = filter not working"
       ],
       "solution": "Structure-based file type detection in OpenSearch query",
@@ -1749,7 +1779,12 @@
         "ui": {
           "module": "templates/search_events.html",
           "location": "Row 2: Filters (between Event Type and Date Range)",
-          "checkboxes": ["EVTX", "EDR", "JSON", "CSV"],
+          "checkboxes": [
+            "EVTX",
+            "EDR",
+            "JSON",
+            "CSV"
+          ],
           "default": "All 4 checked",
           "behavior": "Unchecking excludes that file type from search results",
           "onchange": "resetToPageOne() to prevent pagination issues"
@@ -1812,7 +1847,7 @@
         "module": "tasks.py",
         "change": "Added file type check: only run chainsaw_file() if filename.endswith('.evtx')",
         "logic": "CSV/JSON/NDJSON skip SIGMA step entirely",
-        "workflow": "CSV: Deduplication → Indexing → IOC Hunting (no SIGMA)"
+        "workflow": "CSV: Deduplication \u2192 Indexing \u2192 IOC Hunting (no SIGMA)"
       },
       "result": "CSV files now process successfully without errors"
     },
@@ -1826,7 +1861,11 @@
           "detection": "is_csv = filename.endswith('.csv')",
           "parsing": "csv.DictReader with auto-delimiter detection (csv.Sniffer)",
           "encoding": "utf-8-sig (handles BOM)",
-          "metadata": ["opensearch_key", "source_file_type='CSV'", "row_number"],
+          "metadata": [
+            "opensearch_key",
+            "source_file_type='CSV'",
+            "row_number"
+          ],
           "indexing": "Bulk index 1000 rows per batch",
           "progress": "Celery task progress updates"
         },
@@ -1844,11 +1883,18 @@
             ]
           },
           "computer": {
-            "fields": ["Dst. Name", "Source Name", "Destination Name"],
+            "fields": [
+              "Dst. Name",
+              "Source Name",
+              "Destination Name"
+            ],
             "fallback": "Firewall (if src/dst IPs present)"
           },
           "event_id": {
-            "fields": ["Event", "ID"],
+            "fields": [
+              "Event",
+              "ID"
+            ],
             "fallback": "CSV"
           }
         },
@@ -1856,10 +1902,10 @@
           "module": "search_utils.py",
           "detection": "source_file_type == 'CSV'",
           "event_id": "Shows 'CSV' in Event ID column",
-          "description": "Event | Message/Notes (100 chars) | src: IP → dst: IP",
-          "example": "Port Scan Possible | Pkt is dropped... | src: 71.234.106.44 → dst: 50.199.205.205"
+          "description": "Event | Message/Notes (100 chars) | src: IP \u2192 dst: IP",
+          "example": "Port Scan Possible | Pkt is dropped... | src: 71.234.106.44 \u2192 dst: 50.199.205.205"
         },
-        "result": "✅ CSV files upload, index, and display with meaningful descriptions"
+        "result": "\u2705 CSV files upload, index, and display with meaningful descriptions"
       },
       "feature_2": "Source File Column in Event Search",
       "implementation_2": {
@@ -1867,19 +1913,25 @@
         "extraction": {
           "module": "search_utils.py",
           "source": "opensearch_key field",
-          "logic": "Split 'case1_filename' → extract 'filename'",
+          "logic": "Split 'case1_filename' \u2192 extract 'filename'",
           "fallback": "Unknown"
         },
         "default_columns": {
           "module": "main.py",
-          "order": ["event_id", "timestamp", "description", "computer_name", "source_file"]
+          "order": [
+            "event_id",
+            "timestamp",
+            "description",
+            "computer_name",
+            "source_file"
+          ]
         },
         "display": {
           "module": "search_events.html",
           "header": "Source File",
           "style": "text-muted, font-size: 0.875rem"
         },
-        "result": "✅ Users can see which file each event originated from"
+        "result": "\u2705 Users can see which file each event originated from"
       },
       "feature_3": "IOC Highlighting in Event Details",
       "implementation_3": {
@@ -1897,21 +1949,21 @@
             "For each field in event:",
             "  Convert value to lowercase",
             "  Check if any IOC is substring of value",
-            "  If match: Bold + Red + 🚨 emoji",
+            "  If match: Bold + Red + \ud83d\udea8 emoji",
             "  If no match: Normal display"
           ],
           "styling": {
             "fontWeight": "bold",
             "color": "var(--color-error)",
-            "prefix": "🚨"
+            "prefix": "\ud83d\udea8"
           }
         },
         "matching": {
           "type": "Case-insensitive substring matching",
           "example_normal": "192.168.1.1",
-          "example_ioc": "🚨 192.168.1.100 (bold, red)"
+          "example_ioc": "\ud83d\udea8 192.168.1.100 (bold, red)"
         },
-        "result": "✅ Instant visual identification of IOCs in event data"
+        "result": "\u2705 Instant visual identification of IOCs in event data"
       },
       "benefits": [
         "CSV firewall logs now supported (SonicWall, generic)",
@@ -1959,13 +2011,21 @@
         "part_1": {
           "file": "main.py - case_file_status() endpoint",
           "change": "Added 'stats' dictionary to JSON response",
-          "includes": ["total_events", "sigma_events", "ioc_events"],
+          "includes": [
+            "total_events",
+            "sigma_events",
+            "ioc_events"
+          ],
           "source": "Uses get_file_stats_with_hidden() for consistency"
         },
         "part_2": {
           "file": "templates/case_files.html",
           "change": "Added IDs to statistics tile values",
-          "ids": ["stat-total-events", "stat-sigma-events", "stat-ioc-events"]
+          "ids": [
+            "stat-total-events",
+            "stat-sigma-events",
+            "stat-ioc-events"
+          ]
         },
         "part_3": {
           "file": "templates/case_files.html - updateStatuses() function",
@@ -1976,8 +2036,8 @@
         "result": "Statistics tiles update automatically without page refresh"
       },
       "user_experience": {
-        "before": "Upload files → 0 SIGMA count → manual refresh → correct count",
-        "after": "Upload files → real-time updates → correct counts automatically"
+        "before": "Upload files \u2192 0 SIGMA count \u2192 manual refresh \u2192 correct count",
+        "after": "Upload files \u2192 real-time updates \u2192 correct counts automatically"
       },
       "files_changed": [
         "hidden_files.py: Fixed SIGMA calculation field (violation_count)",
@@ -2003,11 +2063,11 @@
         "Better error handling with try/catch blocks"
       ],
       "user_experience": {
-        "before": "Upload 100% → stuck → manual navigation → 500 error",
-        "after": "Upload 100% → 'Extracting...' → Success → Auto-redirect to files page"
+        "before": "Upload 100% \u2192 stuck \u2192 manual navigation \u2192 500 error",
+        "after": "Upload 100% \u2192 'Extracting...' \u2192 Success \u2192 Auto-redirect to files page"
       },
       "files_updated": [
-        "main.py: 14 url_for('case_files') → url_for('files.case_files')",
+        "main.py: 14 url_for('case_files') \u2192 url_for('files.case_files')",
         "templates/case_files.html: endpoint variable updated",
         "templates/base.html: sidebar active check updated",
         "templates/upload_files.html: processing status + redirect"
@@ -2018,7 +2078,12 @@
       "function": "extract_single_zip() in upload_pipeline.py",
       "logic": "Recursively extracts nested ZIPs, prefixes with parent names",
       "prefix_format": "ParentZIP_ChildZIP_file.evtx",
-      "supported": [".evtx", ".ndjson", ".json", ".jsonl"],
+      "supported": [
+        ".evtx",
+        ".ndjson",
+        ".json",
+        ".jsonl"
+      ],
       "cleanup": "Removes temp directories and ZIPs after extraction"
     },
     "v1_5_0_hidden_files_system": {
@@ -2048,7 +2113,11 @@
         "/case/<id>/bulk_unhide",
         "/case/<id>/file/<id>/status"
       ],
-      "benefits": ["Modular code", "Reusable functions", "Better maintainability"],
+      "benefits": [
+        "Modular code",
+        "Reusable functions",
+        "Better maintainability"
+      ],
       "pattern": "Use blueprints for route groups"
     },
     "v1_4_19_modal_css_classes": {
@@ -2061,14 +2130,22 @@
       "issue": "v1.4.17 fix still failed (EDR NDJSON special chars)",
       "cause": "Mixed innerHTML string concat with DOM",
       "solution": "Pure DOM manipulation (createElement + textContent)",
-      "benefits": ["No escaping issues", "XSS safe", "Handles all chars"],
+      "benefits": [
+        "No escaping issues",
+        "XSS safe",
+        "Handles all chars"
+      ],
       "file": "search_events.html"
     },
     "v1_4_17_ioc_button_escaping": {
       "issue": "Add as IOC button did nothing (escapeHtml broke onclick)",
       "cause": "Special chars escaped as HTML entities in JavaScript string",
       "solution": "data attributes + programmatic event listeners",
-      "applied_to": ["Add as IOC", "Add to Search", "Add Column"],
+      "applied_to": [
+        "Add as IOC",
+        "Add to Search",
+        "Add Column"
+      ],
       "file": "search_events.html"
     },
     "v1_4_16_edr_cmdline_fix": {
@@ -2079,34 +2156,70 @@
     "v1_4_15_search_pagination_reset": {
       "issue": "Search query changes kept old page number (e.g., 2 results but on page 9)",
       "solution": "handleSearchSubmit() onsubmit handler",
-      "applied_to": ["Search form", "Add field to search"],
-      "maintains": ["filters", "date", "columns", "sort"],
-      "resets": ["page to 1"]
+      "applied_to": [
+        "Search form",
+        "Add field to search"
+      ],
+      "maintains": [
+        "filters",
+        "date",
+        "columns",
+        "sort"
+      ],
+      "resets": [
+        "page to 1"
+      ]
     },
     "v1_4_14_edr_parent_cmdline": {
       "issue": "EDR descriptions lacked context",
       "solution": "Use process.parent.command_line as primary description",
-      "priority": ["process.parent.command_line", "event metadata fallback"],
+      "priority": [
+        "process.parent.command_line",
+        "event metadata fallback"
+      ],
       "file": "search_utils.py"
     },
     "v1_4_13_pagination_reset": {
       "issue": "Page 12 + IOC filter (9 pages) = empty results",
       "solution": "resetToPageOne() reusable function",
-      "applied_to": ["Event Type", "Date Range", "Results Per Page"],
-      "maintains": ["search query", "columns", "sort order"],
-      "resets": ["page to 1"]
+      "applied_to": [
+        "Event Type",
+        "Date Range",
+        "Results Per Page"
+      ],
+      "maintains": [
+        "search query",
+        "columns",
+        "sort order"
+      ],
+      "resets": [
+        "page to 1"
+      ]
     },
     "v1_4_12_ioc_dropdown": {
       "issue": "User had to manually type IOC type when adding from search (error-prone)",
       "old_behavior": "Browser prompt() asking for text input",
       "new_behavior": "Professional modal with dropdowns for IOC type and threat level",
       "ioc_types": [
-        "IP Address", "Username", "Hostname", "FQDN",
-        "Command", "Filename", "Malware Name",
-        "Hash (MD5/SHA1/SHA256)", "Port", "URL",
-        "Registry Key", "Email Address"
+        "IP Address",
+        "Username",
+        "Hostname",
+        "FQDN",
+        "Command",
+        "Filename",
+        "Malware Name",
+        "Hash (MD5/SHA1/SHA256)",
+        "Port",
+        "URL",
+        "Registry Key",
+        "Email Address"
       ],
-      "threat_levels": ["Low", "Medium", "High", "Critical"],
+      "threat_levels": [
+        "Low",
+        "Medium",
+        "High",
+        "Critical"
+      ],
       "modal_features": {
         "ioc_value": "Pre-filled from event field (read-only)",
         "source_field": "Shows which field value came from (read-only)",
@@ -2141,8 +2254,11 @@
     "v1_4_11_ioc_rehunt_redirects": {
       "issue": "Re-hunt IOCs from IOC Management page redirected to Case Dashboard",
       "solution": "Detect originating page via HTTP Referer header",
-      "logic": "If referer contains '/ioc' → IOC Management, '/files' → Case Files, else → Dashboard",
-      "functions_updated": ["rehunt_iocs()", "rehunt_single_file()"],
+      "logic": "If referer contains '/ioc' \u2192 IOC Management, '/files' \u2192 Case Files, else \u2192 Dashboard",
+      "functions_updated": [
+        "rehunt_iocs()",
+        "rehunt_single_file()"
+      ],
       "reusability": "No impact on other bulk operations (separate routes)",
       "result": "Re-hunt stays on current page, better UX"
     },
@@ -2270,7 +2386,10 @@
       "module": "opencti.py",
       "library": "pycti (official OpenCTI Python client)",
       "client_class": "OpenCTIClient",
-      "database_fields": ["opencti_enrichment (JSON)", "opencti_enriched_at (DateTime)"],
+      "database_fields": [
+        "opencti_enrichment (JSON)",
+        "opencti_enriched_at (DateTime)"
+      ],
       "enrichment_data": [
         "Threat actor associations",
         "Campaign associations",
@@ -2317,5 +2436,6 @@
         "/case/<id>/ioc/<id>/enrichment - View enrichment details"
       ]
     }
-  }
+  },
+  "last_updated": "2025-11-04"
 }

@@ -73,6 +73,16 @@ MODEL_INFO = {
         'speed_estimate': '~5-8 tok/s CPU, ~20-30 tok/s GPU',
         'time_estimate': '8-12 minutes (CPU), 2-4 minutes (GPU)',
         'recommended': False
+    },
+    'mixtral-longform': {
+        'name': 'Mixtral 8x7B Longform (Custom)',
+        'speed': 'Moderate',
+        'quality': 'Excellent',
+        'size': '26 GB',
+        'description': 'Custom Mixtral model optimized for long-form report generation. Has num_predict=4096 built-in.',
+        'speed_estimate': '~3-5 tok/s CPU, ~15-25 tok/s GPU',
+        'time_estimate': '10-15 minutes (CPU), 3-5 minutes (GPU)',
+        'recommended': True
     }
 }
 
@@ -337,148 +347,205 @@ def generate_case_report_prompt(case, iocs, tagged_events):
 
 ---
 
-# YOUR TASK: GENERATE PROFESSIONAL DFIR REPORT
+# YOUR TASK: GENERATE COMPLETE PROFESSIONAL DFIR REPORT
 
-**Format**: Professional document suitable for Microsoft Word (use markdown formatting with headers, bold, lists)
-**Audience**: Both technical IR professionals AND non-technical executives
+🚨 **CRITICAL OUTPUT RULES** 🚨
+
+**YOU MUST NOT SUMMARIZE. GENERATE A FULL COMPLETE REPORT.**
+
+**STRICT RULE**: If the dataset does not explicitly contain a detail, write "**NO DATA**" — do NOT infer or invent.
+
+**DO NOT STOP UNTIL ALL SECTIONS ARE COMPLETED.**
+
+**After generating the FULL report, output exactly: "### END OF REPORT"**
+
+---
+
+**Format**: Professional document suitable for Microsoft Word (markdown with headers, bold, lists)
+**Audience**: Both technical IR professionals AND non-technical executives  
 **Tone**: Professional, precise, factual, NO speculation
 
 ---
 
-## REPORT STRUCTURE (FOLLOW EXACTLY):
+## MANDATORY REPORT STRUCTURE - COMPLETE ALL SECTIONS:
 
-### 1. EXECUTIVE SUMMARY
-Write **3 detailed paragraphs** explaining the attack:
-- **Paragraph 1**: What happened - the sequence of events from initial access through final actions
-- **Paragraph 2**: How they got in, what they did, what data/credentials they accessed
-- **Paragraph 3**: Impact and attacker objectives based on observed behavior
+### 1. EXECUTIVE SUMMARY (MINIMUM 3-5 PARAGRAPHS)
+Write **3-5 detailed paragraphs** explaining the incident:
+- **Paragraph 1**: What happened - the complete sequence of events from initial access through final actions
+- **Paragraph 2**: How they gained entry, what specific actions they performed, what data/credentials they accessed
+- **Paragraph 3**: Impact assessment and attacker objectives based on observed behavior
+- **Paragraph 4** (if applicable): Persistence mechanisms or data exfiltration
+- **Paragraph 5** (if applicable): Overall risk assessment and business impact
 
-**Requirements**:
-- Use exact hostnames, usernames, IPs, commands from the events
-- Reference specific Event IDs inline (e.g., "Event 4624 on JELLY-RDS01 at 01:41:39")
+**REQUIREMENTS - DO NOT SKIP**:
+- Use ONLY exact hostnames, usernames, IPs, commands from the events above
+- Reference specific Event IDs inline (e.g., "Event 4624 on EGAGE-SRV01 at 01:41:39")
 - Include MITRE ATT&CK technique IDs inline (e.g., T1555.004 for credential access)
 - Use **bold** for critical artifacts
 - Use `code formatting` for commands/file paths
+- If any detail is not in the data, write "**NO DATA**" instead of guessing
 
 ---
 
-### 2. TIMELINE (CHRONOLOGICAL ORDER)
-Create a chronological timeline of the attack with MITRE ATT&CK mapping.
+### 2. DETAILED TIMELINE (CHRONOLOGICAL ORDER - EARLIEST FIRST)
 
-**⚠️ CRITICAL: SORT EVENTS BY TIMESTAMP - EARLIEST TO LATEST**
+⚠️ **CRITICAL: SORT BY TIMESTAMP - EARLIEST EVENT FIRST, LATEST LAST**
 
-**Format for each event**:
+Create a complete forensic timeline of the attack with MITRE ATT&CK mapping.
+
+**Format for EVERY event** (include ALL tagged events):
 ```
-**YYYY-MM-DD HH:MM:SS UTC** - [Brief description of what happened]
+**YYYY-MM-DD HH:MM:SS UTC** - [Brief description]
 - **Event ID**: XXXX
-- **Computer**: hostname
+- **Computer**: hostname  
 - **MITRE ATT&CK**: TXXXX.XXX - [Technique Name]
-- **Details**: [Key forensic details - usernames, IPs, commands, etc.]
+- **Details**: [All forensic details - usernames, IPs, commands, processes, etc.]
 - **Significance**: [Why this matters to the investigation]
 ```
 
-**Requirements**:
-- ⚠️ **SORT BY TIME** - Earliest timestamp first, latest last (check timestamps carefully!)
-- Include key milestones (initial access, discovery, credential access, lateral movement, etc.)
+**REQUIREMENTS - MANDATORY**:
+- ⚠️ **SORT CHRONOLOGICALLY** - Check every timestamp, earliest first!
+- Include ALL key events (don't skip any)
 - Map EVERY event to appropriate MITRE ATT&CK technique
-- Include exact details from the event data
-- Verify chronological order before writing
+- Include ALL details from each event
+- If no MITRE mapping exists, write "**NO DATA**"
 
 ---
 
-### 3. SYSTEMS IMPACTED
-List all destination systems that were accessed during the incident.
+### 3. SYSTEMS IMPACTED (LIST ALL VICTIM SYSTEMS)
 
-**⚠️ IMPORTANT: Only list VICTIM/DESTINATION systems (systems the attacker accessed), NOT the attacker's own systems**
+⚠️ **ONLY list DESTINATION/VICTIM systems (systems the attacker accessed), NOT attacker sources**
 
-**Format** (each attribute on new line):
-- **[Hostname]** - [Role/description] - [Impact level: Low/Medium/High/Critical]
-- **Activities**: [What happened on this system]
-- **Event IDs involved**: [List]
+**Format** (EACH attribute on NEW line):
+```
+- **[Hostname]**  
+  - **Role**: [description]  
+  - **Impact Level**: [Critical/High/Medium/Low]  
+  - **Activities**: [What happened on this system - list all]  
+  - **Event IDs**: [List all Event IDs for this system]
+```
 
-**Requirements**:
-- Use term "destination systems" NOT "target systems"
-- **DO NOT** list attacker-controlled systems (source IPs, attacker hostnames)
-- **ONLY list** systems the attacker accessed/compromised (victim systems)
-- Assess impact level based on activities observed (Critical for domain controllers, High for RDS servers, etc.)
-- List specific activities per system (each on new line)
+**REQUIREMENTS**:
+- Use term "destination systems" NOT "target systems"  
+- **ONLY** list systems the attacker accessed/compromised (APPROVED SYSTEMS from above)
+- Assess impact: Critical=DC/sensitive servers, High=RDS/file servers, Medium=workstations, Low=monitoring
+- List ALL activities per system (each on new line)
 
 ---
 
 ### 4. INDICATORS OF COMPROMISE (IOCs) FOUND
-Analyze and explain what each IOC is and how it was used in the attack.
 
-**⚠️ EACH IOC ATTRIBUTE MUST BE ON ITS OWN LINE**
+⚠️ **EACH IOC ATTRIBUTE MUST BE ON ITS OWN LINE** - Do NOT merge into paragraphs
 
-**Format** (each bullet point on separate line):
-- **[IOC Value]** ([IOC Type])
-- **What it is**: [Explain what this indicator represents - specify if it's attacker's system/IP or victim system]
-- **System Role**: [Clearly state "Attacker's system" OR "Destination/victim system" OR "Attacker's source IP"]
-- **How it was used**: [How the attacker used this in the attack]
-- **Event IDs**: [Which events contain this IOC]
+**Format** (EACH bullet on SEPARATE line):
+```
+- **[IOC Value]** ([IOC Type])  
+- **What it is**: [Explain what this indicator represents]  
+- **System Role**: [State "Attacker's source system/IP" OR "Destination/victim system accessed"]  
+- **How it was used**: [How the attacker used this in the attack]  
+- **Event IDs**: [Which specific events contain this IOC]  
 - **MITRE ATT&CK**: [Associated technique(s)]
 
-**Requirements**:
-- **EACH ATTRIBUTE ON NEW LINE** (don't combine into one paragraph)
-- Explain each IOC in both technical and non-technical terms
-- **Clearly distinguish** between attacker assets (source IPs, attacker systems) and victim assets (destination systems)
-- Use terms: "Attacker's IP/system" vs "Destination system accessed"
-- Show how each IOC connects to specific events
-- Map IOCs to MITRE techniques
+(blank line before next IOC)
+```
+
+**REQUIREMENTS - STRICT FORMATTING**:
+- **EACH ATTRIBUTE ON NEW LINE** with `-` bullet
+- Explain each IOC for both technical and non-technical audiences
+- **Clearly distinguish**: "Attacker's IP/system" vs "Destination system accessed"
+- Show connections to specific events
+- If no data for an attribute, write "**NO DATA**"
 
 ---
 
-### 5. MITRE ATT&CK MAPPING
-List all MITRE ATT&CK techniques observed with event counts.
+### 5. MITRE ATT&CK MAPPING (COMPLETE LIST)
+
+List ALL MITRE ATT&CK techniques observed with full details.
 
 **Format**:
-- **TXX
+```
+- **TXXXX.XXX** - [Technique Name]  
+  - **Observed**: X times  
+  - **Event IDs**: [List all Event IDs showing this technique]  
+  - **Evidence**: [Detailed description of how technique was used with specific examples]
+```
 
-XX.XXX** - [Technique Name]
-  - **Observed**: X times
-  - **Event IDs**: [List of Event IDs]
-  - **Evidence**: [Brief description of how technique was used]
-
-**Requirements**:
-- Group duplicate events (e.g., "4625 Failed Logon: 45 attempts across 12 hosts")
-- Provide counts for each technique
-- List specific Event IDs for each technique
+**REQUIREMENTS**:
+- Map ALL techniques observed in the data
+- Provide accurate counts
+- List ALL Event IDs for each technique
+- If technique unclear, write "**NO DATA**"
 
 ---
 
-### 6. ANALYSIS: WHAT, WHY, HOW
+### 6. FINDINGS / ANALYSIS (MINIMUM 4 PARAGRAPHS)
 
-#### What Happened (1 paragraph)
-Concise summary of the attack sequence from start to finish.
+Write a minimum of 4 detailed analytical paragraphs covering:
 
-#### Why It Happened (1 paragraph)
+#### What Happened (Paragraph 1 - detailed)
+Complete narrative of the attack sequence from initial access to final actions. Include specific systems, timestamps, and techniques used.
+
+#### How They Got In (Paragraph 2 - detailed)
+Detailed analysis of initial access vector. What vulnerability or weakness was exploited? What credentials were used? Include specific technical details.
+
+#### Why It Happened (Paragraph 3 - detailed)  
 Root cause analysis:
-- What security controls were missing or failed
-- What vulnerabilities were exploited
-- Why the attack succeeded
+- What specific security controls were missing or failed?
+- What specific vulnerabilities were exploited?
+- Why did existing defenses not prevent or detect the attack?
 
-#### How It Can Be Prevented or Reduced (1 paragraph)
-Specific recommendations including:
-- **DUO 2FA/MFA** - Implementation on remote access paths
-- **Blackpoint MDR** - Enhanced detection for lateral movement across all systems
-- **Huntress** - Endpoint detection and response (note if it was effective in this case)
-- Other specific technical controls
-
-**Note**: Generally all clients have Huntress installed. Adjust recommendations based on what was/wasn't present.
+#### What They Accomplished (Paragraph 4 - detailed)
+What did the attacker achieve? What systems did they access? What data did they view/steal? What credentials were compromised? What is the business impact?
 
 ---
 
-## FINAL REMINDERS:
-1. ✅ Use ONLY data from the events and IOCs provided above
-2. ✅ Be forensically precise - exact times, exact hostnames, exact commands
-3. ✅ Map everything to MITRE ATT&CK framework
-4. ✅ Include event counts and statistics
-5. ✅ Write for both technical and non-technical readers
-6. ❌ DO NOT invent IPs, systems, or details not in the data
-7. ❌ DO NOT use term "target systems" - use "destination systems"
-8. ❌ DO NOT speculate - only state facts from the evidence
+### 7. RECOMMENDATIONS (MINIMUM 5 SPECIFIC ACTIONS)
 
-Generate the complete professional DFIR report now:
+Provide specific, actionable recommendations to prevent recurrence:
+
+**MINIMUM 5 RECOMMENDATIONS including**:
+- **DUO 2FA/MFA**: Specific implementation plan for remote access (VPN, RDP, etc.)
+- **Blackpoint MDR**: Enhanced detection for lateral movement, credential theft, and suspicious activity across all systems
+- **Huntress**: Endpoint detection and response deployment status (note if already present and effectiveness)
+- **[Additional specific control 1]**: Based on the attack vector observed
+- **[Additional specific control 2]**: Based on the techniques observed
+- **[Additional specific control 3+]**: Based on the gaps identified
+
+**REQUIREMENTS**:
+- Each recommendation must be specific and actionable
+- Link each recommendation to specific findings from the report
+- Prioritize based on impact and observed attack techniques
+
+---
+
+### 8. APPENDIX - RAW DATA SUMMARY
+
+**Summarize the data sources used**:
+- Total Events Analyzed: [number]
+- Total IOCs Identified: [number]  
+- Systems Affected: [number]
+- Time Range: [earliest] to [latest]
+
+---
+
+## 🚨 FINAL CRITICAL REMINDERS 🚨
+
+1. ✅ **COMPLETE ALL SECTIONS** - Do not stop early
+2. ✅ **USE ONLY APPROVED VALUES** from the lists at the top
+3. ✅ **NO HALLUCINATION** - Only reference data explicitly provided
+4. ✅ **"NO DATA"** if information is missing - do NOT invent
+5. ✅ **DESTINATIONS NOT TARGETS** - Use correct terminology
+6. ✅ **CHRONOLOGICAL ORDER** - Timeline must be earliest-to-latest
+7. ✅ **SEPARATE LINES** - IOC attributes each on own line
+8. ✅ **END MARKER** - Write "### END OF REPORT" when complete
+9. ❌ **NO SPECULATION** - Only state facts from the evidence
+10. ❌ **NO SHORTCUTS** - Generate FULL detailed report
+
+**If you reach any generation limit, automatically continue writing the next section without stopping.**
+
+---
+
+BEGIN GENERATING THE COMPLETE PROFESSIONAL DFIR REPORT NOW:
 """
     
     return prompt
@@ -510,10 +577,11 @@ def generate_report_with_ollama(prompt, model='llama3.1:8b-instruct-q5_K_M', num
             'options': {
                 'num_ctx': num_ctx,
                 'num_thread': num_thread,
-                'num_predict': 4096,  # CRITICAL: Allow long responses (default is ~128)
+                'num_predict': 8192,  # VERY HIGH: Force maximum output length (was 4096, still truncating)
                 'temperature': temperature,
                 'top_p': 0.9,
-                'top_k': 40
+                'top_k': 40,
+                'stop': []  # CRITICAL: Remove ALL stop sequences that might be terminating early
             }
         }
         
