@@ -766,6 +766,30 @@ def get_ai_report(report_id):
     })
 
 
+@app.route('/ai/report/<int:report_id>/live-preview', methods=['GET'])
+@login_required
+def get_ai_report_live_preview(report_id):
+    """Get live preview of report being generated"""
+    from models import AIReport
+    
+    report = db.session.get(AIReport, report_id)
+    if not report:
+        return jsonify({'error': 'Report not found'}), 404
+    
+    # Check case access
+    case = db.session.get(Case, report.case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    return jsonify({
+        'raw_response': report.raw_response or '',
+        'tokens': report.total_tokens or 0,
+        'tok_per_sec': report.tokens_per_second or 0,
+        'status': report.status,
+        'progress_message': report.progress_message
+    })
+
+
 @app.route('/ai/report/<int:report_id>/cancel', methods=['POST'])
 @login_required
 def cancel_ai_report(report_id):
