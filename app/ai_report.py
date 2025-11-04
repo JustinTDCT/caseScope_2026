@@ -365,8 +365,7 @@ def generate_report_with_ollama(prompt, model='llama3.1:8b-instruct-q5_K_M', num
         response = requests.post(
             'http://localhost:11434/api/generate',
             json=payload,
-            stream=True,  # Enable response streaming
-            timeout=2400  # 40 minute timeout (Qwen 2.5 72B needs 20-25 minutes)
+            stream=True  # Enable response streaming, no timeout (user can cancel)
         )
         
         if response.status_code == 200:
