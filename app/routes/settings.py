@@ -66,9 +66,11 @@ def index():
     
     # Check AI system status
     ai_status = {'installed': False, 'running': False, 'model_available': False, 'models': []}
+    model_info = {}
     try:
-        from ai_report import check_ollama_status
+        from ai_report import check_ollama_status, MODEL_INFO
         ai_status = check_ollama_status()
+        model_info = MODEL_INFO
     except:
         pass
     
@@ -82,7 +84,8 @@ def index():
                          log_level=log_level,
                          ai_enabled=ai_enabled,
                          ai_model_name=ai_model_name,
-                         ai_status=ai_status)
+                         ai_status=ai_status,
+                         model_info=model_info)
 
 
 @settings_bp.route('/save', methods=['POST'])
