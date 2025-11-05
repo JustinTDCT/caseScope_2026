@@ -437,15 +437,14 @@ function submitSystem(event) {
         .then(data => {
             if (data.success) {
                 closeSystemModal();
-                showFlash(systemId ? 'System updated successfully' : 'System added successfully', 'success');
-                setTimeout(() => location.reload(), 1000);
+                location.reload();  // Reload immediately - flash will show after reload
             } else {
                 showFlash(`Error: ${data.error}`, 'error');
             }
         })
         .catch(err => {
             showFlash('Failed to save system', 'error');
-            console.error(err);
+            console.error('Error saving system:', err);
         });
 }
 
