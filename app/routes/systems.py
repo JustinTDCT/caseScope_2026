@@ -345,14 +345,16 @@ def scan_systems(case_id):
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     try:
-        # Get all index names for this case
-        files = CaseFile.query.filter_by(case_id=case_id).all()
-        index_names = [f.index_name for f in files if f.index_name]
+        # Check if there are indexed files for this case
+        files = CaseFile.query.filter_by(case_id=case_id, is_indexed=True).all()
         
-        if not index_names:
+        if not files:
             return jsonify({'success': False, 'error': 'No indexed files found for this case'}), 400
         
-        logger.info(f"[Systems] Starting system scan for case {case_id}, indices: {index_names}")
+        # Use wildcard pattern for all case indices (like in tasks.py)
+        index_pattern = f"case_{case_id}_*"
+        
+        logger.info(f"[Systems] Starting system scan for case {case_id}, pattern: {index_pattern}")
         
         # Extract systems from common fields
         discovered_systems = {}
@@ -368,7 +370,7 @@ def scan_systems(case_id):
         
         for field in system_fields:
             try:
-                s = Search(using=opensearch_client, index=index_names)
+                s = Search(using=opensearch_client, index=index_pattern)
                 s = s.filter('exists', field=field)
                 s = s[:0]  # Don't return documents
                 s.aggs.bucket('systems', 'terms', field=f'{field}.keyword', size=1000)
