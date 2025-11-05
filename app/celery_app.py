@@ -27,8 +27,7 @@ celery_app.conf.update(
     worker_max_tasks_per_child=100,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
-    task_time_limit=3600,
-    task_soft_time_limit=3300,
+    # No time limits - user can cancel via UI if needed
     broker_connection_retry_on_startup=True,
 )
 

@@ -62,7 +62,8 @@ def index():
     
     # Get AI settings
     ai_enabled = get_setting('ai_enabled', 'false') == 'true'
-    ai_model_name = get_setting('ai_model_name', 'phi3:14b')
+    ai_model_name = get_setting('ai_model_name', 'deepseek-r1:32b')
+    ai_hardware_mode = get_setting('ai_hardware_mode', 'cpu')  # cpu or gpu
     
     # Check AI system status
     ai_status = {'installed': False, 'running': False, 'model_available': False, 'models': []}
@@ -106,6 +107,7 @@ def index():
                          log_level=log_level,
                          ai_enabled=ai_enabled,
                          ai_model_name=ai_model_name,
+                         ai_hardware_mode=ai_hardware_mode,
                          ai_status=ai_status,
                          all_models=all_models)
 
@@ -159,12 +161,19 @@ def save():
     
     # AI settings
     ai_enabled = request.form.get('ai_enabled') == 'on'
-    ai_model_name = request.form.get('ai_model_name', 'phi3:14b').strip()
+    ai_model_name = request.form.get('ai_model_name', 'deepseek-r1:32b').strip()
+    ai_hardware_mode = request.form.get('ai_hardware_mode', 'cpu').strip().lower()
+    
+    # Validate hardware mode
+    if ai_hardware_mode not in ['cpu', 'gpu']:
+        ai_hardware_mode = 'cpu'  # Default to CPU if invalid
     
     set_setting('ai_enabled', 'true' if ai_enabled else 'false',
                 'Enable AI report generation features')
     set_setting('ai_model_name', ai_model_name,
                 'AI model name for report generation')
+    set_setting('ai_hardware_mode', ai_hardware_mode,
+                'AI hardware mode: cpu or gpu (auto-optimizes settings)')
     
     # Audit log
     from audit_logger import log_action
@@ -174,7 +183,8 @@ def save():
                   'opencti_enabled': opencti_enabled,
                   'log_level': log_level,
                   'ai_enabled': ai_enabled,
-                  'ai_model_name': ai_model_name
+                  'ai_model_name': ai_model_name,
+                  'ai_hardware_mode': ai_hardware_mode
               })
     
     flash('✓ Settings saved successfully', 'success')
@@ -421,4 +431,105 @@ def sync_opencti():
             'success': False,
             'message': f'✗ Enrichment failed: {str(e)}'
         })
+
+
+@settings_bp.route('/update_models', methods=['POST'])
+@login_required
+@admin_required
+def update_models():
+    """Update all installed AI models (streaming progress)"""
+    from flask import Response, stream_with_context
+    import subprocess
+    import json
+    import re
+    
+    def generate_progress():
+        """Generator function to stream progress updates"""
+        try:
+            # Get list of installed models
+            result = subprocess.run(['ollama', 'list'], capture_output=True, text=True)
+            if result.returncode != 0:
+                yield f"data: {json.dumps({'error': 'Failed to get model list'})}\n\n"
+                return
+            
+            # Parse installed models (skip header line)
+            lines = result.stdout.strip().split('\n')[1:]
+            models = []
+            for line in lines:
+                parts = line.split()
+                if parts:
+                    model_name = parts[0]
+                    models.append(model_name)
+            
+            if not models:
+                yield f"data: {json.dumps({'error': 'No models installed'})}\n\n"
+                return
+            
+            total_models = len(models)
+            yield f"data: {json.dumps({'total': total_models, 'models': models})}\n\n"
+            
+            # Update each model
+            for idx, model in enumerate(models, 1):
+                yield f"data: {json.dumps({'stage': 'starting', 'model': model, 'index': idx, 'total': total_models})}\n\n"
+                
+                # Run ollama pull with streaming output
+                process = subprocess.Popen(
+                    ['ollama', 'pull', model],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+                
+                last_status = None
+                for line in iter(process.stdout.readline, ''):
+                    if not line:
+                        break
+                    
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Parse progress from ollama output
+                    # Format: "pulling <layer>: <percent>% ▕████▏ <size>"
+                    status_match = re.search(r'(pulling|verifying|writing)\s+(\w+):\s+(\d+)%', line)
+                    if status_match:
+                        action = status_match.group(1)
+                        layer = status_match.group(2)
+                        percent = int(status_match.group(3))
+                        status = f"{action.capitalize()} {layer[:8]}... {percent}%"
+                        
+                        # Only send if status changed (reduce spam)
+                        if status != last_status:
+                            yield f"data: {json.dumps({'stage': 'downloading', 'model': model, 'index': idx, 'total': total_models, 'progress': percent, 'status': status})}\n\n"
+                            last_status = status
+                    
+                    # Check for completion messages
+                    if 'success' in line.lower():
+                        yield f"data: {json.dumps({'stage': 'completed', 'model': model, 'index': idx, 'total': total_models})}\n\n"
+                    elif 'error' in line.lower():
+                        yield f"data: {json.dumps({'stage': 'error', 'model': model, 'index': idx, 'total': total_models, 'error': line})}\n\n"
+                
+                process.wait()
+                
+                # Ensure completion message is sent
+                if process.returncode == 0:
+                    yield f"data: {json.dumps({'stage': 'completed', 'model': model, 'index': idx, 'total': total_models})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'stage': 'error', 'model': model, 'index': idx, 'total': total_models, 'error': f'Exit code {process.returncode}'})}\n\n"
+            
+            # All done
+            yield f"data: {json.dumps({'stage': 'all_complete', 'total': total_models})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
+    return Response(
+        stream_with_context(generate_progress()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'
+        }
+    )
 

@@ -14,7 +14,7 @@ from opensearchpy import OpenSearch
 
 # Import config and models
 from config import Config
-from models import db, User, Case, CaseFile, SigmaRule, SigmaViolation, IOC, IOCMatch, SkippedFile, SystemSettings, TimelineTag, AIReport
+from models import db, User, Case, CaseFile, SigmaRule, SigmaViolation, IOC, IOCMatch, System, SkippedFile, SystemSettings, TimelineTag, AIReport
 from celery_app import celery_app
 
 # Setup logging using centralized configuration
@@ -52,6 +52,8 @@ opensearch_client = OpenSearch(
 # Register blueprints
 from routes.ioc import ioc_bp
 app.register_blueprint(ioc_bp)
+from routes.systems import systems_bp
+app.register_blueprint(systems_bp)
 from routes.files import files_bp
 from routes.cases import cases_bp
 from routes.api_stats import api_stats_bp
@@ -735,6 +737,15 @@ def get_ai_report(report_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
+    # Parse validation results if available
+    validation_data = None
+    if report.validation_results:
+        try:
+            import json
+            validation_data = json.loads(report.validation_results)
+        except:
+            validation_data = None
+    
     return jsonify({
         'id': report.id,
         'case_id': report.case_id,
@@ -751,8 +762,33 @@ def get_ai_report(report_id):
         'progress_percent': report.progress_percent or 0,
         'progress_message': report.progress_message or 'Initializing...',
         'current_stage': report.current_stage or 'Initializing',
+        'validation': validation_data,
         'created_at': report.created_at.isoformat() if report.created_at else None,
         'completed_at': report.completed_at.isoformat() if report.completed_at else None
+    })
+
+
+@app.route('/ai/report/<int:report_id>/live-preview', methods=['GET'])
+@login_required
+def get_ai_report_live_preview(report_id):
+    """Get live preview of report being generated"""
+    from models import AIReport
+    
+    report = db.session.get(AIReport, report_id)
+    if not report:
+        return jsonify({'error': 'Report not found'}), 404
+    
+    # Check case access
+    case = db.session.get(Case, report.case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    return jsonify({
+        'raw_response': report.raw_response or '',
+        'tokens': report.total_tokens or 0,
+        'tok_per_sec': report.tokens_per_second or 0,
+        'status': report.status,
+        'progress_message': report.progress_message
     })
 
 
@@ -964,6 +1000,32 @@ def get_ai_report_chat_history(report_id):
             'applied': msg.applied,
             'created_at': msg.created_at.isoformat() if msg.created_at else None
         } for msg in chats]
+    })
+
+
+@app.route('/ai/report/<int:report_id>/review', methods=['GET'])
+@login_required
+def get_ai_report_review(report_id):
+    """Get prompt and response for AI report review/debugging"""
+    from models import AIReport
+    
+    report = db.session.get(AIReport, report_id)
+    if not report:
+        return jsonify({'error': 'Report not found'}), 404
+    
+    # Check case access
+    case = db.session.get(Case, report.case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    return jsonify({
+        'prompt_sent': report.prompt_sent or 'No prompt stored (generated before v1.10.44)',
+        'raw_response': report.raw_response or 'No raw response stored (generated before v1.10.44)',
+        'prompt_length': len(report.prompt_sent) if report.prompt_sent else 0,
+        'response_length': len(report.raw_response) if report.raw_response else 0,
+        'model_name': report.model_name,
+        'total_tokens': report.total_tokens,
+        'created_at': report.created_at.isoformat() if report.created_at else None
     })
 
 

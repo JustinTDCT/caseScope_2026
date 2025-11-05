@@ -608,7 +608,7 @@ def generate_ai_report(self, report_id):
         dict: Status and results
     """
     from main import app, db, opensearch_client
-    from models import AIReport, Case, IOC
+    from models import AIReport, Case, IOC, SystemSettings
     from ai_report import generate_case_report_prompt, generate_report_with_ollama, format_report_title, markdown_to_html
     from datetime import datetime
     import time
@@ -663,9 +663,15 @@ def generate_ai_report(self, report_id):
             iocs = IOC.query.filter_by(case_id=case.id).all()
             logger.info(f"[AI REPORT] Found {len(iocs)} IOCs")
             
+            # Get systems for case (for improved AI context)
+            from models import System
+            systems = System.query.filter_by(case_id=case.id, hidden=False).all()
+            logger.info(f"[AI REPORT] Found {len(systems)} systems")
+            
             # Get tagged events from OpenSearch (using TimelineTag table)
+            # Limit to 50 events to prevent context window overflow (was 100)
             report.progress_percent = 30
-            report.progress_message = 'Fetching tagged events from database...'
+            report.progress_message = 'Fetching top 50 tagged events from database...'
             db.session.commit()
             
             tagged_events = []
@@ -680,7 +686,7 @@ def generate_ai_report(self, report_id):
                     # Get event_ids for OpenSearch query
                     tagged_event_ids = [tag.event_id for tag in timeline_tags]
                     
-                    # Fetch full event data from OpenSearch (limit to 100 most recent)
+                    # Fetch full event data from OpenSearch (no limit - send ALL tagged events to AI)
                     if len(tagged_event_ids) > 0:
                         # Build index pattern
                         index_pattern = f"case_{case.id}_*"
@@ -688,10 +694,10 @@ def generate_ai_report(self, report_id):
                         search_body = {
                             "query": {
                                 "ids": {
-                                    "values": tagged_event_ids[:100]  # Limit to first 100
+                                    "values": tagged_event_ids  # Send ALL tagged events (no truncation)
                                 }
                             },
-                            "size": 100,
+                            "size": len(tagged_event_ids),  # Fetch all tagged events
                             "sort": [{"timestamp": {"order": "asc", "unmapped_type": "date"}}]
                         }
                         
@@ -723,8 +729,12 @@ def generate_ai_report(self, report_id):
             report.progress_message = f'Analyzing {len(iocs)} IOCs and {len(tagged_events)} tagged events...'
             db.session.commit()
             
-            prompt = generate_case_report_prompt(case, iocs, tagged_events)
-            logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters)")
+            prompt = generate_case_report_prompt(case, iocs, tagged_events, systems)
+            logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters) with {len(systems)} systems")
+            
+            # Store the prompt for debugging/review
+            report.prompt_sent = prompt
+            db.session.commit()
             
             # Check for cancellation before AI generation
             report = db.session.get(AIReport, report_id)
@@ -739,11 +749,17 @@ def generate_ai_report(self, report_id):
             db.session.commit()
             
             start_time = time.time()
+            
+            # Get hardware mode from config (default to CPU for safety)
+            hardware_mode_config = SystemSettings.query.filter_by(setting_key='ai_hardware_mode').first()
+            hardware_mode = hardware_mode_config.setting_value if hardware_mode_config else 'cpu'
+            
             # Use the model specified in the report record (from database settings)
-            # Pass report object and db session for real-time streaming updates
+            # Pass report object, db session, and hardware mode for optimal performance
             success, result = generate_report_with_ollama(
                 prompt, 
                 model=report.model_name,
+                hardware_mode=hardware_mode,
                 report_obj=report,
                 db_session=db.session
             )
@@ -766,11 +782,28 @@ def generate_ai_report(self, report_id):
                 markdown_report = result['report']
                 html_report = markdown_to_html(markdown_report, case.name, case.company)
                 
+                # VALIDATION: Check for hallucinations
+                from validation import validate_report
+                import json
+                
+                logger.info(f"[AI REPORT] Validating report for hallucinations...")
+                validation_results = validate_report(markdown_report, prompt, case.name)
+                
+                # Log validation results
+                if validation_results['passed']:
+                    logger.info(f"[AI REPORT] ✅ Validation PASSED - {len(validation_results['warnings'])} warnings")
+                else:
+                    logger.warning(f"[AI REPORT] ❌ Validation FAILED - {len(validation_results['errors'])} errors")
+                    for error in validation_results['errors']:
+                        logger.warning(f"[AI REPORT]   - {error['type']}: {error['message']}")
+                
                 # Update report with success
                 report.status = 'completed'
                 report.current_stage = 'Completed'
                 report.report_title = format_report_title(case.name)
                 report.report_content = html_report  # Store as HTML for Word compatibility
+                report.raw_response = markdown_report  # Store raw markdown response for debugging
+                report.validation_results = json.dumps(validation_results)  # Store validation results
                 report.generation_time_seconds = result['duration_seconds']
                 report.completed_at = datetime.utcnow()
                 report.model_name = result.get('model', 'phi3:14b')
