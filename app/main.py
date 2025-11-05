@@ -595,7 +595,14 @@ def view_case(case_id):
         is_active=True
     ).count()
     
-    return render_template('view_case_enhanced.html', case=case, files=files, total_iocs=total_iocs)
+    # Count total systems for this case (visible only)
+    from models import System
+    total_systems = db.session.query(System).filter_by(
+        case_id=case_id,
+        hidden=False
+    ).count()
+    
+    return render_template('view_case_enhanced.html', case=case, files=files, total_iocs=total_iocs, total_systems=total_systems)
 
 
 # ============================================================================
