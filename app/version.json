@@ -1,9 +1,10 @@
 {
-  "version": "1.10.75",
+  "version": "1.10.76",
   "release_date": "2025-11-05",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "🐛 CRITICAL FIX: IOC Hunting Crash During File Upload - Fixed batch_size indentation causing uploads to fail (v1.10.76)",
     "🔧 CRITICAL FIX: OpenCTI Background Enrichment + Table Alignment - Fixed Flask app context in threads & empty cell collapse (v1.10.75)",
     "🗑️ Bulk Actions for Hidden Files - Select and bulk unhide or delete hidden files with confirmation (v1.10.74)",
     "🔍 Search Hidden Files - Search hidden files by name or hash with pagination support (v1.10.73)",

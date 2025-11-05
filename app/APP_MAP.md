@@ -1,8 +1,109 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.75  
-**Last Updated**: 2025-11-05 22:10 UTC  
+**Version**: 1.10.76  
+**Last Updated**: 2025-11-05 22:40 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.10.76 - CRITICAL FIX: IOC Hunting Crash During File Upload (2025-11-05 22:40 UTC)
+
+**Issue**: Files uploaded in bulk failed during IOC hunting phase with `UnboundLocalError: cannot access local variable 'batch_size' where it is not associated with a value`
+
+### Problem
+
+**User Report**: "i just uploaded a bunch of files that failed - why"
+
+**Error in Logs**:
+```
+2025-11-05 22:31:08 | file_processing | ERROR | [HUNT IOCS] Error searching for IOC logu_12.log: cannot access local variable 'batch_size' where it is not associated with a value
+```
+
+**Root Cause**:
+
+In `/opt/casescope/app/file_processing.py`, the OpenSearch bulk update block (lines 1203-1221) was **incorrectly indented**:
+
+```python
+# LINE 1172: Start of if block (16 spaces)
+                if all_hits:
+                    logger.info(f"[HUNT IOCS] Found {len(all_hits)} matches")
+                    
+                    # Create IOCMatch records in batches
+                    batch_size = 1000  # LINE 1177: batch_size defined HERE
+                    for i in range(0, len(all_hits), batch_size):
+                        # ... database updates ...
+                    
+               # LINE 1203: WRONG INDENTATION (15 spaces - OUTSIDE if block!)
+                from opensearchpy.helpers import bulk as opensearch_bulk
+                for i in range(0, len(all_hits), batch_size):  # LINE 1205: Uses batch_size but it's not defined!
+```
+
+**The Problem**:
+- `batch_size = 1000` is defined at line 1177 **inside** the `if all_hits:` block
+- Lines 1203-1221 were **outside** the `if all_hits:` block (15 spaces vs 20 spaces indentation)
+- When `all_hits` was empty or an IOC matched zero events, `batch_size` was never defined
+- Line 1205 tried to use `batch_size` → `UnboundLocalError`
+
+**Secondary Issue**: Database locks due to **5 Celery worker processes** running simultaneously (should be 1)
+
+### Fix
+
+**1. Fixed Indentation**:
+- Added 4 spaces to lines 1203-1221 to move OpenSearch bulk update **inside** the `if all_hits:` block
+- Now `batch_size` is always accessible when the code tries to use it
+
+```python
+                if all_hits:
+                    logger.info(f"[HUNT IOCS] Found {len(all_hits)} matches")
+                    
+                    # Create IOCMatch records in batches
+                    batch_size = 1000
+                    for i in range(0, len(all_hits), batch_size):
+                        # ... database updates ...
+                    
+                    # Update OpenSearch events (NOW CORRECTLY INDENTED)
+                    from opensearchpy.helpers import bulk as opensearch_bulk
+                    for i in range(0, len(all_hits), batch_size):  # ✅ batch_size is accessible
+                        # ... OpenSearch bulk updates ...
+```
+
+**2. Fixed Celery Workers**:
+- Killed all duplicate Celery worker processes
+- Started single worker with `--concurrency=4` (1 main + 4 child workers)
+
+### Changes Made
+
+**Files Modified**:
+- `/opt/casescope/app/file_processing.py` - Fixed indentation for lines 1203-1221
+
+**Celery Management**:
+- `killall -9 celery` - Stopped all duplicate workers
+- Restarted single Celery worker process
+
+### Testing
+
+**Before Fix**:
+- ❌ Files failed during IOC hunting phase
+- ❌ Error: `cannot access local variable 'batch_size'`
+- ❌ Database locked (multiple workers competing)
+
+**After Fix**:
+- ✅ IOC hunting completes successfully even when no matches found
+- ✅ `batch_size` always accessible within correct scope
+- ✅ Single Celery worker prevents database locks
+
+### User Impact
+
+**Fixed**:
+- ✅ Bulk file uploads now complete successfully
+- ✅ IOC hunting no longer crashes on empty results
+- ✅ Database lock errors eliminated
+- ✅ All files process through the full pipeline (indexing → SIGMA → IOC hunting → completion)
+
+**Pattern to Avoid**:
+- ⚠️ **Always check variable scope** when using variables in multiple loops
+- ⚠️ **Use consistent indentation** to keep related code blocks together
+- ⚠️ **Define loop variables (like `batch_size`) at the appropriate scope level**
 
 ---
 

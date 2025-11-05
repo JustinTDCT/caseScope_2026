@@ -1200,25 +1200,25 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                         commit_with_retry(db.session, logger_instance=logger)
                         logger.info(f"[HUNT IOCS] Committed batch {i//batch_size + 1} ({len(batch)} matches)")
                     
-               # Update OpenSearch events with has_ioc flag and increment ioc_count in batches
-                from opensearchpy.helpers import bulk as opensearch_bulk
-                for i in range(0, len(all_hits), batch_size):
-                    batch = all_hits[i:i+batch_size]
-                    bulk_updates = []
-                    for hit in batch:
-                        bulk_updates.append({
-                            '_op_type': 'update',
-                            '_index': index_name,
-                            '_id': hit['_id'],
-                            'script': {
-                                'source': 'ctx._source.has_ioc = true; if (ctx._source.ioc_count == null) { ctx._source.ioc_count = 1 } else { ctx._source.ioc_count += 1 }',
-                                'lang': 'painless'
-                            }
-                        })
+                    # Update OpenSearch events with has_ioc flag and increment ioc_count in batches
+                    from opensearchpy.helpers import bulk as opensearch_bulk
+                    for i in range(0, len(all_hits), batch_size):
+                        batch = all_hits[i:i+batch_size]
+                        bulk_updates = []
+                        for hit in batch:
+                            bulk_updates.append({
+                                '_op_type': 'update',
+                                '_index': index_name,
+                                '_id': hit['_id'],
+                                'script': {
+                                    'source': 'ctx._source.has_ioc = true; if (ctx._source.ioc_count == null) { ctx._source.ioc_count = 1 } else { ctx._source.ioc_count += 1 }',
+                                    'lang': 'painless'
+                                }
+                            })
 
-                    if bulk_updates:
-                        opensearch_bulk(opensearch_client, bulk_updates)
-                        logger.info(f"[HUNT IOCS] Updated OpenSearch batch {i//batch_size + 1} ({len(bulk_updates)} events)")
+                        if bulk_updates:
+                            opensearch_bulk(opensearch_client, bulk_updates)
+                            logger.info(f"[HUNT IOCS] Updated OpenSearch batch {i//batch_size + 1} ({len(bulk_updates)} events)")
             
             except Exception as e:
                 logger.error(f"[HUNT IOCS] Error searching for IOC {ioc.ioc_value}: {e}")
