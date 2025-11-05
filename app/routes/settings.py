@@ -432,3 +432,104 @@ def sync_opencti():
             'message': f'✗ Enrichment failed: {str(e)}'
         })
 
+
+@settings_bp.route('/update_models', methods=['POST'])
+@login_required
+@admin_required
+def update_models():
+    """Update all installed AI models (streaming progress)"""
+    from flask import Response, stream_with_context
+    import subprocess
+    import json
+    import re
+    
+    def generate_progress():
+        """Generator function to stream progress updates"""
+        try:
+            # Get list of installed models
+            result = subprocess.run(['ollama', 'list'], capture_output=True, text=True)
+            if result.returncode != 0:
+                yield f"data: {json.dumps({'error': 'Failed to get model list'})}\n\n"
+                return
+            
+            # Parse installed models (skip header line)
+            lines = result.stdout.strip().split('\n')[1:]
+            models = []
+            for line in lines:
+                parts = line.split()
+                if parts:
+                    model_name = parts[0]
+                    models.append(model_name)
+            
+            if not models:
+                yield f"data: {json.dumps({'error': 'No models installed'})}\n\n"
+                return
+            
+            total_models = len(models)
+            yield f"data: {json.dumps({'total': total_models, 'models': models})}\n\n"
+            
+            # Update each model
+            for idx, model in enumerate(models, 1):
+                yield f"data: {json.dumps({'stage': 'starting', 'model': model, 'index': idx, 'total': total_models})}\n\n"
+                
+                # Run ollama pull with streaming output
+                process = subprocess.Popen(
+                    ['ollama', 'pull', model],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1
+                )
+                
+                last_status = None
+                for line in iter(process.stdout.readline, ''):
+                    if not line:
+                        break
+                    
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Parse progress from ollama output
+                    # Format: "pulling <layer>: <percent>% ▕████▏ <size>"
+                    status_match = re.search(r'(pulling|verifying|writing)\s+(\w+):\s+(\d+)%', line)
+                    if status_match:
+                        action = status_match.group(1)
+                        layer = status_match.group(2)
+                        percent = int(status_match.group(3))
+                        status = f"{action.capitalize()} {layer[:8]}... {percent}%"
+                        
+                        # Only send if status changed (reduce spam)
+                        if status != last_status:
+                            yield f"data: {json.dumps({'stage': 'downloading', 'model': model, 'index': idx, 'total': total_models, 'progress': percent, 'status': status})}\n\n"
+                            last_status = status
+                    
+                    # Check for completion messages
+                    if 'success' in line.lower():
+                        yield f"data: {json.dumps({'stage': 'completed', 'model': model, 'index': idx, 'total': total_models})}\n\n"
+                    elif 'error' in line.lower():
+                        yield f"data: {json.dumps({'stage': 'error', 'model': model, 'index': idx, 'total': total_models, 'error': line})}\n\n"
+                
+                process.wait()
+                
+                # Ensure completion message is sent
+                if process.returncode == 0:
+                    yield f"data: {json.dumps({'stage': 'completed', 'model': model, 'index': idx, 'total': total_models})}\n\n"
+                else:
+                    yield f"data: {json.dumps({'stage': 'error', 'model': model, 'index': idx, 'total': total_models, 'error': f'Exit code {process.returncode}'})}\n\n"
+            
+            # All done
+            yield f"data: {json.dumps({'stage': 'all_complete', 'total': total_models})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
+    return Response(
+        stream_with_context(generate_progress()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'
+        }
+    )
+
