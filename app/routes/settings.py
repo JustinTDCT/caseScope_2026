@@ -174,6 +174,7 @@ def save():
     ai_enabled = request.form.get('ai_enabled') == 'on'
     ai_model_name = request.form.get('ai_model_name', 'deepseek-r1:32b').strip()
     ai_hardware_mode = request.form.get('ai_hardware_mode', 'cpu').strip().lower()
+    ai_gpu_vram = request.form.get('ai_gpu_vram', '8').strip()
     
     # Validate hardware mode
     if ai_hardware_mode not in ['cpu', 'gpu']:
@@ -185,6 +186,15 @@ def save():
                 'AI model name for report generation')
     set_setting('ai_hardware_mode', ai_hardware_mode,
                 'AI hardware mode: cpu or gpu (auto-optimizes settings)')
+    set_setting('ai_gpu_vram', ai_gpu_vram,
+                'GPU VRAM in GB (for model recommendations)')
+    
+    # Auto-setup GPU if needed
+    if ai_hardware_mode == 'gpu':
+        from hardware_setup import get_gpu_requirements_status
+        status = get_gpu_requirements_status()
+        if not status['ready']:
+            flash('⚠️ GPU mode enabled but requirements not met. Please ensure NVIDIA drivers and CUDA are installed.', 'warning')
     
     # Audit log
     from audit_logger import log_action
@@ -195,7 +205,8 @@ def save():
                   'log_level': log_level,
                   'ai_enabled': ai_enabled,
                   'ai_model_name': ai_model_name,
-                  'ai_hardware_mode': ai_hardware_mode
+                  'ai_hardware_mode': ai_hardware_mode,
+                  'ai_gpu_vram': ai_gpu_vram
               })
     
     flash('✓ Settings saved successfully', 'success')

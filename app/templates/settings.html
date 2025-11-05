@@ -342,21 +342,51 @@
                     </p>
                 </div>
 
+                <!-- Hardware Detection Status -->
+                <div style="margin-bottom: var(--spacing-md); padding: var(--spacing-sm); background: var(--color-background); border-radius: var(--border-radius); border: 1px solid var(--color-border);">
+                    <div style="font-size: 0.875rem; color: var(--color-text-secondary);">
+                        <strong>💻 Hardware Detected:</strong>
+                        {% if hardware_info.gpu.gpu_detected %}
+                        <span style="color: var(--color-success);">✓ GPU: {{ hardware_info.gpu.gpu_name }} ({{ hardware_info.gpu.vram_gb }}GB VRAM)</span>
+                        {% else %}
+                        <span style="color: var(--color-text-muted);">CPU Only (No GPU detected)</span>
+                        {% endif %}
+                        | <strong>CPU:</strong> {{ hardware_info.cpu.cpu_count }} cores
+                    </div>
+                </div>
+
                 <!-- Hardware Mode Selection (CPU vs GPU) -->
                 <div style="margin-bottom: var(--spacing-lg); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--border-radius); border-left: 3px solid var(--color-primary);">
                     <label style="font-weight: 600; margin-bottom: var(--spacing-sm); display: block; color: var(--color-text);">
                         ⚡ Hardware Acceleration Mode
                     </label>
                     
-                    <select name="ai_hardware_mode" 
-                            style="width: 100%; max-width: 300px; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-background); color: var(--color-text); font-size: 0.875rem; margin-bottom: var(--spacing-sm);">
-                        <option value="cpu" {% if ai_hardware_mode == 'cpu' %}selected{% endif %}>
-                            🖥️ CPU Mode (Default)
-                        </option>
-                        <option value="gpu" {% if ai_hardware_mode == 'gpu' %}selected{% endif %}>
-                            🎮 GPU Mode (Nvidia/AMD)
-                        </option>
-                    </select>
+                    <div style="display: flex; gap: var(--spacing-md); margin-bottom: var(--spacing-sm);">
+                        <select name="ai_hardware_mode" 
+                                id="ai_hardware_mode"
+                                onchange="checkHardwareRequirements()"
+                                style="flex: 1; max-width: 250px; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-background); color: var(--color-text); font-size: 0.875rem;">
+                            <option value="cpu" {% if ai_hardware_mode == 'cpu' %}selected{% endif %}>
+                                🖥️ CPU Mode (Default)
+                            </option>
+                            <option value="gpu" {% if ai_hardware_mode == 'gpu' %}selected{% endif %}>
+                                🎮 GPU Mode (Nvidia/AMD)
+                            </option>
+                        </select>
+                        
+                        <select name="ai_gpu_vram" 
+                                id="ai_gpu_vram"
+                                style="flex: 1; max-width: 150px; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-background); color: var(--color-text); font-size: 0.875rem;">
+                            <option value="4" {% if ai_gpu_vram == '4' %}selected{% endif %}>4GB VRAM</option>
+                            <option value="6" {% if ai_gpu_vram == '6' %}selected{% endif %}>6GB VRAM</option>
+                            <option value="8" {% if ai_gpu_vram == '8' or not ai_gpu_vram %}selected{% endif %}>8GB VRAM</option>
+                            <option value="12" {% if ai_gpu_vram == '12' %}selected{% endif %}>12GB VRAM</option>
+                            <option value="16" {% if ai_gpu_vram == '16' %}selected{% endif %}>16GB VRAM</option>
+                            <option value="24" {% if ai_gpu_vram == '24' %}selected{% endif %}>24GB VRAM</option>
+                            <option value="32" {% if ai_gpu_vram == '32' %}selected{% endif %}>32GB VRAM</option>
+                            <option value="48" {% if ai_gpu_vram == '48' %}selected{% endif %}>48GB VRAM</option>
+                        </select>
+                    </div>
                     
                     <div style="margin-top: var(--spacing-sm);">
                         <div style="padding: var(--spacing-sm); background: {% if ai_hardware_mode == 'gpu' %}var(--color-primary-bg){% else %}var(--color-background){% endif %}; border-radius: var(--border-radius); margin-bottom: var(--spacing-xs);">
@@ -933,6 +963,15 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Check hardware requirements when switching modes
+function checkHardwareRequirements() {
+    const mode = document.getElementById('ai_hardware_mode').value;
+    if (mode === 'gpu') {
+        // Auto-setup logic will be triggered on save
+        console.log('[Hardware] GPU mode selected - will check requirements on save');
+    }
 }
 </script>
 {% endblock %}
