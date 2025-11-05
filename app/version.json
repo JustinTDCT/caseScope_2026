@@ -1,9 +1,10 @@
 {
-  "version": "1.10.55",
+  "version": "1.10.56",
   "release_date": "2025-11-04",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "\ud83d\uddd1\ufe0f Delete Button for Failed Reports - Clean up failed AI reports with confirmation (v1.10.56)",
     "\ud83d\udd04 Update All Models Button - Real-time progress for updating all installed models (v1.10.55)",
     "\ud83d\udd27 FIXED: Model Names + Installed Detection - Downloaded models now show correctly (v1.10.54)",
     "\ud83c\udfaf CPU/GPU Mode Selector + Model Name Fixes - Auto-optimizes AI settings based on hardware (v1.10.53)",
