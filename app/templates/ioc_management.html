@@ -273,7 +273,8 @@ async function submitIOC(event) {
         const data = await response.json();
         
         if (data.success) {
-            location.reload();
+            closeIOCModal();  // Close modal first
+            setTimeout(() => location.reload(), 500);  // Then reload after brief delay
         } else {
             alert('Error: ' + (data.error || 'Unknown error'));
         }
