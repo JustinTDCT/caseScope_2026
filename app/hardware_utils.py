@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 def detect_gpu_info():
     """Detect NVIDIA GPU and VRAM"""
     try:
-        # Try nvidia-smi first
+        # Try nvidia-smi first (use full path)
         result = subprocess.run(
-            ['nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader'],
+            ['/usr/bin/nvidia-smi', '--query-gpu=name,memory.total', '--format=csv,noheader'],
             capture_output=True, text=True, timeout=5
         )
         
