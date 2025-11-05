@@ -100,7 +100,7 @@ def bulk_delete_hidden_files(db_session, case_id: int, file_ids: List[int], user
     """Delete multiple hidden files permanently"""
     import os
     from models import CaseFile, SigmaViolation, IOCMatch
-    from opensearch_config import get_opensearch_client
+    from main import opensearch_client
     
     try:
         files = db_session.query(CaseFile).filter(
@@ -115,7 +115,7 @@ def bulk_delete_hidden_files(db_session, case_id: int, file_ids: List[int], user
         
         deleted_count = 0
         errors = []
-        os_client = get_opensearch_client()
+        os_client = opensearch_client
         
         for file in files:
             try:
