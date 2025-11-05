@@ -360,7 +360,13 @@ function editSystem(systemId) {
         .then(data => {
             if (data.success) {
                 showEditSystemModal(data.system);
+            } else {
+                showFlash(`Error: ${data.error}`, 'error');
             }
+        })
+        .catch(err => {
+            showFlash('Failed to load system details', 'error');
+            console.error(err);
         });
 }
 
@@ -420,6 +426,10 @@ function updateSystem(event, systemId) {
             } else {
                 showFlash(`Error: ${data.error}`, 'error');
             }
+        })
+        .catch(err => {
+            showFlash('Failed to update system', 'error');
+            console.error(err);
         });
 }
 
@@ -433,7 +443,13 @@ function toggleHidden(systemId) {
             if (data.success) {
                 showFlash(data.hidden ? 'System hidden' : 'System visible', 'success');
                 setTimeout(() => location.reload(), 1000);
+            } else {
+                showFlash(`Error: ${data.error}`, 'error');
             }
+        })
+        .catch(err => {
+            showFlash('Failed to toggle visibility', 'error');
+            console.error(err);
         });
 }
 
@@ -454,6 +470,10 @@ function deleteSystem(systemId) {
             } else {
                 showFlash(`Error: ${data.error}`, 'error');
             }
+        })
+        .catch(err => {
+            showFlash('Failed to delete system', 'error');
+            console.error(err);
         });
 }
 
@@ -470,6 +490,10 @@ function enrichSystem(systemId) {
             } else {
                 showFlash('OpenCTI enrichment not available', 'error');
             }
+        })
+        .catch(err => {
+            showFlash('Failed to enrich system', 'error');
+            console.error(err);
         });
 }
 
@@ -486,6 +510,10 @@ function syncSystem(systemId) {
             } else {
                 showFlash('DFIR-IRIS sync not available', 'error');
             }
+        })
+        .catch(err => {
+            showFlash('Failed to sync system', 'error');
+            console.error(err);
         });
 }
 
