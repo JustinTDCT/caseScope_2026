@@ -95,17 +95,17 @@ def install_nvidia_driver(progress_callback=None):
         
         # Add NVIDIA PPA
         steps.append(("Adding NVIDIA PPA...", [
-            'sudo', 'add-apt-repository', 'ppa:graphics-drivers/ppa', '-y'
+            '/usr/bin/sudo', 'add-apt-repository', 'ppa:graphics-drivers/ppa', '-y'
         ]))
         
         # Update package list
         steps.append(("Updating package lists...", [
-            'sudo', 'apt-get', 'update'
+            '/usr/bin/sudo', 'apt-get', 'update'
         ]))
         
         # Install driver
         steps.append(("Installing NVIDIA driver (this may take 5-10 minutes)...", [
-            'sudo', 'apt-get', 'install', '-y', 'nvidia-driver-550'
+            '/usr/bin/sudo', 'apt-get', 'install', '-y', 'nvidia-driver-550'
         ]))
         
         for step_msg, cmd in steps:
@@ -162,21 +162,30 @@ def configure_ollama_cuda(progress_callback=None):
                 new_lines.append('Environment="LD_LIBRARY_PATH=/usr/local/lib/ollama:/usr/local/lib/ollama/cuda_v12"\n')
                 new_lines.append('Environment="OLLAMA_LLM_LIBRARY=cuda_v12"\n')
         
-        # Write updated service file
+        # Write updated service file using sudo tee
         if progress_callback:
             progress_callback("Writing updated service configuration...")
         
-        with open(service_file, 'w') as f:
-            f.writelines(new_lines)
+        # Use tee to write with sudo privileges
+        tee_process = subprocess.Popen(
+            ['/usr/bin/sudo', 'tee', service_file],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        stdout, stderr = tee_process.communicate(input=''.join(new_lines))
+        if tee_process.returncode != 0:
+            raise Exception(f"Failed to write service file: {stderr}")
         
         # Reload systemd and restart Ollama
         if progress_callback:
             progress_callback("Reloading systemd...")
-        subprocess.run(['sudo', 'systemctl', 'daemon-reload'], check=True)
+        subprocess.run(['/usr/bin/sudo', 'systemctl', 'daemon-reload'], check=True, timeout=30)
         
         if progress_callback:
             progress_callback("Restarting Ollama service...")
-        subprocess.run(['sudo', 'systemctl', 'restart', 'ollama.service'], check=True)
+        subprocess.run(['/usr/bin/sudo', 'systemctl', 'restart', 'ollama.service'], check=True, timeout=30)
         
         if progress_callback:
             progress_callback("✓ Ollama configured for CUDA successfully")
