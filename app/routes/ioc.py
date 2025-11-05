@@ -235,7 +235,7 @@ def toggle_ioc(case_id, ioc_id):
 @ioc_bp.route('/case/<int:case_id>/ioc/<int:ioc_id>/enrich', methods=['POST'])
 @login_required
 def enrich_ioc(case_id, ioc_id):
-    """Manually trigger OpenCTI enrichment for an IOC"""
+    """Manually trigger OpenCTI enrichment for an IOC (non-blocking)"""
     from main import db, IOC
     
     ioc = db.session.get(IOC, ioc_id)
@@ -243,13 +243,30 @@ def enrich_ioc(case_id, ioc_id):
         return jsonify({'success': False, 'error': 'IOC not found'}), 404
     
     try:
-        result = enrich_from_opencti(ioc)
-        if result:
-            flash(f'IOC enriched from OpenCTI: {ioc.ioc_value}', 'success')
-            return jsonify({'success': True, 'enrichment': json.loads(ioc.opencti_enrichment) if ioc.opencti_enrichment else None})
-        else:
-            flash(f'OpenCTI enrichment not available', 'warning')
-            return jsonify({'success': False, 'error': 'OpenCTI not configured or no data found'})
+        # Return success immediately, then do enrichment in background
+        flash(f'Enriching IOC from OpenCTI: {ioc.ioc_value}', 'info')
+        response = jsonify({'success': True, 'message': 'Enrichment started in background'})
+        
+        # Run enrichment in background thread (non-blocking)
+        from threading import Thread
+        from flask import current_app
+        
+        def background_enrich():
+            with current_app.app_context():
+                try:
+                    result = enrich_from_opencti(ioc)
+                    if result:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"[IOC] Manual enrichment successful: {ioc.ioc_value}")
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"[IOC] Manual enrichment failed: {e}")
+        
+        Thread(target=background_enrich, daemon=True).start()
+        
+        return response
     
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -258,7 +275,7 @@ def enrich_ioc(case_id, ioc_id):
 @ioc_bp.route('/case/<int:case_id>/ioc/<int:ioc_id>/sync', methods=['POST'])
 @login_required
 def sync_ioc_to_iris(case_id, ioc_id):
-    """Manually trigger DFIR-IRIS sync for an IOC"""
+    """Manually trigger DFIR-IRIS sync for an IOC (non-blocking)"""
     from main import db, IOC
     
     ioc = db.session.get(IOC, ioc_id)
@@ -266,13 +283,30 @@ def sync_ioc_to_iris(case_id, ioc_id):
         return jsonify({'success': False, 'error': 'IOC not found'}), 404
     
     try:
-        result = sync_to_dfir_iris(ioc)
-        if result:
-            flash(f'IOC synced to DFIR-IRIS: {ioc.ioc_value}', 'success')
-            return jsonify({'success': True, 'iris_id': ioc.dfir_iris_ioc_id})
-        else:
-            flash(f'DFIR-IRIS sync not available', 'warning')
-            return jsonify({'success': False, 'error': 'DFIR-IRIS not configured'})
+        # Return success immediately, then do sync in background
+        flash(f'Syncing IOC to DFIR-IRIS: {ioc.ioc_value}', 'info')
+        response = jsonify({'success': True, 'message': 'Sync started in background'})
+        
+        # Run sync in background thread (non-blocking)
+        from threading import Thread
+        from flask import current_app
+        
+        def background_sync():
+            with current_app.app_context():
+                try:
+                    result = sync_to_dfir_iris(ioc)
+                    if result:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"[IOC] Manual DFIR-IRIS sync successful: {ioc.ioc_value}")
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"[IOC] Manual DFIR-IRIS sync failed: {e}")
+        
+        Thread(target=background_sync, daemon=True).start()
+        
+        return response
     
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
