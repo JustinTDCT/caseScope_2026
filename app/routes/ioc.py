@@ -92,23 +92,29 @@ def add_ioc(case_id):
         # Schedule background enrichment/sync (non-blocking)
         from threading import Thread
         from models import SystemSettings
+        from flask import current_app
         
         def background_enrichment():
-            # Check for OpenCTI enrichment
-            opencti_enabled = SystemSettings.query.filter_by(setting_key='opencti_enabled').first()
-            if opencti_enabled and opencti_enabled.setting_value == 'true':
-                from main import db as bg_db
-                bg_ioc = bg_db.session.get(IOC, ioc_id_for_background)
-                if bg_ioc:
-                    enrich_from_opencti(bg_ioc)
-            
-            # Check for DFIR-IRIS auto sync
-            dfir_iris_auto_sync = SystemSettings.query.filter_by(setting_key='dfir_iris_auto_sync').first()
-            if dfir_iris_auto_sync and dfir_iris_auto_sync.setting_value == 'true':
-                from main import db as bg_db
-                bg_ioc = bg_db.session.get(IOC, ioc_id_for_background)
-                if bg_ioc:
-                    sync_to_dfir_iris(bg_ioc)
+            # Need app context for database access in background thread
+            with current_app.app_context():
+                try:
+                    # Check for OpenCTI enrichment
+                    opencti_enabled = SystemSettings.query.filter_by(setting_key='opencti_enabled').first()
+                    if opencti_enabled and opencti_enabled.setting_value == 'true':
+                        bg_ioc = db.session.get(IOC, ioc_id_for_background)
+                        if bg_ioc:
+                            enrich_from_opencti(bg_ioc)
+                    
+                    # Check for DFIR-IRIS auto sync
+                    dfir_iris_auto_sync = SystemSettings.query.filter_by(setting_key='dfir_iris_auto_sync').first()
+                    if dfir_iris_auto_sync and dfir_iris_auto_sync.setting_value == 'true':
+                        bg_ioc = db.session.get(IOC, ioc_id_for_background)
+                        if bg_ioc:
+                            sync_to_dfir_iris(bg_ioc)
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"[IOC] Background enrichment failed: {e}")
         
         # Start background thread (non-blocking)
         Thread(target=background_enrichment, daemon=True).start()
