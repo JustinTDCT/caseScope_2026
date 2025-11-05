@@ -270,16 +270,20 @@ async function submitIOC(event) {
             body: formData
         });
         
+        // Always try to parse JSON response
         const data = await response.json();
         
         if (data.success) {
-            closeIOCModal();  // Close modal first
-            setTimeout(() => location.reload(), 500);  // Then reload after brief delay
+            closeIOCModal();  // Close modal
+            location.reload();  // Reload immediately - no delay needed
         } else {
+            // Show error but don't close modal (user might want to fix the issue)
             alert('Error: ' + (data.error || 'Unknown error'));
         }
     } catch (error) {
+        console.error('Error submitting IOC:', error);
         alert('Error: ' + error.message);
+        // Don't close modal on network errors - user might want to retry
     }
 }
 
