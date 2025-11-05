@@ -64,6 +64,7 @@ def index():
     ai_enabled = get_setting('ai_enabled', 'false') == 'true'
     ai_model_name = get_setting('ai_model_name', 'deepseek-r1:32b')
     ai_hardware_mode = get_setting('ai_hardware_mode', 'cpu')  # cpu or gpu
+    ai_gpu_vram = get_setting('ai_gpu_vram', '8')  # VRAM in GB
     
     # Check AI system status
     ai_status = {'installed': False, 'running': False, 'model_available': False, 'models': []}
@@ -97,6 +98,14 @@ def index():
     except:
         pass
     
+    # Detect hardware for AI settings
+    hardware_info = {'gpu': {'gpu_detected': False}, 'cpu': {'cpu_count': 0}}
+    try:
+        from hardware_utils import get_hardware_status
+        hardware_info = get_hardware_status()
+    except Exception as e:
+        logger.error(f"[Settings] Hardware detection error: {e}")
+    
     return render_template('settings.html',
                          dfir_iris_enabled=dfir_iris_enabled,
                          dfir_iris_url=dfir_iris_url,
@@ -108,8 +117,10 @@ def index():
                          ai_enabled=ai_enabled,
                          ai_model_name=ai_model_name,
                          ai_hardware_mode=ai_hardware_mode,
+                         ai_gpu_vram=ai_gpu_vram,
                          ai_status=ai_status,
-                         all_models=all_models)
+                         all_models=all_models,
+                         hardware_info=hardware_info)
 
 
 @settings_bp.route('/save', methods=['POST'])
@@ -532,4 +543,46 @@ def update_models():
             'X-Accel-Buffering': 'no'
         }
     )
+
+
+@settings_bp.route('/check_gpu_requirements', methods=['POST'])
+@login_required
+@admin_required
+def check_gpu_requirements():
+    """Check if GPU requirements are met"""
+    try:
+        from hardware_setup import get_gpu_requirements_status
+        status = get_gpu_requirements_status()
+        return jsonify({'success': True, 'status': status})
+    except Exception as e:
+        logger.error(f"[Settings] GPU check error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/setup_gpu', methods=['GET'])
+@login_required
+@admin_required
+def setup_gpu_stream():
+    """Setup GPU requirements with progress streaming"""
+    def generate():
+        try:
+            from hardware_setup import setup_gpu_requirements
+            import json
+            
+            def progress_callback(message):
+                yield f"data: {json.dumps({'status': 'progress', 'message': message})}\n\n"
+            
+            # Run setup
+            result = setup_gpu_requirements(progress_callback)
+            
+            if result['success']:
+                yield f"data: {json.dumps({'status': 'complete', 'result': result})}\n\n"
+            else:
+                yield f"data: {json.dumps({'status': 'error', 'message': result.get('error', 'Setup failed')})}\n\n"
+                
+        except Exception as e:
+            logger.error(f"[Settings] GPU setup error: {e}")
+            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+    
+    return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
