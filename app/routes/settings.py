@@ -76,9 +76,20 @@ def index():
         # Get list of installed model names
         installed_model_names = [m['name'] for m in ai_status.get('models', [])]
         
+        # Get user's VRAM for CPU offload calculation
+        user_vram_gb = float(ai_gpu_vram)
+        
+        # Import offload calculation functions
+        from ai_report import calculate_cpu_offload_percent, parse_model_size
+        
         # Create a list of ALL models from MODEL_INFO, marking which are installed
         for model_id, model_data in MODEL_INFO.items():
             is_installed = model_id in installed_model_names
+            
+            # Calculate CPU offload percentage
+            model_size_gb = parse_model_size(model_data.get('size', '0'))
+            cpu_offload = calculate_cpu_offload_percent(model_size_gb, user_vram_gb)
+            
             all_models.append({
                 'name': model_id,
                 'display_name': model_data['name'],
@@ -89,11 +100,12 @@ def index():
                 'speed_estimate': model_data['speed_estimate'],
                 'time_estimate': model_data['time_estimate'],
                 'recommended': model_data.get('recommended', False),
-                'installed': is_installed
+                'installed': is_installed,
+                'cpu_offload': cpu_offload
             })
         
-        # Sort: installed first, then by recommended, then alphabetically
-        all_models.sort(key=lambda x: (not x['installed'], not x['recommended'], x['display_name']))
+        # Sort: by CPU offload (0% first), then installed status, then recommended
+        all_models.sort(key=lambda x: (x['cpu_offload'], not x['installed'], not x['recommended']))
         
     except:
         pass

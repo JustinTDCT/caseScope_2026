@@ -468,15 +468,19 @@
                                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--spacing-sm); margin-top: var(--spacing-sm); font-size: 0.8rem;">
                                     <div>
                                         <span style="color: var(--color-text-muted);">Speed:</span>
-                                        <strong style="color: {% if model.speed == 'Fast' %}var(--color-success){% elif model.speed == 'Moderate' %}var(--color-warning){% else %}var(--color-error){% endif %};">{{ model.speed }}</strong>
+                                        <strong style="color: {% if model.speed == 'Fast' or model.speed == 'Very Fast' %}var(--color-success){% elif model.speed == 'Moderate' %}var(--color-warning){% else %}var(--color-error){% endif %};">{{ model.speed }}</strong>
                                     </div>
                                     <div>
                                         <span style="color: var(--color-text-muted);">Quality:</span>
-                                        <strong style="color: {% if model.quality == 'Excellent' %}var(--color-success){% elif model.quality == 'Good' %}var(--color-info){% else %}var(--color-text-muted){% endif %};">{{ model.quality }}</strong>
+                                        <strong style="color: {% if model.quality == 'Excellent' or model.quality == 'Outstanding' or model.quality == 'Best Available' %}var(--color-success){% elif model.quality == 'Good' %}var(--color-info){% else %}var(--color-text-muted){% endif %};">{{ model.quality }}</strong>
                                     </div>
                                     <div>
                                         <span style="color: var(--color-text-muted);">Size:</span>
                                         <strong>{{ model.size }}</strong>
+                                    </div>
+                                    <div>
+                                        <span style="color: var(--color-text-muted);">CPU Offload:</span>
+                                        <strong style="color: {% if model.cpu_offload == 0 %}var(--color-success){% elif model.cpu_offload < 25 %}#82c91e{% elif model.cpu_offload < 50 %}var(--color-warning){% else %}var(--color-error){% endif %};">{{ model.cpu_offload }}%</strong>
                                     </div>
                                 </div>
                                 

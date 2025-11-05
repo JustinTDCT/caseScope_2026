@@ -116,7 +116,7 @@ MODEL_INFO = {
     
     # Phi-3 Mini: TOP CHOICE for factual extraction with low hallucination
     'phi3:mini': {
-        'name': 'Phi-3 Mini 3.8B ⭐ BEST FOR 8GB VRAM',
+        'name': 'Phi-3 Mini 3.8B',
         'speed': 'Very Fast',
         'quality': 'Excellent',
         'size': '2.3 GB',
@@ -130,7 +130,7 @@ MODEL_INFO = {
     
     # Gemma 2 9B: Balanced entity extraction and structured outputs
     'gemma2:9b': {
-        'name': 'Gemma 2 9B ✅ 8GB VRAM OPTIMIZED',
+        'name': 'Gemma 2 9B',
         'speed': 'Fast',
         'quality': 'Excellent',
         'size': '5.5 GB',
@@ -144,7 +144,7 @@ MODEL_INFO = {
     
     # Qwen 2.5 7B: Strong reasoning for data-heavy reports
     'qwen2.5:7b': {
-        'name': 'Qwen 2.5 7B ⭐ RECOMMENDED FOR DFIR',
+        'name': 'Qwen 2.5 7B',
         'speed': 'Fast',
         'quality': 'Excellent',
         'size': '4.7 GB',
@@ -156,6 +156,43 @@ MODEL_INFO = {
         'gpu_optimal': {'num_ctx': 8192, 'num_thread': 8, 'temperature': 0.1, 'num_gpu_layers': -1}
     }
 }
+
+
+def calculate_cpu_offload_percent(model_size_gb, vram_gb):
+    """
+    Calculate estimated CPU offload percentage
+    Returns 0-100% estimate of work offloaded to CPU
+    """
+    if vram_gb <= 0:
+        return 100  # No GPU, all CPU
+    
+    # Account for VRAM overhead (context, activations, etc.)
+    # Reserve ~1.5GB for overhead
+    available_vram = max(vram_gb - 1.5, 0)
+    
+    if model_size_gb <= available_vram:
+        return 0  # Fits entirely in VRAM
+    elif model_size_gb <= available_vram + 2:
+        # Minor offloading (just a few layers)
+        overage = model_size_gb - available_vram
+        return min(int((overage / 2) * 25), 25)  # 0-25%
+    elif model_size_gb <= vram_gb * 2:
+        # Moderate offloading (significant layers)
+        overage_ratio = (model_size_gb - available_vram) / model_size_gb
+        return min(int(overage_ratio * 60) + 20, 60)  # 20-60%
+    else:
+        # Heavy offloading (most layers on CPU)
+        overage_ratio = (model_size_gb - available_vram) / model_size_gb
+        return min(int(overage_ratio * 100), 95)  # 60-95%
+
+
+def parse_model_size(size_str):
+    """Parse model size string to GB float (e.g., '19 GB' -> 19.0)"""
+    import re
+    match = re.search(r'(\d+\.?\d*)', str(size_str))
+    if match:
+        return float(match.group(1))
+    return 0.0
 
 
 def get_model_info(model_name):
