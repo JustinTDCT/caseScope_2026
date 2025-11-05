@@ -19,6 +19,8 @@ def detect_gpu_info():
             capture_output=True, text=True, timeout=5
         )
         
+        logger.info(f"[Hardware] nvidia-smi return code: {result.returncode}, output: '{result.stdout.strip()}'")
+        
         if result.returncode == 0 and result.stdout.strip():
             lines = result.stdout.strip().split('\n')
             if lines:
@@ -33,15 +35,18 @@ def detect_gpu_info():
                         vram_mb = int(vram_match.group(1))
                         vram_gb = round(vram_mb / 1024, 1)
                         
-                        return {
+                        gpu_info = {
                             'gpu_detected': True,
                             'gpu_name': gpu_name,
                             'vram_mb': vram_mb,
                             'vram_gb': vram_gb
                         }
+                        logger.info(f"[Hardware] GPU detected: {gpu_name} ({vram_gb}GB)")
+                        return gpu_info
     except Exception as e:
-        logger.debug(f"[Hardware] GPU detection failed: {e}")
+        logger.error(f"[Hardware] GPU detection exception: {e}")
     
+    logger.info("[Hardware] No GPU detected")
     return {'gpu_detected': False, 'gpu_name': None, 'vram_mb': 0, 'vram_gb': 0}
 
 
