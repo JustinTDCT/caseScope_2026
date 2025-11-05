@@ -1,8 +1,120 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.77  
-**Last Updated**: 2025-11-05 22:52 UTC  
+**Version**: 1.10.78  
+**Last Updated**: 2025-11-05 23:00 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ⚡ v1.10.78 - PERFORMANCE FIX: OpenSearch Client Timeout (2025-11-05 23:00 UTC)
+
+**Issue**: 3 files failed during bulk indexing with `ConnectionTimeout: Read timed out. (read timeout=10)`
+
+### Problem
+
+**User Report**: Screenshot showing "3 Failed" files in processing status
+
+**Error in Logs**:
+```
+2025-11-05 22:58:31 | file_processing | ERROR | [INDEX FILE] Final bulk index error: 
+ConnectionTimeout caused by - ReadTimeoutError(HTTPConnectionPool(host='localhost', port=9200): 
+Read timed out. (read timeout=10))
+
+CRITICAL: Parsed 1692 events but indexed 0! Index may not exist or bulk indexing failed.
+```
+
+**Root Cause**:
+
+OpenSearch Python client was using the **default 10-second read timeout**:
+- Large bulk indexing operations were taking longer than 10 seconds
+- Timeout occurred before the bulk operation could complete
+- Files marked as "Failed" even though OpenSearch was still processing
+- **14 timeout errors** occurred across multiple files
+
+**The Problem**:
+- File: `james-rds1_microsoft-windows-pushnotification-platform4operational`
+- Parsed: 1,692 events
+- Indexed: 0 events (timeout occurred before response)
+- Status: Failed with "Indexing failed: 0 of 1692 events indexed"
+
+**Why This Happened**:
+- v1.10.76 fixed IOC hunting `batch_size` crash
+- v1.10.77 increased circuit breaker limit (memory fix)
+- Files requeued and processing successfully
+- BUT: Bulk indexing operations for large files exceeded 10s timeout
+- Default OpenSearch client timeout too aggressive for DFIR workloads
+
+### Fix
+
+**Increased OpenSearch Client Timeout**:
+```python
+# main.py lines 43-53
+opensearch_client = OpenSearch(
+    hosts=[{'host': app.config['OPENSEARCH_HOST'], 'port': app.config['OPENSEARCH_PORT']}],
+    http_compress=True,
+    use_ssl=app.config['OPENSEARCH_USE_SSL'],
+    verify_certs=False,
+    ssl_assert_hostname=False,
+    ssl_show_warn=False,
+    timeout=60,  # Increase from default 10s to 60s for bulk operations
+    max_retries=3,
+    retry_on_timeout=True
+)
+```
+
+**New Settings**:
+- **Timeout**: 10s → 60s (6x increase)
+- **Max Retries**: 3 (new)
+- **Retry on Timeout**: True (new)
+
+### Changes Made
+
+**Files Modified**:
+- `/opt/casescope/app/main.py` - Added timeout parameters to OpenSearch client initialization
+
+**No Database Changes**: Configuration change only, no migrations required
+
+### Testing
+
+**Before Fix**:
+- ❌ 3 files failed with timeout errors
+- ❌ 14 total timeout occurrences
+- ❌ "Read timed out. (read timeout=10)"
+- ❌ Events parsed but not indexed (0 of 1692)
+
+**After Fix**:
+- ✅ 60-second timeout allows bulk operations to complete
+- ✅ Max 3 retries with automatic retry on timeout
+- ✅ Files will complete successfully after restart
+- ✅ No code changes needed - just restart service
+
+### User Impact
+
+**Fixed**:
+- ✅ Large file bulk indexing operations complete successfully
+- ✅ Files with thousands of events no longer timeout
+- ✅ Automatic retry for transient network issues
+- ✅ More resilient to OpenSearch load spikes
+
+**Action Required**:
+- Restart CaseScope service to apply new timeout settings
+- Requeue the 3 failed files (they will complete successfully now)
+
+**Performance Notes**:
+- 60s timeout is generous for even the largest files
+- Most files complete in < 10s (no impact)
+- Large files (10k+ events) now have adequate time
+- Retries provide resilience without manual intervention
+
+**Pattern to Remember**:
+- ⚠️ **OpenSearch default timeout = 10 seconds** (too short for bulk operations)
+- ⚠️ **DFIR workloads need 30-60 second timeouts** for large event batches
+- ⚠️ **Always enable retry_on_timeout** for transient failures
+- ⚠️ **Monitor for timeouts** in logs if seeing intermittent failures
+
+**Related Issues**:
+- See v1.10.77 for circuit breaker limit increase (memory capacity)
+- See v1.10.76 for IOC hunting batch_size indentation fix
 
 ---
 

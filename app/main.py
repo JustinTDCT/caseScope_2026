@@ -46,7 +46,10 @@ opensearch_client = OpenSearch(
     use_ssl=app.config['OPENSEARCH_USE_SSL'],
     verify_certs=False,
     ssl_assert_hostname=False,
-    ssl_show_warn=False
+    ssl_show_warn=False,
+    timeout=60,  # Increase from default 10s to 60s for bulk operations
+    max_retries=3,
+    retry_on_timeout=True
 )
 
 # Register blueprints
