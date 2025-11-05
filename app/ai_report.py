@@ -14,87 +14,102 @@ logger = get_logger('app')
 
 # Model descriptions and metadata
 # UPDATED 2025-11-05: Removed Mixtral (high hallucination), added top-tier reasoning models
+# Model names updated to match actual Ollama registry names
 MODEL_INFO = {
     # DeepSeek-R1: Best reasoning and step-by-step processing
-    'deepseek-r1:32b-qwen-distill-q4_K_M': {
-        'name': 'DeepSeek-R1 32B (Q4)',
+    'deepseek-r1:32b': {
+        'name': 'DeepSeek-R1 32B',
         'speed': 'Moderate',
         'quality': 'Outstanding',
-        'size': '20 GB',
+        'size': '19 GB',
         'description': 'Excellent reasoning and step-by-step processing. Low hallucination. GPT-4 class. RECOMMENDED.',
         'speed_estimate': '~15-25 tok/s GPU, ~5-8 tok/s CPU',
         'time_estimate': '5-10 minutes (GPU), 15-25 minutes (CPU)',
-        'recommended': True
+        'recommended': True,
+        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
-    'deepseek-r1:70b-qwen-distill-q4_K_M': {
-        'name': 'DeepSeek-R1 70B (Q4)',
+    'deepseek-r1:latest': {
+        'name': 'DeepSeek-R1 70B',
         'speed': 'Slow',
         'quality': 'Best Available',
         'size': '47 GB',
         'description': 'Best reasoning model. Approaches GPT-4 Turbo levels. Extremely low hallucination. Use for critical reports.',
         'speed_estimate': '~10-20 tok/s GPU, ~2-4 tok/s CPU',
         'time_estimate': '5-12 minutes (GPU), 25-40 minutes (CPU)',
-        'recommended': True
+        'recommended': True,
+        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
     # Llama 3.3 70B: Superior instruction adherence
-    'llama3.3:70b-instruct-q4_K_M': {
-        'name': 'Llama 3.3 70B (Q4_K_M)',
+    'llama3.3:latest': {
+        'name': 'Llama 3.3 70B',
         'speed': 'Slow',
         'quality': 'Outstanding',
         'size': '42 GB',
         'description': 'Superior instruction adherence and factuality. Excellent for complex prompts like "HARD RESET CONTEXT".',
         'speed_estimate': '~10-20 tok/s GPU, ~2-4 tok/s CPU',
         'time_estimate': '5-10 minutes (GPU), 20-30 minutes (CPU)',
-        'recommended': True
+        'recommended': True,
+        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
     # Phi-4 14B: Efficient and punches above weight
-    'phi4:14b-q4_0': {
-        'name': 'Phi-4 14B (Q4_0)',
+    'phi4:latest': {
+        'name': 'Phi-4 14B',
         'speed': 'Fast',
         'quality': 'Excellent',
         'size': '9 GB',
         'description': 'Efficient model that punches above its weight. Strong rule-following without extras. Low latency.',
         'speed_estimate': '~20-30 tok/s GPU, ~8-12 tok/s CPU',
         'time_estimate': '3-6 minutes (GPU), 10-15 minutes (CPU)',
-        'recommended': False
+        'recommended': False,
+        'cpu_optimal': {'num_ctx': 4096, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 6, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
     # Qwen2.5 32B: Data-heavy reports
-    'qwen2.5:32b-instruct-q4_K_M': {
-        'name': 'Qwen 2.5 32B (Q4_K_M)',
+    'qwen2.5:32b': {
+        'name': 'Qwen 2.5 32B',
         'speed': 'Moderate',
         'quality': 'Excellent',
         'size': '20 GB',
         'description': 'Balanced reasoning for data-heavy reports (IOC tables, timestamps). High accuracy in structured logic.',
         'speed_estimate': '~15-25 tok/s GPU, ~4-6 tok/s CPU',
         'time_estimate': '4-8 minutes (GPU), 12-18 minutes (CPU)',
-        'recommended': False
+        'recommended': False,
+        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
     # Gemma 2 27B: Efficient and fast
-    'gemma2:27b-instruct-q4_K_M': {
-        'name': 'Gemma 2 27B (Q4_K_M)',
+    'gemma2:27b': {
+        'name': 'Gemma 2 27B',
         'speed': 'Fast',
         'quality': 'Excellent',
         'size': '17 GB',
         'description': 'Efficient and fast with high tokens/sec. Low hallucination, suits structured outputs. Good for minimum word counts.',
         'speed_estimate': '~18-28 tok/s GPU, ~5-8 tok/s CPU',
         'time_estimate': '3-7 minutes (GPU), 12-18 minutes (CPU)',
-        'recommended': False
+        'recommended': False,
+        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
     # Mistral Large 2: Fast and resource-efficient
-    'mistral-large:123b-instruct-2407-q4_K_M': {
-        'name': 'Mistral Large 2 (Q4_K_M)',
+    'mistral-large:latest': {
+        'name': 'Mistral Large 2',
         'speed': 'Moderate',
         'quality': 'Outstanding',
         'size': '79 GB',
         'description': 'Fast, resource-efficient. 128K context for full data. Strong code/reasoning, avoids inferences.',
         'speed_estimate': '~8-15 tok/s GPU, ~1-3 tok/s CPU',
         'time_estimate': '6-12 minutes (GPU), 30-50 minutes (CPU)',
-        'recommended': False
+        'recommended': False,
+        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     }
 }
 
@@ -308,16 +323,17 @@ Begin now.
     return prompt
 
 
-def generate_report_with_ollama(prompt, model='llama3.1:8b-instruct-q5_K_M', num_ctx=4096, num_thread=16, temperature=0.3, report_obj=None, db_session=None):
+def generate_report_with_ollama(prompt, model='deepseek-r1:32b', hardware_mode='cpu', num_ctx=None, num_thread=None, temperature=None, report_obj=None, db_session=None):
     """
     Generate report using Ollama API with real-time streaming
     
     Args:
         prompt: The prompt to send to the model
-        model: Model name (default: llama3.1:8b-instruct-q5_K_M)
-        num_ctx: Context window size (4096 for faster generation)
-        num_thread: Number of CPU threads to use (16 to match system cores)
-        temperature: Sampling temperature (lower = more focused)
+        model: Model name (default: deepseek-r1:32b)
+        hardware_mode: 'cpu' or 'gpu' - automatically applies optimal settings (default: 'cpu')
+        num_ctx: Context window size (optional, auto-set based on hardware_mode)
+        num_thread: Number of CPU threads to use (optional, auto-set based on hardware_mode)
+        temperature: Sampling temperature (optional, auto-set based on hardware_mode)
         report_obj: AIReport database object for real-time updates (optional)
         db_session: Database session for committing updates (optional)
         
@@ -327,22 +343,38 @@ def generate_report_with_ollama(prompt, model='llama3.1:8b-instruct-q5_K_M', num
     import time
     
     try:
+        # Get optimal settings for this model and hardware mode
+        model_info = MODEL_INFO.get(model, {})
+        optimal_settings = model_info.get(f'{hardware_mode}_optimal', {})
+        
+        # Use provided values or fall back to optimal settings or defaults
+        num_ctx = num_ctx if num_ctx is not None else optimal_settings.get('num_ctx', 8192)
+        num_thread = num_thread if num_thread is not None else optimal_settings.get('num_thread', 16)
+        temperature = temperature if temperature is not None else optimal_settings.get('temperature', 0.3)
+        num_gpu_layers = optimal_settings.get('num_gpu_layers', 0)  # GPU only
+        
+        options = {
+            'num_ctx': num_ctx,
+            'num_thread': num_thread,
+            'num_predict': 16384 if hardware_mode == 'gpu' else 8192,  # Higher output for GPU
+            'temperature': temperature,
+            'top_p': 0.9,
+            'top_k': 40,
+            'stop': []  # CRITICAL: Remove ALL stop sequences that might be terminating early
+        }
+        
+        # Add GPU layers if in GPU mode
+        if hardware_mode == 'gpu' and num_gpu_layers != 0:
+            options['num_gpu'] = num_gpu_layers
+        
         payload = {
             'model': model,
             'prompt': prompt,
             'stream': True,  # Enable streaming for real-time updates
-            'options': {
-                'num_ctx': num_ctx,
-                'num_thread': num_thread,
-                'num_predict': 8192,  # VERY HIGH: Force maximum output length (was 4096, still truncating)
-                'temperature': temperature,
-                'top_p': 0.9,
-                'top_k': 40,
-                'stop': []  # CRITICAL: Remove ALL stop sequences that might be terminating early
-            }
+            'options': options
         }
         
-        logger.info(f"[AI] Generating report with {model} (ctx={num_ctx}, threads={num_thread}, STREAMING=ON)")
+        logger.info(f"[AI] Generating report with {model} (mode={hardware_mode.upper()}, ctx={num_ctx}, threads={num_thread}, gpu_layers={num_gpu_layers}, STREAMING=ON)")
         
         response = requests.post(
             'http://localhost:11434/api/generate',

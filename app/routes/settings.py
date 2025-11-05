@@ -62,7 +62,8 @@ def index():
     
     # Get AI settings
     ai_enabled = get_setting('ai_enabled', 'false') == 'true'
-    ai_model_name = get_setting('ai_model_name', 'phi3:14b')
+    ai_model_name = get_setting('ai_model_name', 'deepseek-r1:32b')
+    ai_hardware_mode = get_setting('ai_hardware_mode', 'cpu')  # cpu or gpu
     
     # Check AI system status
     ai_status = {'installed': False, 'running': False, 'model_available': False, 'models': []}
@@ -106,6 +107,7 @@ def index():
                          log_level=log_level,
                          ai_enabled=ai_enabled,
                          ai_model_name=ai_model_name,
+                         ai_hardware_mode=ai_hardware_mode,
                          ai_status=ai_status,
                          all_models=all_models)
 
@@ -159,12 +161,19 @@ def save():
     
     # AI settings
     ai_enabled = request.form.get('ai_enabled') == 'on'
-    ai_model_name = request.form.get('ai_model_name', 'phi3:14b').strip()
+    ai_model_name = request.form.get('ai_model_name', 'deepseek-r1:32b').strip()
+    ai_hardware_mode = request.form.get('ai_hardware_mode', 'cpu').strip().lower()
+    
+    # Validate hardware mode
+    if ai_hardware_mode not in ['cpu', 'gpu']:
+        ai_hardware_mode = 'cpu'  # Default to CPU if invalid
     
     set_setting('ai_enabled', 'true' if ai_enabled else 'false',
                 'Enable AI report generation features')
     set_setting('ai_model_name', ai_model_name,
                 'AI model name for report generation')
+    set_setting('ai_hardware_mode', ai_hardware_mode,
+                'AI hardware mode: cpu or gpu (auto-optimizes settings)')
     
     # Audit log
     from audit_logger import log_action
@@ -174,7 +183,8 @@ def save():
                   'opencti_enabled': opencti_enabled,
                   'log_level': log_level,
                   'ai_enabled': ai_enabled,
-                  'ai_model_name': ai_model_name
+                  'ai_model_name': ai_model_name,
+                  'ai_hardware_mode': ai_hardware_mode
               })
     
     flash('✓ Settings saved successfully', 'success')

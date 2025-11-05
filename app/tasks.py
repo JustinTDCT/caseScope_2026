@@ -608,7 +608,7 @@ def generate_ai_report(self, report_id):
         dict: Status and results
     """
     from main import app, db, opensearch_client
-    from models import AIReport, Case, IOC
+    from models import AIReport, Case, IOC, Config
     from ai_report import generate_case_report_prompt, generate_report_with_ollama, format_report_title, markdown_to_html
     from datetime import datetime
     import time
@@ -744,11 +744,17 @@ def generate_ai_report(self, report_id):
             db.session.commit()
             
             start_time = time.time()
+            
+            # Get hardware mode from config (default to CPU for safety)
+            hardware_mode_config = Config.query.filter_by(key='ai_hardware_mode').first()
+            hardware_mode = hardware_mode_config.value if hardware_mode_config else 'cpu'
+            
             # Use the model specified in the report record (from database settings)
-            # Pass report object and db session for real-time streaming updates
+            # Pass report object, db session, and hardware mode for optimal performance
             success, result = generate_report_with_ollama(
                 prompt, 
                 model=report.model_name,
+                hardware_mode=hardware_mode,
                 report_obj=report,
                 db_session=db.session
             )

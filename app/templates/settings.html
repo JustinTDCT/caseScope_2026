@@ -327,6 +327,42 @@
                     </p>
                 </div>
 
+                <!-- Hardware Mode Selection (CPU vs GPU) -->
+                <div style="margin-bottom: var(--spacing-lg); padding: var(--spacing-md); background: var(--color-background-secondary); border-radius: var(--border-radius); border-left: 3px solid var(--color-primary);">
+                    <label style="font-weight: 600; margin-bottom: var(--spacing-sm); display: block; color: var(--color-text);">
+                        ⚡ Hardware Acceleration Mode
+                    </label>
+                    
+                    <select name="ai_hardware_mode" 
+                            style="width: 100%; max-width: 300px; padding: var(--spacing-sm); border: 1px solid var(--color-border); border-radius: var(--border-radius); background: var(--color-background); color: var(--color-text); font-size: 0.875rem; margin-bottom: var(--spacing-sm);">
+                        <option value="cpu" {% if ai_hardware_mode == 'cpu' %}selected{% endif %}>
+                            🖥️ CPU Mode (Default)
+                        </option>
+                        <option value="gpu" {% if ai_hardware_mode == 'gpu' %}selected{% endif %}>
+                            🎮 GPU Mode (Nvidia/AMD)
+                        </option>
+                    </select>
+                    
+                    <div style="margin-top: var(--spacing-sm);">
+                        <div style="padding: var(--spacing-sm); background: {% if ai_hardware_mode == 'gpu' %}var(--color-primary-bg){% else %}var(--color-background){% endif %}; border-radius: var(--border-radius); margin-bottom: var(--spacing-xs);">
+                            <strong style="color: var(--color-primary); font-size: 0.875rem;">
+                                {% if ai_hardware_mode == 'gpu' %}🎮 GPU Mode Enabled{% else %}🖥️ CPU Mode Enabled{% endif %}
+                            </strong>
+                            <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.8rem; line-height: 1.5;">
+                                {% if ai_hardware_mode == 'gpu' %}
+                                <strong>GPU Optimization:</strong> Higher context window (16K-32K), GPU layers enabled, max output 16K tokens. Best for systems with dedicated GPU (8+ GB VRAM).
+                                {% else %}
+                                <strong>CPU Optimization:</strong> Balanced context window (8K), high thread count, max output 8K tokens. Optimized for CPU-only systems.
+                                {% endif %}
+                            </p>
+                        </div>
+                        
+                        <p style="color: var(--color-text-muted); font-size: 0.75rem; line-height: 1.5; margin: 0;">
+                            💡 <strong>Tip:</strong> The system automatically optimizes AI parameters based on your selection. Choose GPU mode only if you have a dedicated GPU with 8+ GB VRAM. CPU mode works great on most systems.
+                        </p>
+                    </div>
+                </div>
+
                 <!-- AI Model Selection -->
                 <div class="form-group">
                     <label style="font-weight: 600; margin-bottom: var(--spacing-sm); display: block;">

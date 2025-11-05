@@ -1,9 +1,10 @@
 {
-  "version": "1.10.52",
+  "version": "1.10.53",
   "release_date": "2025-11-04",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "\ud83c\udfaf CPU/GPU Mode Selector + Model Name Fixes - Auto-optimizes AI settings based on hardware (v1.10.53)",
     "\ud83d\ude80 MODEL UPGRADE: Removed Mixtral, added DeepSeek-R1, Llama 3.3 70B, Phi-4, Gemma 2, Mistral Large 2. Removed 50-event limit. (v1.10.52)",
     "\ud83d\udc1b Fixed Live Preview - Now updates raw_response during streaming (v1.10.51)",
     "\ud83d\udcfa Live Preview Feature - Watch AI reports being written in real-time! (v1.10.50)",
