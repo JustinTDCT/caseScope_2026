@@ -94,9 +94,12 @@ def add_ioc(case_id):
         from models import SystemSettings
         from flask import current_app
         
+        # Get actual app object (current_app is a proxy that doesn't work in threads)
+        app = current_app._get_current_object()
+        
         def background_enrichment():
             # Need app context for database access in background thread
-            with current_app.app_context():
+            with app.app_context():
                 try:
                     # Check for OpenCTI enrichment
                     opencti_enabled = SystemSettings.query.filter_by(setting_key='opencti_enabled').first()
@@ -251,8 +254,11 @@ def enrich_ioc(case_id, ioc_id):
         from threading import Thread
         from flask import current_app
         
+        # Get actual app object (current_app is a proxy that doesn't work in threads)
+        app = current_app._get_current_object()
+        
         def background_enrich():
-            with current_app.app_context():
+            with app.app_context():
                 try:
                     result = enrich_from_opencti(ioc)
                     if result:
@@ -291,8 +297,11 @@ def sync_ioc_to_iris(case_id, ioc_id):
         from threading import Thread
         from flask import current_app
         
+        # Get actual app object (current_app is a proxy that doesn't work in threads)
+        app = current_app._get_current_object()
+        
         def background_sync():
-            with current_app.app_context():
+            with app.app_context():
                 try:
                     result = sync_to_dfir_iris(ioc)
                     if result:
