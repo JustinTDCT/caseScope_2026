@@ -74,6 +74,13 @@
                     <span>IOC Management</span>
                 </a>
                 
+                <!-- 6B. Systems Management - if no case active goes to Case Selection -->
+                <a href="{% if current_case %}{{ url_for('systems.systems_management', case_id=current_case.id) }}{% else %}{{ url_for('case_selection') }}{% endif %}" 
+                   class="sidebar-nav-item {% if request.endpoint == 'systems.systems_management' %}active{% endif %}">
+                    <span class="sidebar-nav-icon">💻</span>
+                    <span>Systems Management</span>
+                </a>
+                
                 <!-- 7. Search Events - if no case active goes to Case Selection -->
                 <a href="{% if current_case %}{{ url_for('search_events', case_id=current_case.id) }}{% else %}{{ url_for('case_selection') }}{% endif %}" 
                    class="sidebar-nav-item {% if request.endpoint == 'search_events' %}active{% endif %}">

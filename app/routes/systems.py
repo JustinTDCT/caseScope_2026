@@ -14,6 +14,47 @@ systems_bp = Blueprint('systems', __name__)
 logger = logging.getLogger(__name__)
 
 
+@systems_bp.route('/case/<int:case_id>/systems')
+@login_required
+def systems_management(case_id):
+    """Systems Management page for a case"""
+    from main import db
+    from models import Case, System, SystemSettings
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    # Get all systems for this case
+    systems = System.query.filter_by(case_id=case_id).order_by(System.created_at.desc()).all()
+    
+    # Get system settings for integrations
+    opencti_enabled = SystemSettings.query.filter_by(setting_key='opencti_enabled').first()
+    dfir_iris_enabled = SystemSettings.query.filter_by(setting_key='dfir_iris_enabled').first()
+    dfir_iris_auto_sync = SystemSettings.query.filter_by(setting_key='dfir_iris_auto_sync').first()
+    
+    # Get stats
+    stats = {
+        'servers': System.query.filter_by(case_id=case_id, system_type='server', hidden=False).count(),
+        'workstations': System.query.filter_by(case_id=case_id, system_type='workstation', hidden=False).count(),
+        'firewalls': System.query.filter_by(case_id=case_id, system_type='firewall', hidden=False).count(),
+        'switches': System.query.filter_by(case_id=case_id, system_type='switch', hidden=False).count(),
+        'printers': System.query.filter_by(case_id=case_id, system_type='printer', hidden=False).count(),
+        'actor_systems': System.query.filter_by(case_id=case_id, system_type='actor_system', hidden=False).count(),
+        'total': System.query.filter_by(case_id=case_id, hidden=False).count(),
+        'hidden': System.query.filter_by(case_id=case_id, hidden=True).count()
+    }
+    
+    return render_template('systems_management.html',
+                         case=case,
+                         systems=systems,
+                         stats=stats,
+                         opencti_enabled=(opencti_enabled.setting_value == 'true' if opencti_enabled else False),
+                         dfir_iris_enabled=(dfir_iris_enabled.setting_value == 'true' if dfir_iris_enabled else False),
+                         dfir_iris_auto_sync=(dfir_iris_auto_sync.setting_value == 'true' if dfir_iris_auto_sync else False))
+
+
 # System type categorization patterns
 SYSTEM_TYPE_PATTERNS = {
     'server': [
