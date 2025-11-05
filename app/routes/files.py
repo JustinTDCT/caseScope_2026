@@ -233,6 +233,34 @@ def bulk_unhide(case_id):
     return redirect(url_for('files.view_hidden_files', case_id=case_id))
 
 
+@files_bp.route('/case/<int:case_id>/bulk_delete_hidden', methods=['POST'])
+@login_required
+def bulk_delete_hidden(case_id):
+    """Bulk delete hidden files permanently"""
+    from main import db
+    from hidden_files import bulk_delete_hidden_files
+    
+    file_ids = request.form.getlist('file_ids', type=int)
+    
+    if not file_ids:
+        flash('No files selected', 'warning')
+        return redirect(url_for('files.view_hidden_files', case_id=case_id))
+    
+    result = bulk_delete_hidden_files(db.session, case_id, file_ids, current_user.id)
+    
+    if result['success']:
+        if result.get('errors'):
+            flash(f"✓ Deleted {result['count']} file(s) with {len(result['errors'])} error(s)", 'warning')
+            for error in result['errors'][:3]:  # Show first 3 errors
+                flash(error, 'error')
+        else:
+            flash(f"✓ Successfully deleted {result['count']} hidden file(s)", 'success')
+    else:
+        flash(result.get('error', 'Unknown error'), 'error')
+    
+    return redirect(url_for('files.view_hidden_files', case_id=case_id))
+
+
 @files_bp.route('/case/<int:case_id>/file/<int:file_id>/status')
 @login_required
 def file_status(case_id, file_id):

@@ -96,6 +96,77 @@ def bulk_unhide_files(db_session, case_id: int, file_ids: List[int], user_id: in
         return {'success': False, 'error': str(e)}
 
 
+def bulk_delete_hidden_files(db_session, case_id: int, file_ids: List[int], user_id: int) -> Dict:
+    """Delete multiple hidden files permanently"""
+    import os
+    from models import CaseFile, SigmaViolation, IOCMatch
+    from opensearch_config import get_opensearch_client
+    
+    try:
+        files = db_session.query(CaseFile).filter(
+            CaseFile.id.in_(file_ids),
+            CaseFile.case_id == case_id,
+            CaseFile.is_hidden == True,  # Only delete hidden files
+            CaseFile.is_deleted == False
+        ).all()
+        
+        if not files:
+            return {'success': False, 'error': 'No hidden files found to delete'}
+        
+        deleted_count = 0
+        errors = []
+        os_client = get_opensearch_client()
+        
+        for file in files:
+            try:
+                # Delete OpenSearch index
+                if file.opensearch_key:
+                    index_name = file.opensearch_key
+                    try:
+                        if os_client.indices.exists(index=index_name):
+                            os_client.indices.delete(index=index_name)
+                            logger.info(f"[DELETE HIDDEN] Deleted OpenSearch index: {index_name}")
+                    except Exception as e:
+                        logger.warning(f"[DELETE HIDDEN] Failed to delete index {index_name}: {e}")
+                
+                # Delete SIGMA violations
+                db_session.query(SigmaViolation).filter_by(file_id=file.id).delete()
+                
+                # Delete IOC matches
+                db_session.query(IOCMatch).filter_by(file_id=file.id).delete()
+                
+                # Delete physical file
+                if file.file_path and os.path.exists(file.file_path):
+                    try:
+                        os.remove(file.file_path)
+                        logger.info(f"[DELETE HIDDEN] Deleted physical file: {file.file_path}")
+                    except Exception as e:
+                        logger.warning(f"[DELETE HIDDEN] Failed to delete physical file {file.file_path}: {e}")
+                
+                # Mark as deleted in database
+                file.is_deleted = True
+                deleted_count += 1
+                
+            except Exception as e:
+                error_msg = f"Error deleting file {file.id}: {str(e)}"
+                logger.error(f"[DELETE HIDDEN] {error_msg}")
+                errors.append(error_msg)
+        
+        db_session.commit()
+        logger.info(f"[DELETE HIDDEN] User {user_id} deleted {deleted_count} hidden files in case {case_id}")
+        
+        return {
+            'success': True,
+            'count': deleted_count,
+            'errors': errors
+        }
+        
+    except Exception as e:
+        db_session.rollback()
+        logger.error(f"[DELETE HIDDEN] Bulk delete failed: {e}")
+        return {'success': False, 'error': str(e)}
+
+
 def get_file_stats_with_hidden(db_session, case_id: int) -> Dict:
     """Get file statistics including hidden count"""
     from models import CaseFile

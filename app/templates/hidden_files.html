@@ -24,6 +24,27 @@
             <div style="font-size: 2rem; font-weight: 700; color: var(--color-text-secondary);">{{ hidden_count }}</div>
             <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-top: 0.5rem;">These files contain 0 events</div>
         </div>
+        
+        <!-- Bulk Actions Bar -->
+        <div id="selectedActionsBar" style="display: none; margin-top: var(--spacing-lg); padding-top: var(--spacing-lg); border-top: 1px solid var(--color-border);">
+            <div style="margin-bottom: var(--spacing-sm); color: var(--color-text-secondary); font-size: 0.875rem; text-align: center;">
+                <span id="selectedCount">0</span> file(s) selected
+            </div>
+            <div style="display: inline-flex; gap: var(--spacing-sm); flex-wrap: wrap; justify-content: center; width: 100%;">
+                <button onclick="bulkUnhideSelected()" class="btn btn-sm" style="background: var(--color-success); color: white;">
+                    <span>👁️</span>
+                    <span>Unhide Selected</span>
+                </button>
+                <button onclick="bulkDeleteSelected()" class="btn btn-sm" style="background: var(--color-error); color: white;">
+                    <span>🗑️</span>
+                    <span>Delete Selected</span>
+                </button>
+                <button onclick="deselectAll()" class="btn btn-sm btn-secondary">
+                    <span>✕</span>
+                    <span>Deselect All</span>
+                </button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -60,33 +81,26 @@
                 {% endif %}
             </form>
             
-            <!-- Bulk Unhide Button -->
-            {% if files %}
-            <form method="POST" action="{{ url_for('files.bulk_unhide', case_id=case.id) }}" onsubmit="return confirm('Unhide selected files?');">
-                <button type="submit" class="btn btn-primary">Unhide Selected</button>
-            </form>
-            {% endif %}
         </div>
     </div>
     <div class="card-body" style="padding: 0;">
         {% if files %}
-        <form method="POST" action="{{ url_for('files.bulk_unhide', case_id=case.id) }}" id="bulkForm">
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th style="width: 50px;"><input type="checkbox" onclick="toggleAll(this)"></th>
-                            <th>File Name</th>
-                            <th style="width: 100px;">Type</th>
-                            <th style="width: 120px;">Size</th>
-                            <th style="width: 150px;">Uploaded</th>
-                            <th style="width: 100px;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for file in files %}
-                        <tr>
-                            <td><input type="checkbox" name="file_ids" value="{{ file.id }}"></td>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 50px;"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                        <th>File Name</th>
+                        <th style="width: 100px;">Type</th>
+                        <th style="width: 120px;">Size</th>
+                        <th style="width: 150px;">Uploaded</th>
+                        <th style="width: 100px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in files %}
+                    <tr>
+                        <td><input type="checkbox" class="file-checkbox" value="{{ file.id }}" onchange="updateSelectedCount()"></td>
                             <td>
                                 <strong>{{ file.original_filename }}</strong>
                                 <div class="text-muted" style="font-size: 0.75rem;">Hash: {{ file.file_hash[:16] }}...</div>
@@ -106,11 +120,10 @@
                                 </form>
                             </td>
                         </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </form>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
         
         <!-- Pagination -->
         {% if pagination.pages > 1 %}
@@ -153,9 +166,82 @@
 
 {% block extra_js %}
 <script>
-function toggleAll(checkbox) {
-    const checkboxes = document.getElementsByName('file_ids');
-    checkboxes.forEach(cb => cb.checked = checkbox.checked);
+const CASE_ID = {{ case.id }};
+
+function toggleSelectAll() {
+    const selectAllCheckbox = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.file-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = selectAllCheckbox.checked;
+    });
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const selectedCount = document.querySelectorAll('.file-checkbox:checked').length;
+    document.getElementById('selectedCount').textContent = selectedCount;
+    document.getElementById('selectedActionsBar').style.display = selectedCount > 0 ? 'block' : 'none';
+}
+
+function deselectAll() {
+    document.getElementById('selectAll').checked = false;
+    document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = false);
+    updateSelectedCount();
+}
+
+function getSelectedFileIds() {
+    return Array.from(document.querySelectorAll('.file-checkbox:checked')).map(cb => cb.value);
+}
+
+function bulkUnhideSelected() {
+    const fileIds = getSelectedFileIds();
+    if (fileIds.length === 0) {
+        alert('No files selected');
+        return;
+    }
+    
+    if (confirm(`👁️ Unhide ${fileIds.length} Selected File(s)\n\nThis will make these files visible in the main file list.\n\nContinue?`)) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/case/${CASE_ID}/bulk_unhide`;
+        fileIds.forEach(id => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'file_ids';
+            input.value = id;
+            form.appendChild(input);
+        });
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function bulkDeleteSelected() {
+    const fileIds = getSelectedFileIds();
+    if (fileIds.length === 0) {
+        alert('No files selected');
+        return;
+    }
+    
+    if (confirm(`🗑️ PERMANENTLY DELETE ${fileIds.length} Selected File(s)\n\nThis will:\n• Delete files from filesystem\n• Remove all OpenSearch data\n• Clear database records\n• This action CANNOT be undone\n\nContinue?`)) {
+        const confirmation = prompt('Type DELETE to confirm deletion:');
+        if (confirmation === 'DELETE') {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = `/case/${CASE_ID}/bulk_delete_hidden`;
+            fileIds.forEach(id => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'file_ids';
+                input.value = id;
+                form.appendChild(input);
+            });
+            document.body.appendChild(form);
+            form.submit();
+        } else {
+            alert('Deletion cancelled - confirmation text did not match.');
+        }
+    }
 }
 </script>
 {% endblock %}
