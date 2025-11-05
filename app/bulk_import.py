@@ -14,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 BULK_IMPORT_DIR = '/opt/casescope/bulk_import'
-ALLOWED_EXTENSIONS = {'.evtx', '.json', '.jsonl', '.ndjson', '.csv', '.zip'}
+ALLOWED_EXTENSIONS = {'.evtx', '.ndjson', '.zip'}  # Only EVTX and NDJSON + ZIP containers
 
 
 def scan_bulk_import_directory() -> Dict[str, List[str]]:

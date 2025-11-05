@@ -201,25 +201,17 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
     # Determine file type
     filename_lower = filename.lower()
     is_evtx = filename_lower.endswith('.evtx')
-    is_json = filename_lower.endswith(('.json', '.ndjson', '.jsonl'))
+    is_json = filename_lower.endswith('.ndjson')  # Only NDJSON supported
     
-    # Detect file type
+    # Detect file type (EVTX or NDJSON only)
     if filename_lower.endswith('.evtx'):
         file_type = 'EVTX'
     elif filename_lower.endswith('.ndjson'):
         file_type = 'NDJSON'
-    elif filename_lower.endswith('.json'):
-        file_type = 'JSON'
-    elif filename_lower.endswith('.jsonl'):
-        file_type = 'NDJSON'
-    elif filename_lower.endswith('.csv'):
-        file_type = 'CSV'
     else:
         file_type = 'UNKNOWN'
     
-    is_csv = filename_lower.endswith('.csv')
-    
-    if not (is_evtx or is_json or is_csv):
+    if not (is_evtx or is_json):
         logger.error(f"[INDEX FILE] Unsupported file type: {filename}")
         return {
             'status': 'error',
@@ -235,7 +227,7 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
     # Generate index name and opensearch_key
     index_name = make_index_name(case_id, filename)
     # Strip all JSON-related extensions for opensearch_key
-    clean_name = filename.replace('.evtx', '').replace('.ndjson', '').replace('.jsonl', '').replace('.json', '')
+    clean_name = filename.replace('.evtx', '').replace('.ndjson', '')
     opensearch_key = f"case{case_id}_{clean_name}"
     
     logger.info(f"[INDEX FILE] File type: {file_type}")

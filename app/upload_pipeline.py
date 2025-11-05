@@ -124,7 +124,7 @@ def stage_bulk_upload(case_id: int, source_folder: str, cleanup_after: bool = Tr
         }
     
     # Supported extensions (from bulk_import.py)
-    ALLOWED_EXTENSIONS = {'.evtx', '.json', '.jsonl', '.ndjson', '.csv', '.zip'}
+    ALLOWED_EXTENSIONS = {'.evtx', '.ndjson', '.zip'}  # Only EVTX and NDJSON + ZIP containers
     
     files_staged = 0
     staged_files = []  # Track successfully staged files for cleanup
@@ -210,7 +210,7 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
                     stats['nested_zips_found'] += nested_stats['nested_zips_found']
                     os.remove(file_path)
                     
-                elif file_lower.endswith(('.evtx', '.ndjson', '.json', '.jsonl')):
+                elif file_lower.endswith(('.evtx', '.ndjson')):
                     # Move to target with prefix
                     prefixed_name = f"{current_prefix}{file}"
                     target_path = os.path.join(target_dir, prefixed_name)

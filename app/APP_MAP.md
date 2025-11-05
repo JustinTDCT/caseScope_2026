@@ -4141,7 +4141,7 @@ sigma_events = db_session.query(func.sum(CaseFile.violation_count))
 **1. Nested ZIP Extraction** (`upload_pipeline.py`)
 - `extract_single_zip()` - recursive extraction at any depth
 - Prefix format: `ParentZIP_ChildZIP_file.evtx`
-- Supported: `.evtx`, `.ndjson`, `.json`, `.jsonl`
+- Supported: `.evtx`, `.ndjson` (only these two formats)
 - Auto-cleanup of temp directories
 
 **2. Hidden Files System**
