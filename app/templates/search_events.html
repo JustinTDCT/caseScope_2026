@@ -423,6 +423,44 @@
     </div>
 </div>
 
+<!-- Add System Modal -->
+<div id="addSystemModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2 class="modal-title">💻 Add as System</h2>
+            <button class="modal-close" onclick="closeAddSystemModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom: var(--spacing-md);">
+                <label class="form-label">System Name</label>
+                <input type="text" id="systemValueInput" class="form-input" readonly style="background: var(--color-bg-tertiary);">
+            </div>
+            
+            <div class="form-group" style="margin-bottom: var(--spacing-md);">
+                <label class="form-label">Source Field</label>
+                <input type="text" id="systemFieldInput" class="form-input" readonly style="background: var(--color-bg-tertiary); font-size: 0.875rem; color: var(--color-text-secondary);">
+            </div>
+            
+            <div class="form-group" style="margin-bottom: var(--spacing-md);">
+                <label class="form-label">System Type *</label>
+                <select id="systemTypeSelect" class="form-input" required>
+                    <option value="">-- Select Type --</option>
+                    <option value="workstation" selected>💻 Workstation</option>
+                    <option value="server">🖥️ Server</option>
+                    <option value="firewall">🔥 Firewall</option>
+                    <option value="switch">🔀 Switch</option>
+                    <option value="printer">🖨️ Printer</option>
+                    <option value="actor_system">⚠️ Actor System</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button onclick="submitAddSystem()" class="btn btn-primary">Add System</button>
+            <button onclick="closeAddSystemModal()" class="btn btn-secondary">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <!-- Column Manager Modal -->
 <div id="columnModal" class="modal-overlay" style="display: none;">
     <div class="modal-container">
@@ -862,6 +900,20 @@ function showEventDetail(eventId, indexName) {
                     addFieldAsIOC(field.value, field.field);
                 });
                 
+                // Add as System button
+                const systemBtn = document.createElement('button');
+                systemBtn.className = 'btn btn-sm btn-add-system';
+                systemBtn.style.fontSize = '0.75rem';
+                systemBtn.style.padding = '4px 8px';
+                systemBtn.style.background = 'var(--color-info)';
+                systemBtn.textContent = '💻 Add as System';
+                systemBtn.addEventListener('click', (e) => {
+                    console.log('[SYSTEM] Button clicked, field:', field.field, 'value:', field.value);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    addFieldAsSystem(field.value, field.field);
+                });
+                
                 // Add to Search button
                 const searchBtn = document.createElement('button');
                 searchBtn.className = 'btn btn-sm btn-secondary btn-add-search';
@@ -875,11 +927,12 @@ function showEventDetail(eventId, indexName) {
                 columnBtn.className = 'btn btn-sm btn-add-column';
                 columnBtn.style.fontSize = '0.75rem';
                 columnBtn.style.padding = '4px 8px';
-                columnBtn.style.background = 'var(--color-info)';
+                columnBtn.style.background = 'var(--color-success)';
                 columnBtn.textContent = '➕ Add Column';
                 columnBtn.addEventListener('click', () => addAsColumn(field.field));
                 
                 btnDiv.appendChild(iocBtn);
+                btnDiv.appendChild(systemBtn);
                 btnDiv.appendChild(searchBtn);
                 btnDiv.appendChild(columnBtn);
                 actionsCell.appendChild(btnDiv);
@@ -1028,7 +1081,108 @@ document.addEventListener('click', function(e) {
     if (e.target.id === 'addIOCModal') {
         closeAddIOCModal();
     }
+    if (e.target.id === 'addSystemModal') {
+        closeAddSystemModal();
+    }
 });
+
+// ===== SYSTEM FUNCTIONS =====
+
+// Add field as System - Show modal with dropdown
+function addFieldAsSystem(value, fieldName) {
+    console.log('[SYSTEM] addFieldAsSystem called with:', {value, fieldName});
+    
+    try {
+        // Populate modal fields
+        const valueInput = document.getElementById('systemValueInput');
+        const fieldInput = document.getElementById('systemFieldInput');
+        const typeSelect = document.getElementById('systemTypeSelect');
+        const modal = document.getElementById('addSystemModal');
+        
+        if (!valueInput || !fieldInput || !typeSelect || !modal) {
+            console.error('[SYSTEM] Missing modal elements:', {
+                valueInput: !!valueInput,
+                fieldInput: !!fieldInput,
+                typeSelect: !!typeSelect,
+                modal: !!modal
+            });
+            alert('Error: System modal elements not found. Please refresh the page.');
+            return;
+        }
+        
+        valueInput.value = value;
+        fieldInput.value = fieldName;
+        
+        // Auto-detect system type based on field name and value
+        const lowerValue = value.toLowerCase();
+        const lowerField = fieldName.toLowerCase();
+        
+        if (lowerValue.includes('srv') || lowerValue.includes('server') || lowerValue.includes('dc0') || lowerValue.includes('dc1') || lowerValue.includes('sql') || lowerValue.includes('exchange')) {
+            typeSelect.value = 'server';
+        } else if (lowerValue.includes('fw') || lowerValue.includes('firewall') || lowerValue.includes('fortigate') || lowerValue.includes('paloalto')) {
+            typeSelect.value = 'firewall';
+        } else if (lowerValue.includes('sw') || lowerValue.includes('switch') || lowerValue.includes('cisco')) {
+            typeSelect.value = 'switch';
+        } else if (lowerValue.includes('print') || lowerValue.includes('printer')) {
+            typeSelect.value = 'printer';
+        } else if (lowerValue.includes('attack') || lowerValue.includes('threat') || lowerValue.includes('actor') || lowerValue.includes('malicious')) {
+            typeSelect.value = 'actor_system';
+        } else {
+            typeSelect.value = 'workstation'; // Default
+        }
+        
+        modal.style.display = 'flex';
+        console.log('[SYSTEM] Modal opened successfully');
+    } catch (error) {
+        console.error('[SYSTEM] Error in addFieldAsSystem:', error);
+        alert('Error opening System modal: ' + error.message);
+    }
+}
+
+// Close Add System Modal
+function closeAddSystemModal() {
+    document.getElementById('addSystemModal').style.display = 'none';
+}
+
+// Submit Add System
+function submitAddSystem() {
+    const systemValue = document.getElementById('systemValueInput').value;
+    const systemType = document.getElementById('systemTypeSelect').value;
+    
+    // Validation
+    if (!systemType) {
+        alert('Please select a system type');
+        return;
+    }
+    
+    if (!systemValue) {
+        alert('System name is required');
+        return;
+    }
+    
+    // Submit
+    fetch(`/case/${CASE_ID}/systems/add`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({
+            system_name: systemValue,
+            system_type: systemType
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('✓ System added successfully!');
+            closeAddSystemModal();
+        } else {
+            alert('✗ ' + (data.error || 'Failed to add system'));
+        }
+    })
+    .catch(error => {
+        console.error('Error adding system:', error);
+        alert('✗ Network error: ' + error.message);
+    });
+}
 
 // Add to search
 function addToSearch(field, value) {
