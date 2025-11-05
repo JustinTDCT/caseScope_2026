@@ -1,9 +1,12 @@
 {
-  "version": "1.10.71",
+  "version": "1.10.74",
   "release_date": "2025-11-05",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "🗑️ Bulk Actions for Hidden Files - Select and bulk unhide or delete hidden files with confirmation (v1.10.74)",
+    "🔍 Search Hidden Files - Search hidden files by name or hash with pagination support (v1.10.73)",
+    "📦 File Upload Clarification - Accept all formats (EVTX, NDJSON, JSON, CSV, ZIP), but only extract EVTX/NDJSON from ZIPs (v1.10.72)",
     "⚡ Quick Add System from Event Details - One-click system addition with auto-type detection (v1.10.71)",
     "💻 Systems Management Standalone Page - Dedicated full-page interface like IOC Management (v1.10.71)",
     "💻 Systems Discovery & Management - Auto-discover and categorize systems (servers, workstations, firewalls, etc.) for improved AI context (v1.10.70)",

@@ -1,8 +1,282 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.71  
-**Last Updated**: 2025-11-05 19:45 UTC  
+**Version**: 1.10.74  
+**Last Updated**: 2025-11-05 21:30 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🗑️ v1.10.74 - ENHANCEMENT: Bulk Actions for Hidden Files (2025-11-05 21:30 UTC)
+
+**Feature**: Bulk select and perform actions (Unhide/Delete) on hidden files
+
+**User Request**:
+"add bulk action buttons like on the normal search - only need a bulk unhide or a bulk delete"
+
+**Why This Feature**:
+- Efficiently manage large numbers of hidden files (0-event files)
+- Match functionality from main case files page
+- Provide quick cleanup/restoration options
+- Prevent accidental deletion with double confirmation
+
+### Components Added/Modified
+
+#### 1. Frontend Template
+**File**: `app/templates/hidden_files.html`
+
+**Bulk Actions Bar** (lines 28-49):
+- Appears dynamically when files are selected
+- Shows count of selected files
+- Three action buttons:
+  - 👁️ **Unhide Selected** - Restore files to visible state
+  - 🗑️ **Delete Selected** - Permanently delete files (with confirmation)
+  - ✕ **Deselect All** - Clear selections and hide bar
+
+**Table Updates** (lines 92-103):
+- Changed header checkbox to use `toggleSelectAll()`
+- Changed row checkboxes to class `file-checkbox`
+- Added `onchange="updateSelectedCount()"` for dynamic updates
+
+**JavaScript Functions** (lines 171-245):
+- `toggleSelectAll()` - Toggle all checkboxes on page
+- `updateSelectedCount()` - Show/hide bulk actions bar, update count
+- `getSelectedFileIds()` - Collect selected file IDs
+- `bulkUnhideSelected()` - Bulk unhide with confirmation
+- `bulkDeleteSelected()` - Bulk delete with double confirmation (confirm + type 'DELETE')
+
+#### 2. Backend Functions
+**File**: `app/hidden_files.py` (lines 99-167)
+
+**New Function**: `bulk_delete_hidden_files()`
+- Accepts: `db_session`, `case_id`, `file_ids`, `user_id`
+- Security: Only processes files that are `is_hidden=True` and `is_deleted=False`
+- Actions performed:
+  1. Delete OpenSearch index
+  2. Clear SIGMA violations
+  3. Clear IOC matches
+  4. Delete physical file from filesystem
+  5. Mark as deleted in database
+- Returns: `{'success': bool, 'count': int, 'errors': list}`
+
+#### 3. Backend Routes
+**File**: `app/routes/files.py` (lines 236-261)
+
+**New Route**: `/case/<int:case_id>/bulk_delete_hidden` (POST)
+- Accepts `file_ids` form data (list of integers)
+- Calls `bulk_delete_hidden_files()`
+- Shows success message with count
+- Shows warning if errors occurred
+- Redirects back to hidden files view
+
+### User Workflow
+1. Navigate to Hidden Files page
+2. Select files using checkboxes
+3. Bulk actions bar appears automatically
+4. Click action:
+   - **Unhide**: Confirm → Files become visible in main list
+   - **Delete**: Confirm → Type 'DELETE' → Files permanently removed
+5. Success message displayed
+6. Page refreshes with updated file list
+
+### Security Features
+- Only processes files in the specified case
+- Only processes files that are already hidden
+- Double confirmation for deletion (confirm dialog + type 'DELETE')
+- Comprehensive error handling and logging
+- Shows detailed error messages if any files fail
+
+### Benefits
+- ✅ **Efficient cleanup**: Delete multiple 0-event files at once
+- ✅ **Safe restoration**: Bulk unhide files that shouldn't be hidden
+- ✅ **Accident prevention**: Double confirmation for deletions
+- ✅ **Consistent UX**: Matches bulk actions from main files page
+- ✅ **Complete cleanup**: Removes files, indices, violations, and matches
+
+---
+
+## 🔍 v1.10.73 - ENHANCEMENT: Search Hidden Files (2025-11-05 21:00 UTC)
+
+**Feature**: Search functionality for hidden files by name or hash
+
+**User Request**:
+"add search - case files page; in the hidden files view; see the search when not in hidden files view of the same page"
+
+**Why This Feature**:
+- Hidden files list can be very long (thousands of 0-event files)
+- Need to quickly find specific hidden files
+- Search by filename or hash for flexibility
+- Maintain search context across pagination
+
+### Components Added/Modified
+
+#### 1. Frontend Template
+**File**: `app/templates/hidden_files.html`
+
+**Card Header Redesign** (lines 53-85):
+- Split into two sections: title/count and search/actions
+- Added dynamic count text: "X matching file(s)" when searching
+
+**Search Form** (lines 45-61):
+- Text input: "🔍 Search hidden files..."
+- 🔎 Search button
+- ✕ Clear button (appears when search is active)
+- Submits to `view_hidden_files` route with `search` parameter
+
+**Pagination Links** (lines 126-136):
+- Updated all pagination links to preserve `search_term`
+- Format: `url_for('files.view_hidden_files', case_id=case.id, page=X, search=search_term)`
+
+#### 2. Backend Functions
+**File**: `app/hidden_files.py` (lines 23-44)
+
+**Updated Function**: `get_hidden_files()`
+- Added parameter: `search_term: str = None`
+- Search filter logic (lines 34-39):
+  ```python
+  if search_term:
+      search_pattern = f"%{search_term}%"
+      query = query.filter(
+          (CaseFile.original_filename.ilike(search_pattern)) |
+          (CaseFile.file_hash.ilike(search_pattern))
+      )
+  ```
+- Case-insensitive search (`.ilike()`)
+- Searches both filename AND hash fields
+
+#### 3. Backend Routes
+**File**: `app/routes/files.py` (lines 171-193)
+
+**Updated Route**: `view_hidden_files()`
+- Line 182: Get search parameter from request
+  ```python
+  search_term = request.args.get('search', '', type=str).strip()
+  ```
+- Line 185: Pass search_term to `get_hidden_files()`
+- Line 193: Pass search_term to template
+
+### User Workflow
+1. Navigate to Hidden Files page
+2. Type search term in search box
+3. Click 🔎 or press Enter
+4. Results filtered instantly
+5. Navigate pages → search term persists
+6. Click ✕ to clear search and show all files
+
+### Search Behavior
+- **Empty search**: Shows all hidden files
+- **With text**: Filters by filename OR hash (case-insensitive)
+- **Pagination**: Search term maintained across all pages
+- **Clear button**: Resets to full list
+
+### Benefits
+- ✅ **Fast lookup**: Find specific files in large hidden lists
+- ✅ **Flexible search**: By filename or hash
+- ✅ **Persistent state**: Search maintained during pagination
+- ✅ **Consistent UX**: Matches search from main files page
+- ✅ **Case-insensitive**: User-friendly searching
+
+---
+
+## 📦 v1.10.72 - CLARIFICATION: File Upload & ZIP Extraction Behavior (2025-11-05 20:30 UTC)
+
+**Feature**: Clarified file upload acceptance vs ZIP extraction filtering
+
+**User Request**:
+"wait - we should allow: ZIP, NDJSON, JSON, CSV as file uploads. when extracting: only NDJSON or EVTX from ZIP files"
+
+**Why This Change**:
+- Users need to upload JSON and CSV files directly
+- But don't want JSON/CSV extracted from nested ZIPs
+- Provides maximum flexibility for direct uploads
+- Keeps ZIP extraction focused on log formats
+
+### Behavior Clarification
+
+**BEFORE** (v1.10.71):
+- Upload accepts: EVTX, NDJSON only
+- ZIP extraction: EVTX, NDJSON only
+- ❌ Problem: Can't upload JSON or CSV files directly
+
+**AFTER** (v1.10.72):
+- ✅ Upload accepts: EVTX, NDJSON, JSON, CSV, ZIP
+- ✅ Direct processing: All formats supported
+- ✅ ZIP extraction: Only EVTX and NDJSON
+- ✅ Files in ZIPs: JSON and CSV ignored during extraction
+
+### Components Modified
+
+#### 1. Upload Pipeline
+**File**: `app/upload_pipeline.py`
+
+**Line 127**: Restored full extension support
+```python
+ALLOWED_EXTENSIONS = {'.evtx', '.ndjson', '.json', '.csv', '.zip'}
+```
+
+**Lines 215-219**: Added clarifying comment
+```python
+# NOTE: Only EVTX and NDJSON are extracted from ZIPs
+# JSON and CSV inside ZIPs are ignored
+```
+
+#### 2. Bulk Import
+**File**: `app/bulk_import.py`
+
+**Line 17**: Restored full extension support
+```python
+ALLOWED_EXTENSIONS = {'.evtx', '.ndjson', '.json', '.csv', '.zip'}
+```
+
+#### 3. File Processing
+**File**: `app/file_processing.py`
+
+**Lines 204-222**: Restored full file type detection
+- Detects: EVTX, NDJSON, JSON, JSONL, CSV
+- Sets appropriate `file_type` for each
+
+**Line 238**: Restored full clean name logic
+```python
+clean_name = filename.replace('.evtx', '').replace('.ndjson', '').replace('.jsonl', '').replace('.json', '')
+```
+
+#### 4. Templates Updated
+**Files**: `upload_files.html`, `view_case_enhanced.html`, `view_case.html`, `case_files.html`, `global_files.html`
+
+**Accept attributes**:
+```html
+accept=".evtx,.ndjson,.json,.csv,.zip"
+```
+
+**User-facing text**:
+- "Supported formats: EVTX, NDJSON, JSON, CSV, ZIP"
+- "ZIPs auto-extract EVTX/NDJSON only"
+
+#### 5. Documentation
+**File**: `app/APP_MAP.md` (lines 4144-4145)
+```markdown
+- **Upload accepts**: `.evtx`, `.ndjson`, `.json`, `.csv`, `.zip`
+- **ZIP extraction**: Only `.evtx` and `.ndjson` extracted from ZIPs (JSON/CSV in ZIPs ignored)
+```
+
+### Example Scenarios
+
+**Scenario 1**: User uploads `data.json` directly
+- ✅ Accepted and processed as JSON
+
+**Scenario 2**: User uploads `archive.zip` containing:
+- `logs.evtx` → ✅ Extracted and processed
+- `events.ndjson` → ✅ Extracted and processed  
+- `data.json` → ❌ Ignored during extraction
+- `report.csv` → ❌ Ignored during extraction
+
+**Scenario 3**: User uploads `data.csv` directly
+- ✅ Accepted and processed as CSV
+
+### Benefits
+- ✅ **Maximum flexibility**: All formats can be uploaded directly
+- ✅ **Clean extraction**: ZIPs only extract log formats
+- ✅ **User clarity**: UI clearly explains behavior
+- ✅ **Best of both**: Direct upload freedom + focused ZIP extraction
 
 ---
 
