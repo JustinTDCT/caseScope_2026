@@ -1,8 +1,72 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.70  
-**Last Updated**: 2025-11-05 19:15 UTC  
+**Version**: 1.10.71  
+**Last Updated**: 2025-11-05 19:45 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.10.71 - ENHANCEMENT: Quick Add System from Event Details (2025-11-05 19:45 UTC)
+
+**Feature**: "Add as System" button in event details modal for quick system addition
+
+**User Request**:
+"Add button to event details (when you view the details of the event) like the 'add IOC' one which allows you to add a system"
+
+**Why This Feature**:
+- Speeds up system identification workflow
+- Reduces manual navigation to Systems Management page
+- Mirrors existing IOC workflow for consistency
+- Auto-detects system type based on hostname patterns
+
+### Components Added/Modified
+
+#### 1. Frontend Template
+**File**: `app/templates/search_events.html`
+
+**New Modal** (lines 426-462):
+- `addSystemModal` - Popup for quick system addition
+- System Name (readonly, from field value)
+- Source Field (readonly, shows origin)
+- System Type dropdown with auto-detection
+
+**Event Details Button** (lines 903-915):
+- Added "💻 Add as System" button next to IOC button
+- Appears for every field in event details
+- Calls `addFieldAsSystem(value, fieldName)`
+
+**JavaScript Functions** (lines 1091-1185):
+- `addFieldAsSystem()` - Opens modal, auto-detects type
+- `closeAddSystemModal()` - Closes modal
+- `submitAddSystem()` - POSTs to `/case/<id>/systems/add`
+
+**Auto-Type Detection Logic**:
+- **Server**: srv, server, dc0, dc1, sql, exchange
+- **Firewall**: fw, firewall, fortigate, paloalto
+- **Switch**: sw, switch, cisco
+- **Printer**: print, printer
+- **Actor System**: attack, threat, actor, malicious
+- **Default**: workstation
+
+#### 2. Backend Integration
+**Endpoint Used**: Existing `/case/<int:case_id>/systems/add` (POST)
+- No backend changes needed
+- Reuses existing systems.py route
+
+### User Workflow
+1. Search for events → Click on event → View event details
+2. Find hostname/computer field
+3. Click "💻 Add as System" button
+4. Modal opens with auto-detected type
+5. Confirm or adjust type
+6. Click "Add System" → System added to case
+
+### Benefits
+- ✅ **Faster workflow**: No need to navigate to Systems Management page
+- ✅ **Context preservation**: Stay in event details while adding systems
+- ✅ **Auto-detection**: Smart type detection based on naming patterns
+- ✅ **Consistency**: Mirrors existing IOC addition workflow
+- ✅ **User-friendly**: Single-click system addition from any event field
 
 ---
 
