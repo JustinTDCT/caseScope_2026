@@ -124,7 +124,7 @@ def stage_bulk_upload(case_id: int, source_folder: str, cleanup_after: bool = Tr
         }
     
     # Supported extensions (from bulk_import.py)
-    ALLOWED_EXTENSIONS = {'.evtx', '.ndjson', '.zip'}  # Only EVTX and NDJSON + ZIP containers
+    ALLOWED_EXTENSIONS = {'.evtx', '.ndjson', '.json', '.csv', '.zip'}  # All formats accepted for upload
     
     files_staged = 0
     staged_files = []  # Track successfully staged files for cleanup
@@ -212,6 +212,8 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
                     
                 elif file_lower.endswith(('.evtx', '.ndjson')):
                     # Move to target with prefix
+                    # NOTE: Only EVTX and NDJSON are extracted from ZIPs
+                    # JSON and CSV inside ZIPs are ignored
                     prefixed_name = f"{current_prefix}{file}"
                     target_path = os.path.join(target_dir, prefixed_name)
                     shutil.move(file_path, target_path)

@@ -6,7 +6,7 @@
 <div class="content-header">
     <div>
         <h1 class="content-title">Upload Files: {{ case.name }}</h1>
-        <p class="text-secondary">Upload EVTX, NDJSON files or ZIP archives for processing</p>
+        <p class="text-secondary">Upload EVTX, NDJSON, JSON, CSV files or ZIP archives for processing</p>
     </div>
     <div class="content-actions">
         <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
@@ -28,7 +28,7 @@
                 <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">📂 How to Use</h3>
                 <ol style="margin-left: var(--spacing-lg); font-size: 0.9rem; color: var(--color-text-secondary); line-height: 1.6;">
                     <li>Place your files in: <code style="background: var(--color-bg-secondary); padding: 2px 6px; border-radius: 3px; font-family: monospace;">/opt/casescope/bulk_import/</code></li>
-                    <li>Supported formats: <strong>EVTX, NDJSON, ZIP</strong></li>
+                    <li>Supported formats: <strong>EVTX, NDJSON, JSON, CSV, ZIP</strong> (ZIPs auto-extract EVTX/NDJSON only)</li>
                     <li>Files will be automatically moved and processed (ZIPs extracted)</li>
                     <li>Duplicates are skipped, 0-event files are hidden</li>
                 </ol>
@@ -89,9 +89,9 @@
         <div class="form-group">
             <label class="form-label" for="fileInput">Select Files</label>
             <input type="file" id="fileInput" multiple class="form-input" 
-                   accept=".evtx,.ndjson,.zip">
+                   accept=".evtx,.ndjson,.json,.csv,.zip">
             <p class="text-muted" style="margin-top: var(--spacing-sm); font-size: 0.875rem;">
-                Supported formats: EVTX, NDJSON, ZIP (auto-decompressed)
+                Supported formats: EVTX, NDJSON, JSON, CSV, ZIP (ZIPs extract EVTX/NDJSON only)
             </p>
         </div>
         
