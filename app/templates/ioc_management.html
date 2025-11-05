@@ -61,10 +61,10 @@
         <div class="card-header">
             <h2 class="card-title">📋 Indicators of Compromise ({{ iocs|length }})</h2>
         </div>
-        <div class="card-body" style="padding: 0;">
+        <div class="card-body">
             {% if iocs %}
-            <div class="table-container">
-                <table>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse;">
                     <thead>
                         <tr>
                             <th>Type</th>
