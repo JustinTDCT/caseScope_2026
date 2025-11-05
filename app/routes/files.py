@@ -169,7 +169,7 @@ def case_files(case_id):
 @files_bp.route('/case/<int:case_id>/hidden_files')
 @login_required
 def view_hidden_files(case_id):
-    """View hidden files (0-event files)"""
+    """View hidden files (0-event files) with search support"""
     from main import db, Case
     from hidden_files import get_hidden_files, get_hidden_files_count
     
@@ -179,16 +179,18 @@ def view_hidden_files(case_id):
         return redirect(url_for('dashboard'))
     
     page = request.args.get('page', 1, type=int)
+    search_term = request.args.get('search', '', type=str).strip()
     per_page = 50
     
-    pagination = get_hidden_files(db.session, case_id, page, per_page)
+    pagination = get_hidden_files(db.session, case_id, page, per_page, search_term)
     hidden_count = get_hidden_files_count(db.session, case_id)
     
     return render_template('hidden_files.html',
                           case=case,
                           files=pagination.items,
                           pagination=pagination,
-                          hidden_count=hidden_count)
+                          hidden_count=hidden_count,
+                          search_term=search_term)
 
 
 @files_bp.route('/case/<int:case_id>/file/<int:file_id>/toggle_hidden', methods=['POST'])

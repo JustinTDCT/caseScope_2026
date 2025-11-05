@@ -29,13 +29,44 @@
 
 <!-- Hidden Files List -->
 <div class="card">
-    <div class="card-header">
-        <h2 class="card-title">📄 Hidden Files</h2>
-        {% if files %}
-        <form method="POST" action="{{ url_for('files.bulk_unhide', case_id=case.id) }}" onsubmit="return confirm('Unhide selected files?');">
-            <button type="submit" class="btn btn-primary">Unhide Selected</button>
-        </form>
-        {% endif %}
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--spacing-md);">
+        <div>
+            <h2 class="card-title">📄 Hidden Files</h2>
+            <span class="text-muted">
+                {% if search_term %}
+                {{ pagination.total }} matching file(s) • Page {{ pagination.page }} of {{ pagination.pages }}
+                {% else %}
+                {{ pagination.total }} total file(s) • Page {{ pagination.page }} of {{ pagination.pages }}
+                {% endif %}
+            </span>
+        </div>
+        <div style="display: flex; gap: var(--spacing-sm); align-items: center; flex-wrap: wrap;">
+            <!-- Search Form -->
+            <form method="GET" action="{{ url_for('files.view_hidden_files', case_id=case.id) }}" style="display: inline-flex; gap: var(--spacing-xs);">
+                <input type="text" 
+                       id="fileSearch" 
+                       name="search"
+                       value="{{ search_term }}"
+                       placeholder="🔍 Search hidden files..." 
+                       class="form-input" 
+                       style="width: 250px;">
+                <button type="submit" class="btn btn-primary" style="padding: 0.5rem 1rem;">
+                    <span>🔎</span>
+                </button>
+                {% if search_term %}
+                <a href="{{ url_for('files.view_hidden_files', case_id=case.id) }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="Clear search">
+                    <span>✕</span>
+                </a>
+                {% endif %}
+            </form>
+            
+            <!-- Bulk Unhide Button -->
+            {% if files %}
+            <form method="POST" action="{{ url_for('files.bulk_unhide', case_id=case.id) }}" onsubmit="return confirm('Unhide selected files?');">
+                <button type="submit" class="btn btn-primary">Unhide Selected</button>
+            </form>
+            {% endif %}
+        </div>
     </div>
     <div class="card-body" style="padding: 0;">
         {% if files %}
@@ -92,8 +123,8 @@
             
             <div class="pagination-controls" style="display: flex; gap: var(--spacing-xs);">
                 {% if pagination.has_prev %}
-                <a href="{{ url_for('files.view_hidden_files', case_id=case.id, page=1) }}" class="btn btn-sm">««</a>
-                <a href="{{ url_for('files.view_hidden_files', case_id=case.id, page=pagination.prev_num) }}" class="btn btn-sm">‹</a>
+                <a href="{{ url_for('files.view_hidden_files', case_id=case.id, page=1, search=search_term) }}" class="btn btn-sm">««</a>
+                <a href="{{ url_for('files.view_hidden_files', case_id=case.id, page=pagination.prev_num, search=search_term) }}" class="btn btn-sm">‹</a>
                 {% endif %}
                 
                 <span class="btn btn-sm" style="background: var(--color-primary); color: white;">
@@ -101,8 +132,8 @@
                 </span>
                 
                 {% if pagination.has_next %}
-                <a href="{{ url_for('files.view_hidden_files', case_id=case.id, page=pagination.next_num) }}" class="btn btn-sm">›</a>
-                <a href="{{ url_for('files.view_hidden_files', case_id=case.id, page=pagination.pages) }}" class="btn btn-sm">»»</a>
+                <a href="{{ url_for('files.view_hidden_files', case_id=case.id, page=pagination.next_num, search=search_term) }}" class="btn btn-sm">›</a>
+                <a href="{{ url_for('files.view_hidden_files', case_id=case.id, page=pagination.pages, search=search_term) }}" class="btn btn-sm">»»</a>
                 {% endif %}
             </div>
         </div>

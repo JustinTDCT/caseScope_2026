@@ -20,15 +20,25 @@ def get_hidden_files_count(db_session, case_id: int) -> int:
     ).count()
 
 
-def get_hidden_files(db_session, case_id: int, page: int = 1, per_page: int = 50):
-    """Get paginated list of hidden files"""
+def get_hidden_files(db_session, case_id: int, page: int = 1, per_page: int = 50, search_term: str = None):
+    """Get paginated list of hidden files with optional search"""
     from models import CaseFile
     
     query = db_session.query(CaseFile).filter_by(
         case_id=case_id,
         is_deleted=False,
         is_hidden=True
-    ).order_by(CaseFile.uploaded_at.desc())
+    )
+    
+    # Apply search filter if provided
+    if search_term:
+        search_pattern = f"%{search_term}%"
+        query = query.filter(
+            (CaseFile.original_filename.ilike(search_pattern)) |
+            (CaseFile.file_hash.ilike(search_pattern))
+        )
+    
+    query = query.order_by(CaseFile.uploaded_at.desc())
     
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     return pagination
