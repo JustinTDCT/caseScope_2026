@@ -14,7 +14,7 @@ logger = get_logger('app')
 
 # Model descriptions and metadata
 # UPDATED 2025-11-05: Removed Mixtral (high hallucination), added top-tier reasoning models
-# Model names updated to match actual Ollama registry names
+# Model names verified against actual Ollama registry (2025-11-05)
 MODEL_INFO = {
     # DeepSeek-R1: Best reasoning and step-by-step processing
     'deepseek-r1:32b': {
@@ -29,11 +29,11 @@ MODEL_INFO = {
         'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
-    'deepseek-r1:latest': {
+    'deepseek-r1:70b': {
         'name': 'DeepSeek-R1 70B',
         'speed': 'Slow',
         'quality': 'Best Available',
-        'size': '47 GB',
+        'size': '42 GB',
         'description': 'Best reasoning model. Approaches GPT-4 Turbo levels. Extremely low hallucination. Use for critical reports.',
         'speed_estimate': '~10-20 tok/s GPU, ~2-4 tok/s CPU',
         'time_estimate': '5-12 minutes (GPU), 25-40 minutes (CPU)',
@@ -84,12 +84,12 @@ MODEL_INFO = {
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
-    # Gemma 2 27B: Efficient and fast
-    'gemma2:27b': {
-        'name': 'Gemma 2 27B',
+    # Gemma 2 27B: Efficient and fast (REQUIRES FULL QUANTIZATION NAME)
+    'gemma2:27b-instruct-q4_K_M': {
+        'name': 'Gemma 2 27B (Q4)',
         'speed': 'Fast',
         'quality': 'Excellent',
-        'size': '17 GB',
+        'size': '16 GB',
         'description': 'Efficient and fast with high tokens/sec. Low hallucination, suits structured outputs. Good for minimum word counts.',
         'speed_estimate': '~18-28 tok/s GPU, ~5-8 tok/s CPU',
         'time_estimate': '3-7 minutes (GPU), 12-18 minutes (CPU)',
@@ -98,12 +98,12 @@ MODEL_INFO = {
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
-    # Mistral Large 2: Fast and resource-efficient
-    'mistral-large:latest': {
-        'name': 'Mistral Large 2',
+    # Mistral Large 2: Fast and resource-efficient (REQUIRES FULL QUANTIZATION NAME)
+    'mistral-large:123b-instruct-2407-q4_K_M': {
+        'name': 'Mistral Large 2 (123B Q4)',
         'speed': 'Moderate',
         'quality': 'Outstanding',
-        'size': '79 GB',
+        'size': '73 GB',
         'description': 'Fast, resource-efficient. 128K context for full data. Strong code/reasoning, avoids inferences.',
         'speed_estimate': '~8-15 tok/s GPU, ~1-3 tok/s CPU',
         'time_estimate': '6-12 minutes (GPU), 30-50 minutes (CPU)',
