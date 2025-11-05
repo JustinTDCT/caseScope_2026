@@ -388,6 +388,19 @@
                         </select>
                     </div>
                     
+                    <!-- GPU Setup Button (shown when requirements not met) -->
+                    {% if ai_hardware_mode == 'gpu' and not hardware_info.gpu.gpu_detected %}
+                    <div style="margin: var(--spacing-sm) 0; padding: var(--spacing-sm); background: var(--color-warning-bg); border-radius: var(--border-radius); border-left: 3px solid var(--color-warning);">
+                        <p style="font-size: 0.875rem; color: var(--color-warning); margin: 0 0 var(--spacing-sm) 0;">
+                            <strong>⚠️ GPU Not Detected:</strong> NVIDIA drivers or CUDA may not be installed.
+                        </p>
+                        <button type="button" onclick="setupGPU()" 
+                                style="padding: var(--spacing-xs) var(--spacing-md); background: var(--color-warning); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 0.875rem; font-weight: 600;">
+                            🔧 Auto-Setup GPU Requirements
+                        </button>
+                    </div>
+                    {% endif %}
+                    
                     <div style="margin-top: var(--spacing-sm);">
                         <div style="padding: var(--spacing-sm); background: {% if ai_hardware_mode == 'gpu' %}var(--color-primary-bg){% else %}var(--color-background){% endif %}; border-radius: var(--border-radius); margin-bottom: var(--spacing-xs);">
                             <strong style="color: var(--color-primary); font-size: 0.875rem;">
@@ -538,6 +551,19 @@ input[type="radio"]:checked + .model-card {
     box-shadow: 0 0 0 3px rgba(var(--color-primary-rgb), 0.1);
 }
 </style>
+
+<!-- GPU Setup Progress Modal -->
+<div id="gpuSetupModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3>🔧 GPU Requirements Setup</h3>
+            <button type="button" class="modal-close" onclick="closeGPUSetupModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="gpuSetupProgress" style="font-family: monospace; font-size: 0.875rem; max-height: 400px; overflow-y: auto; background: var(--color-background); padding: var(--spacing-md); border-radius: var(--border-radius); white-space: pre-wrap;"></div>
+        </div>
+    </div>
+</div>
 
 <script>
 function testIrisConnection() {
@@ -972,6 +998,45 @@ function checkHardwareRequirements() {
         // Auto-setup logic will be triggered on save
         console.log('[Hardware] GPU mode selected - will check requirements on save');
     }
+}
+
+// GPU Setup Functions
+function setupGPU() {
+    const modal = document.getElementById('gpuSetupModal');
+    const progress = document.getElementById('gpuSetupProgress');
+    
+    modal.style.display = 'flex';
+    progress.textContent = '🚀 Starting GPU setup...\n';
+    
+    // Connect to SSE endpoint
+    const eventSource = new EventSource('/settings/setup_gpu');
+    
+    eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        
+        if (data.status === 'progress') {
+            progress.textContent += data.message + '\n';
+            progress.scrollTop = progress.scrollHeight;
+        } else if (data.status === 'complete') {
+            progress.textContent += '\n✅ Setup complete!\n';
+            if (data.result.reboot_required) {
+                progress.textContent += '\n⚠️  REBOOT REQUIRED: Please restart your system to activate the GPU.\n';
+            }
+            eventSource.close();
+        } else if (data.status === 'error') {
+            progress.textContent += '\n❌ Error: ' + data.message + '\n';
+            eventSource.close();
+        }
+    };
+    
+    eventSource.onerror = function() {
+        progress.textContent += '\n❌ Connection error. Please check logs.\n';
+        eventSource.close();
+    };
+}
+
+function closeGPUSetupModal() {
+    document.getElementById('gpuSetupModal').style.display = 'none';
 }
 </script>
 {% endblock %}
