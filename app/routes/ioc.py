@@ -80,19 +80,40 @@ def add_ioc(case_id):
         db.session.add(ioc)
         db.session.commit()
         
-        # Check for OpenCTI enrichment
-        from models import SystemSettings
-        opencti_enabled = SystemSettings.query.filter_by(setting_key='opencti_enabled').first()
-        if opencti_enabled and opencti_enabled.setting_value == 'true':
-            enrich_from_opencti(ioc)
-        
-        # Check for DFIR-IRIS auto sync
-        dfir_iris_auto_sync = SystemSettings.query.filter_by(setting_key='dfir_iris_auto_sync').first()
-        if dfir_iris_auto_sync and dfir_iris_auto_sync.setting_value == 'true':
-            sync_to_dfir_iris(ioc)
+        # Store IOC ID for background processing
+        ioc_id_for_background = ioc.id
         
         flash(f'IOC added: {ioc_value}', 'success')
-        return jsonify({'success': True, 'ioc_id': ioc.id})
+        
+        # Return success immediately, then do enrichment in background
+        # This prevents slow OpenCTI/DFIR-IRIS from blocking the UI
+        response = jsonify({'success': True, 'ioc_id': ioc.id})
+        
+        # Schedule background enrichment/sync (non-blocking)
+        from threading import Thread
+        from models import SystemSettings
+        
+        def background_enrichment():
+            # Check for OpenCTI enrichment
+            opencti_enabled = SystemSettings.query.filter_by(setting_key='opencti_enabled').first()
+            if opencti_enabled and opencti_enabled.setting_value == 'true':
+                from main import db as bg_db
+                bg_ioc = bg_db.session.get(IOC, ioc_id_for_background)
+                if bg_ioc:
+                    enrich_from_opencti(bg_ioc)
+            
+            # Check for DFIR-IRIS auto sync
+            dfir_iris_auto_sync = SystemSettings.query.filter_by(setting_key='dfir_iris_auto_sync').first()
+            if dfir_iris_auto_sync and dfir_iris_auto_sync.setting_value == 'true':
+                from main import db as bg_db
+                bg_ioc = bg_db.session.get(IOC, ioc_id_for_background)
+                if bg_ioc:
+                    sync_to_dfir_iris(bg_ioc)
+        
+        # Start background thread (non-blocking)
+        Thread(target=background_enrichment, daemon=True).start()
+        
+        return response
     
     except Exception as e:
         db.session.rollback()
