@@ -1,9 +1,10 @@
 {
-  "version": "1.10.51",
+  "version": "1.10.52",
   "release_date": "2025-11-04",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "\ud83d\ude80 MODEL UPGRADE: Removed Mixtral, added DeepSeek-R1, Llama 3.3 70B, Phi-4, Gemma 2, Mistral Large 2. Removed 50-event limit. (v1.10.52)",
     "\ud83d\udc1b Fixed Live Preview - Now updates raw_response during streaming (v1.10.51)",
     "\ud83d\udcfa Live Preview Feature - Watch AI reports being written in real-time! (v1.10.50)",
     "\ud83d\udd27 HOTFIX: Removed Celery task time limits (v1.10.49)",
@@ -2445,5 +2446,5 @@
       ]
     }
   },
-  "last_updated": "2025-11-04"
+  "last_updated": "2025-11-05"
 }

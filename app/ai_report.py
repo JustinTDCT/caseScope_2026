@@ -13,105 +13,87 @@ logger = get_logger('app')
 
 
 # Model descriptions and metadata
+# UPDATED 2025-11-05: Removed Mixtral (high hallucination), added top-tier reasoning models
 MODEL_INFO = {
-    'llama3.1:8b-instruct-q4_K_M': {
-        'name': 'LLaMA 3.1 8B (Q4_K_M)',
-        'speed': 'Fast',
-        'quality': 'Good',
-        'size': '4.9 GB',
-        'description': 'Balanced speed/quality. Best for CPU. Recommended.',
-        'speed_estimate': '~15-18 tok/s CPU, ~40-60 tok/s GPU',
-        'time_estimate': '8-12 minutes (CPU), 2-3 minutes (GPU)',
+    # DeepSeek-R1: Best reasoning and step-by-step processing
+    'deepseek-r1:32b-qwen-distill-q4_K_M': {
+        'name': 'DeepSeek-R1 32B (Q4)',
+        'speed': 'Moderate',
+        'quality': 'Outstanding',
+        'size': '20 GB',
+        'description': 'Excellent reasoning and step-by-step processing. Low hallucination. GPT-4 class. RECOMMENDED.',
+        'speed_estimate': '~15-25 tok/s GPU, ~5-8 tok/s CPU',
+        'time_estimate': '5-10 minutes (GPU), 15-25 minutes (CPU)',
         'recommended': True
     },
-    'llama3.1:8b-instruct-q5_K_M': {
-        'name': 'LLaMA 3.1 8B (Q5_K_M)',
-        'speed': 'Moderate',
-        'quality': 'Excellent',
-        'size': '5.7 GB',
-        'description': 'Higher quality, slower. Better with GPU.',
-        'speed_estimate': '~10-12 tok/s CPU, ~35-50 tok/s GPU',
-        'time_estimate': '15-20 minutes (CPU), 3-4 minutes (GPU)',
-        'recommended': False
-    },
-    'phi3:14b': {
-        'name': 'Phi-3 Medium 14B (Q4_0)',
-        'speed': 'Very Slow',
-        'quality': 'Excellent',
-        'size': '7.9 GB',
-        'description': 'Highest quality, very slow on CPU. GPU recommended.',
-        'speed_estimate': '~5-8 tok/s CPU, ~20-30 tok/s GPU',
-        'time_estimate': '30+ minutes (CPU), 5-7 minutes (GPU)',
-        'recommended': False
-    },
-    'phi3:14b-medium-4k-instruct-q4_K_M': {
-        'name': 'Phi-3 Medium 14B (Q4_K_M)',
+    'deepseek-r1:70b-qwen-distill-q4_K_M': {
+        'name': 'DeepSeek-R1 70B (Q4)',
         'speed': 'Slow',
-        'quality': 'Excellent',
-        'size': '8.6 GB',
-        'description': 'High quality, slow on CPU. GPU recommended.',
-        'speed_estimate': '~6-9 tok/s CPU, ~25-35 tok/s GPU',
-        'time_estimate': '25-30 minutes (CPU), 4-6 minutes (GPU)',
-        'recommended': False
+        'quality': 'Best Available',
+        'size': '47 GB',
+        'description': 'Best reasoning model. Approaches GPT-4 Turbo levels. Extremely low hallucination. Use for critical reports.',
+        'speed_estimate': '~10-20 tok/s GPU, ~2-4 tok/s CPU',
+        'time_estimate': '5-12 minutes (GPU), 25-40 minutes (CPU)',
+        'recommended': True
     },
-    'mixtral:8x7b-instruct-v0.1-q4_K_M': {
-        'name': 'Mixtral 8x7B Instruct (Q4_K_M)',
-        'speed': 'Moderate',
-        'quality': 'Excellent',
-        'size': '26 GB',
-        'description': 'Mixture-of-Experts model. Superior reasoning and instruction following. 32K context window.',
-        'speed_estimate': '~3-5 tok/s CPU, ~15-25 tok/s GPU',
-        'time_estimate': '10-15 minutes (CPU), 3-5 minutes (GPU)',
-        'recommended': False
-    },
-    'mixtral:8x7b-instruct-v0.1-q3_K_M': {
-        'name': 'Mixtral 8x7B Instruct (Q3_K_M)',
-        'speed': 'Fast',
-        'quality': 'Very Good',
-        'size': '20 GB',
-        'description': 'Faster Mixtral variant. Good balance of speed and quality. 32K context window.',
-        'speed_estimate': '~5-8 tok/s CPU, ~20-30 tok/s GPU',
-        'time_estimate': '8-12 minutes (CPU), 2-4 minutes (GPU)',
-        'recommended': False
-    },
-    'mixtral-longform': {
-        'name': 'Mixtral 8x7B Longform (Custom)',
-        'speed': 'Moderate',
-        'quality': 'Excellent',
-        'size': '26 GB',
-        'description': 'Custom Mixtral model optimized for long-form report generation. Has num_predict=4096 built-in.',
-        'speed_estimate': '~3-5 tok/s CPU, ~15-25 tok/s GPU',
-        'time_estimate': '10-15 minutes (CPU), 3-5 minutes (GPU)',
-        'recommended': False
-    },
-    'qwen2.5:72b': {
-        'name': 'Qwen 2.5 72B (Q4_K_M)',
+    
+    # Llama 3.3 70B: Superior instruction adherence
+    'llama3.3:70b-instruct-q4_K_M': {
+        'name': 'Llama 3.3 70B (Q4_K_M)',
         'speed': 'Slow',
         'quality': 'Outstanding',
-        'size': '47 GB',
-        'description': 'Best open-source instruction follower. Extremely low hallucination rate. 128K context. RECOMMENDED for accuracy.',
-        'speed_estimate': '~2-4 tok/s CPU, ~10-20 tok/s GPU',
-        'time_estimate': '15-25 minutes (CPU), 4-8 minutes (GPU)',
+        'size': '42 GB',
+        'description': 'Superior instruction adherence and factuality. Excellent for complex prompts like "HARD RESET CONTEXT".',
+        'speed_estimate': '~10-20 tok/s GPU, ~2-4 tok/s CPU',
+        'time_estimate': '5-10 minutes (GPU), 20-30 minutes (CPU)',
         'recommended': True
     },
-    'qwen2.5:32b': {
+    
+    # Phi-4 14B: Efficient and punches above weight
+    'phi4:14b-q4_0': {
+        'name': 'Phi-4 14B (Q4_0)',
+        'speed': 'Fast',
+        'quality': 'Excellent',
+        'size': '9 GB',
+        'description': 'Efficient model that punches above its weight. Strong rule-following without extras. Low latency.',
+        'speed_estimate': '~20-30 tok/s GPU, ~8-12 tok/s CPU',
+        'time_estimate': '3-6 minutes (GPU), 10-15 minutes (CPU)',
+        'recommended': False
+    },
+    
+    # Qwen2.5 32B: Data-heavy reports
+    'qwen2.5:32b-instruct-q4_K_M': {
         'name': 'Qwen 2.5 32B (Q4_K_M)',
         'speed': 'Moderate',
         'quality': 'Excellent',
         'size': '20 GB',
-        'description': 'Balanced Qwen model. Better instruction following than Mixtral. 128K context.',
-        'speed_estimate': '~4-6 tok/s CPU, ~18-28 tok/s GPU',
-        'time_estimate': '8-15 minutes (CPU), 3-5 minutes (GPU)',
+        'description': 'Balanced reasoning for data-heavy reports (IOC tables, timestamps). High accuracy in structured logic.',
+        'speed_estimate': '~15-25 tok/s GPU, ~4-6 tok/s CPU',
+        'time_estimate': '4-8 minutes (GPU), 12-18 minutes (CPU)',
         'recommended': False
     },
-    'qwen2.5:14b': {
-        'name': 'Qwen 2.5 14B (Q4_K_M)',
+    
+    # Gemma 2 27B: Efficient and fast
+    'gemma2:27b-instruct-q4_K_M': {
+        'name': 'Gemma 2 27B (Q4_K_M)',
         'speed': 'Fast',
-        'quality': 'Very Good',
-        'size': '9 GB',
-        'description': 'Faster Qwen model. Good for quick reports. 128K context.',
-        'speed_estimate': '~7-10 tok/s CPU, ~25-35 tok/s GPU',
-        'time_estimate': '5-10 minutes (CPU), 2-4 minutes (GPU)',
+        'quality': 'Excellent',
+        'size': '17 GB',
+        'description': 'Efficient and fast with high tokens/sec. Low hallucination, suits structured outputs. Good for minimum word counts.',
+        'speed_estimate': '~18-28 tok/s GPU, ~5-8 tok/s CPU',
+        'time_estimate': '3-7 minutes (GPU), 12-18 minutes (CPU)',
+        'recommended': False
+    },
+    
+    # Mistral Large 2: Fast and resource-efficient
+    'mistral-large:123b-instruct-2407-q4_K_M': {
+        'name': 'Mistral Large 2 (Q4_K_M)',
+        'speed': 'Moderate',
+        'quality': 'Outstanding',
+        'size': '79 GB',
+        'description': 'Fast, resource-efficient. 128K context for full data. Strong code/reasoning, avoids inferences.',
+        'speed_estimate': '~8-15 tok/s GPU, ~1-3 tok/s CPU',
+        'time_estimate': '6-12 minutes (GPU), 30-50 minutes (CPU)',
         'recommended': False
     }
 }

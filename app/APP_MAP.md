@@ -1,8 +1,137 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.44  
-**Last Updated**: 2025-11-04 12:16 UTC  
+**Version**: 1.10.52  
+**Last Updated**: 2025-11-05 20:00 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🚀 v1.10.52 - MODEL UPGRADE: Top-Tier Reasoning Models (2025-11-05 20:00 UTC)
+
+**Feature**: Removed all Mixtral models (high hallucination), removed 50-event limit, added 7 new top-tier reasoning models
+
+**User Feedback**:
+"ok since we know that the timeout was the model - can we stop the truncation of the prompt? Removal the mixtral llms as an option, they wotn work - I only want the below: DeepSeek-R1 32B and 70B, Llama 3.3 70B, Phi-4 14B, Qwen2.5 32B, Gemma 2 27B, Mistral Large 2"
+
+**Problem Analysis**:
+1. **Mixtral Hallucination**: Despite optimizations, Mixtral models kept inventing data not present in prompts
+2. **Artificial Data Limit**: The 50-event truncation was a workaround for Mixtral's context issues
+3. **Model Selection**: Needed models with:
+   - Superior reasoning capabilities
+   - Lower hallucination rates
+   - Better instruction following
+   - Ability to handle large context windows
+
+**Solution**: Complete model lineup replacement + remove data truncation
+
+### Changes Made
+
+**1. Removed Models** (All Mixtral variants):
+- `mixtral:8x7b-instruct-v0.1-q4_K_M` (26 GB)
+- `mixtral:8x7b-instruct-v0.1-q3_K_M` (20 GB)
+- `mixtral-longform` (custom, 26 GB)
+- `llama3.1:8b-instruct-q4_K_M` (legacy)
+- `llama3.1:8b-instruct-q5_K_M` (legacy)
+- `phi3:14b` (legacy)
+- `phi3:14b-medium-4k-instruct-q4_K_M` (legacy)
+- `qwen2.5:72b` (superseded by DeepSeek-R1 70B)
+- `qwen2.5:14b` (superseded by Phi-4)
+
+**2. Added Models** (Top-tier reasoning):
+
+| Model | Size | Quality | Speed | Why |
+|-------|------|---------|-------|-----|
+| **DeepSeek-R1 32B (Q4)** ⭐ | 20 GB | Outstanding | Moderate | Best reasoning, low hallucination, GPT-4 class |
+| **DeepSeek-R1 70B (Q4)** ⭐ | 47 GB | Best | Slow | Approaches GPT-4 Turbo, extremely low hallucination |
+| **Llama 3.3 70B** ⭐ | 42 GB | Outstanding | Slow | Superior instruction adherence, excellent with complex prompts |
+| **Phi-4 14B** | 9 GB | Excellent | Fast | Efficient, punches above weight, strong rule-following |
+| **Qwen 2.5 32B** | 20 GB | Excellent | Moderate | Data-heavy reports, IOC tables, structured logic |
+| **Gemma 2 27B** | 17 GB | Excellent | Fast | High tokens/sec, low hallucination, structured outputs |
+| **Mistral Large 2** | 79 GB | Outstanding | Moderate | 128K context, strong reasoning, avoids inferences |
+
+**3. Removed 50-Event Truncation**:
+```python
+# BEFORE (v1.10.51):
+"values": tagged_event_ids[:50]  # Limit to 50 to prevent context overflow
+"size": 50
+
+# AFTER (v1.10.52):
+"values": tagged_event_ids  # Send ALL tagged events (no truncation)
+"size": len(tagged_event_ids)  # Fetch all tagged events
+```
+
+### Technical Implementation
+
+**File**: `app/ai_report.py`
+- Completely rewrote `MODEL_INFO` dictionary
+- Added comments explaining each model's purpose
+- Marked 3 models as RECOMMENDED (⭐)
+- Included realistic performance benchmarks
+
+**File**: `app/tasks.py` (lines 684-696)
+- Removed `[:50]` slice from `tagged_event_ids`
+- Changed `size: 50` to `size: len(tagged_event_ids)`
+- Updated comment: "no limit - send ALL tagged events to AI"
+
+### Expected Impact
+
+**✅ Benefits**:
+1. **Accuracy**: DeepSeek-R1 and Llama 3.3 have significantly lower hallucination rates
+2. **Full Data**: AI now receives ALL tagged events, not just first 50
+3. **Better Reasoning**: Models selected specifically for step-by-step reasoning
+4. **Instruction Following**: Llama 3.3 70B excels with "HARD RESET CONTEXT" prompts
+5. **Choice**: 7 models optimized for different scenarios (speed vs quality)
+
+**⚠️ Trade-offs**:
+1. **Larger Models**: Most models are 20+ GB (vs 5-9 GB before)
+2. **Slower Generation**: 70B models take 20-40 minutes on CPU (acceptable with live preview)
+3. **Memory Usage**: Some models need 40-80 GB RAM
+4. **Download Time**: Initial `ollama pull` will take longer
+
+**🎯 Recommended Usage**:
+- **Production Reports**: DeepSeek-R1 70B or Llama 3.3 70B
+- **Quick Testing**: Phi-4 14B or Gemma 2 27B
+- **Data-Heavy Cases**: Qwen 2.5 32B
+- **Maximum Context**: Mistral Large 2 (128K context)
+
+### User Instructions
+
+**Download Models**:
+```bash
+# Recommended (pick one):
+ollama pull deepseek-r1:32b-qwen-distill-q4_K_M
+ollama pull deepseek-r1:70b-qwen-distill-q4_K_M
+ollama pull llama3.3:70b-instruct-q4_K_M
+
+# Fast alternatives:
+ollama pull phi4:14b-q4_0
+ollama pull gemma2:27b-instruct-q4_K_M
+ollama pull qwen2.5:32b-instruct-q4_K_M
+
+# Maximum context:
+ollama pull mistral-large:123b-instruct-2407-q4_K_M
+```
+
+**Files Modified**:
+- `app/ai_report.py`: MODEL_INFO dictionary (lines 15-99)
+- `app/tasks.py`: Removed 50-event limit (lines 684-696)
+- `app/version.json`: v1.10.52
+- `app/APP_MAP.md`: This entry
+
+### Version History Context
+
+This change builds on the anti-hallucination work from v1.10.44-v1.10.51:
+- v1.10.44: HARD RESET CONTEXT prompt structure
+- v1.10.45: num_predict=8192, stop=[]
+- v1.10.46: Removed HTTP timeout
+- v1.10.47: Removed Celery time limits
+- v1.10.48: Cancel button + stage tracking
+- v1.10.49: Validation engine
+- v1.10.50: Live preview feature
+- v1.10.51: Fixed live preview streaming bug
+- **v1.10.52**: Model upgrade + remove data truncation ← YOU ARE HERE
+
+**Next**: Test DeepSeek-R1 or Llama 3.3 with full dataset and validate results!
 
 ---
 

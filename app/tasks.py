@@ -681,7 +681,7 @@ def generate_ai_report(self, report_id):
                     # Get event_ids for OpenSearch query
                     tagged_event_ids = [tag.event_id for tag in timeline_tags]
                     
-                    # Fetch full event data from OpenSearch (limit to 50 to prevent context overflow)
+                    # Fetch full event data from OpenSearch (no limit - send ALL tagged events to AI)
                     if len(tagged_event_ids) > 0:
                         # Build index pattern
                         index_pattern = f"case_{case.id}_*"
@@ -689,10 +689,10 @@ def generate_ai_report(self, report_id):
                         search_body = {
                             "query": {
                                 "ids": {
-                                    "values": tagged_event_ids[:50]  # Limit to 50 to prevent context overflow
+                                    "values": tagged_event_ids  # Send ALL tagged events (no truncation)
                                 }
                             },
-                            "size": 50,
+                            "size": len(tagged_event_ids),  # Fetch all tagged events
                             "sort": [{"timestamp": {"order": "asc", "unmapped_type": "date"}}]
                         }
                         
