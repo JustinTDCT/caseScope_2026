@@ -1,8 +1,192 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.74  
-**Last Updated**: 2025-11-05 21:30 UTC  
+**Version**: 1.10.75  
+**Last Updated**: 2025-11-05 22:10 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔧 v1.10.75 - CRITICAL FIX: OpenCTI Background Enrichment + Table Alignment (2025-11-05 22:10 UTC)
+
+**Issues Fixed**: Two critical bugs preventing OpenCTI enrichment and causing table misalignment
+
+### Issue 1: OpenCTI Background Enrichment NOT WORKING
+
+**Problem**:
+```
+RuntimeError: Working outside of application context
+- Background enrichment threads failing silently
+- Manual enrichment (🔍 button) failing with "Failed to fetch"
+- No error messages shown to user
+- IOCs not getting enriched from OpenCTI
+```
+
+**Root Cause**:
+Flask's `current_app` is a **thread-local proxy** that doesn't work in background threads:
+```python
+# BROKEN CODE:
+def background_enrichment():
+    with current_app.app_context():  # ❌ Proxy fails in new threads
+        enrich_from_opencti(ioc)     # Never runs
+```
+
+**The Fix** (`app/routes/ioc.py`):
+```python
+# WORKING CODE:
+from flask import current_app
+
+# Get the actual app object BEFORE starting thread
+app = current_app._get_current_object()  # ✅ Real app instance
+
+def background_enrichment():
+    with app.app_context():  # ✅ Works in background threads
+        try:
+            enrich_from_opencti(ioc)
+        except Exception as e:
+            logger.error(f"Background enrichment failed: {e}")
+```
+
+**Files Changed**:
+1. `app/routes/ioc.py` - Lines 92-122 (auto-enrichment on IOC add)
+2. `app/routes/ioc.py` - Lines 235-275 (manual enrichment via 🔍 button)
+3. `app/routes/ioc.py` - Lines 275-315 (manual DFIR-IRIS sync via 🔄 button)
+
+**Applied Pattern**: All 3 background thread functions now:
+- Get real app object with `current_app._get_current_object()`
+- Use `with app.app_context()` for database access
+- Include try/except with logging for debugging
+
+**Behavior After Fix**:
+- ✅ Background enrichment actually runs
+- ✅ Manual enrichment buttons work (instant response)
+- ✅ No "Failed to fetch" errors
+- ✅ CTI badges appear after 5-10 seconds
+- ✅ Comprehensive error logging
+
+---
+
+### Issue 2: Table Header Misalignment with Empty Cells
+
+**Problem**:
+```
+Table header separator line not aligned with row content
+- Only aligned when description had 2+ lines
+- Empty description cells collapsed
+- webkit-box display was causing the collapse
+```
+
+**Visual Issue**:
+```
+Header:  | TYPE | VALUE | DESCRIPTION | ...
+         |------|-------|-------------|
+Row:     | test | test2 |             |  ← Collapsed, causes misalignment
+Row:     | test | test3 | Line 1      |  ← Aligned properly (2 lines)
+                        | Line 2      |
+```
+
+**Root Cause**:
+The description cell was using `-webkit-box` with `-webkit-line-clamp`:
+```css
+/* BROKEN CSS: */
+display: -webkit-box;           /* Collapses when empty */
+-webkit-line-clamp: 3;          /* No content = 0 height */
+-webkit-box-orient: vertical;
+max-width: 120px;               /* Too narrow */
+```
+
+**The Fix** (`app/templates/ioc_management.html`):
+```html
+<!-- Line 96-102: Fixed description cell styling -->
+<td style="max-width: 200px;           /* Wider for readability */
+           word-break: break-word;      /* Wrap long text */
+           line-height: 1.4;
+           min-height: 40px;            /* ✅ Prevents collapse */
+           vertical-align: middle;"     /* ✅ Consistent alignment */
+    title="{{ ioc.description }}">
+    {{ ioc.description if ioc.description else '—' }}  <!-- ✅ Placeholder -->
+</td>
+```
+
+**Key Changes**:
+1. **Removed** `-webkit-box` display (was collapsing empty cells)
+2. **Added** `min-height: 40px` - prevents cell collapse
+3. **Added** `vertical-align: middle` - consistent row alignment
+4. **Added** `'—'` placeholder for empty descriptions
+5. **Increased** `max-width` from 120px to 200px
+
+**Also Fixed** (`app/templates/ioc_management.html`):
+```html
+<!-- Line 64: Proper card-body styling -->
+<div class="card-body">  <!-- Normal padding, not 0 -->
+    <div style="overflow-x: auto;">  <!-- Horizontal scroll -->
+        <table style="width: 100%; border-collapse: collapse;">
+```
+
+**Behavior After Fix**:
+- ✅ Table header always aligned with columns
+- ✅ Empty description cells show "—"
+- ✅ Consistent row heights
+- ✅ No cell collapse issues
+- ✅ Better text wrapping
+
+---
+
+### **⚠️ IMPORTANT: Pattern for Other Tables**
+
+**If you encounter table alignment issues in other parts of CaseScope:**
+
+#### Symptoms:
+- Header separator not aligned with columns
+- Alignment only works when cells have content
+- Empty cells cause rows to collapse
+
+#### Quick Fix Template:
+```html
+<td style="min-height: 40px;           /* Prevents collapse */
+           vertical-align: middle;      /* Consistent alignment */
+           word-break: break-word;">    /* Wrap text */
+    {{ field if field else '—' }}      <!-- Placeholder for empty -->
+</td>
+```
+
+#### Things to AVOID:
+- ❌ `display: -webkit-box` (collapses empty cells)
+- ❌ `-webkit-line-clamp` (needs content to work)
+- ❌ No placeholder for empty fields
+- ❌ `padding: 0` on card-body with tables
+
+#### Best Practices:
+- ✅ Always use `min-height` on cells
+- ✅ Always use `vertical-align: middle`
+- ✅ Always provide placeholders ('—' or 'N/A')
+- ✅ Use `word-break: break-word` for text wrapping
+- ✅ Use `border-collapse: collapse` on tables
+
+**Tables This Pattern Applies To**:
+- IOC Management (✅ Fixed)
+- Systems Management (may need checking)
+- Event Search Results (may need checking)
+- File Lists (may need checking)
+- SIGMA Violations (may need checking)
+
+---
+
+### Files Modified:
+
+**Backend**:
+- `app/routes/ioc.py` (92 lines changed)
+  - Fixed `background_enrichment()` - auto-enrichment
+  - Fixed `background_enrich()` - manual enrichment  
+  - Fixed `background_sync()` - DFIR-IRIS sync
+
+**Frontend**:
+- `app/templates/ioc_management.html` (15 lines changed)
+  - Fixed description cell styling (lines 96-102)
+  - Fixed table wrapper (lines 64-67)
+
+**Documentation**:
+- `app/version.json` - Updated to v1.10.75
+- `app/APP_MAP.md` - This comprehensive documentation
 
 ---
 
