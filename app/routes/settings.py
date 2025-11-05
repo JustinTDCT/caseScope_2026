@@ -1,5 +1,5 @@
 """System Settings Routes"""
-from flask import Blueprint, render_template, request, redirect, url_for, flash
+from flask import Blueprint, render_template, request, redirect, url_for, flash, Response, stream_with_context, jsonify
 from flask_login import login_required, current_user
 from functools import wraps
 from main import db, opensearch_client
@@ -218,7 +218,6 @@ def save():
 @admin_required
 def test_iris():
     """Test DFIR-IRIS connection"""
-    from flask import jsonify
     from dfir_iris import DFIRIrisClient
     
     url = request.json.get('url', '').strip()
