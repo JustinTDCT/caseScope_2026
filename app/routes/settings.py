@@ -101,10 +101,16 @@ def index():
     # Detect hardware for AI settings
     hardware_info = {'gpu': {'gpu_detected': False}, 'cpu': {'cpu_count': 0}}
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info("[Settings] Starting hardware detection...")
         from hardware_utils import get_hardware_status
         hardware_info = get_hardware_status()
+        logger.info(f"[Settings] Hardware detection complete: {hardware_info}")
     except Exception as e:
+        import traceback
         logger.error(f"[Settings] Hardware detection error: {e}")
+        logger.error(f"[Settings] Traceback: {traceback.format_exc()}")
     
     return render_template('settings.html',
                          dfir_iris_enabled=dfir_iris_enabled,
