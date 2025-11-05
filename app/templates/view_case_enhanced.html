@@ -778,12 +778,12 @@ function checkStatus(reportId) {
 }
 
 // ============================================================================
-// DELETE AI REPORT (Failed Reports Only)
+// DELETE AI REPORT (Failed & Cancelled Reports)
 // ============================================================================
 
 function deleteAIReport(reportId) {
     // Confirm deletion
-    if (!confirm('Are you sure you want to delete this failed report? This action cannot be undone.')) {
+    if (!confirm('Are you sure you want to delete this report? This action cannot be undone.')) {
         return;
     }
     
@@ -1088,6 +1088,15 @@ function loadAIReportsList() {
                             <span>❌ Failed</span>
                         </button>
                         <button onclick="deleteAIReport(${report.id})" class="btn btn-sm" style="background: var(--color-error); color: white; opacity: 0.8;" title="Delete this failed report">
+                            <span>🗑️ Delete</span>
+                        </button>
+                    `;
+                } else if (report.status === 'cancelled') {
+                    html += `
+                        <button class="btn btn-sm" style="background: var(--color-warning); color: white;" disabled>
+                            <span>⛔ Cancelled</span>
+                        </button>
+                        <button onclick="deleteAIReport(${report.id})" class="btn btn-sm" style="background: var(--color-warning); color: white; opacity: 0.8;" title="Delete this cancelled report">
                             <span>🗑️ Delete</span>
                         </button>
                     `;
