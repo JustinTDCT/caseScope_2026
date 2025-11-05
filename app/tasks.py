@@ -608,7 +608,7 @@ def generate_ai_report(self, report_id):
         dict: Status and results
     """
     from main import app, db, opensearch_client
-    from models import AIReport, Case, IOC, Config
+    from models import AIReport, Case, IOC, SystemSettings
     from ai_report import generate_case_report_prompt, generate_report_with_ollama, format_report_title, markdown_to_html
     from datetime import datetime
     import time
@@ -662,6 +662,11 @@ def generate_ai_report(self, report_id):
             
             iocs = IOC.query.filter_by(case_id=case.id).all()
             logger.info(f"[AI REPORT] Found {len(iocs)} IOCs")
+            
+            # Get systems for case (for improved AI context)
+            from models import System
+            systems = System.query.filter_by(case_id=case.id, hidden=False).all()
+            logger.info(f"[AI REPORT] Found {len(systems)} systems")
             
             # Get tagged events from OpenSearch (using TimelineTag table)
             # Limit to 50 events to prevent context window overflow (was 100)
@@ -724,8 +729,8 @@ def generate_ai_report(self, report_id):
             report.progress_message = f'Analyzing {len(iocs)} IOCs and {len(tagged_events)} tagged events...'
             db.session.commit()
             
-            prompt = generate_case_report_prompt(case, iocs, tagged_events)
-            logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters)")
+            prompt = generate_case_report_prompt(case, iocs, tagged_events, systems)
+            logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters) with {len(systems)} systems")
             
             # Store the prompt for debugging/review
             report.prompt_sent = prompt
@@ -746,8 +751,8 @@ def generate_ai_report(self, report_id):
             start_time = time.time()
             
             # Get hardware mode from config (default to CPU for safety)
-            hardware_mode_config = Config.query.filter_by(key='ai_hardware_mode').first()
-            hardware_mode = hardware_mode_config.value if hardware_mode_config else 'cpu'
+            hardware_mode_config = SystemSettings.query.filter_by(setting_key='ai_hardware_mode').first()
+            hardware_mode = hardware_mode_config.setting_value if hardware_mode_config else 'cpu'
             
             # Use the model specified in the report record (from database settings)
             # Pass report object, db session, and hardware mode for optimal performance

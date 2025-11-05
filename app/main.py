@@ -14,7 +14,7 @@ from opensearchpy import OpenSearch
 
 # Import config and models
 from config import Config
-from models import db, User, Case, CaseFile, SigmaRule, SigmaViolation, IOC, IOCMatch, SkippedFile, SystemSettings, TimelineTag, AIReport
+from models import db, User, Case, CaseFile, SigmaRule, SigmaViolation, IOC, IOCMatch, System, SkippedFile, SystemSettings, TimelineTag, AIReport
 from celery_app import celery_app
 
 # Setup logging using centralized configuration
@@ -52,6 +52,8 @@ opensearch_client = OpenSearch(
 # Register blueprints
 from routes.ioc import ioc_bp
 app.register_blueprint(ioc_bp)
+from routes.systems import systems_bp
+app.register_blueprint(systems_bp)
 from routes.files import files_bp
 from routes.cases import cases_bp
 from routes.api_stats import api_stats_bp

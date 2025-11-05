@@ -110,6 +110,50 @@ MODEL_INFO = {
         'recommended': False,
         'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
         'gpu_optimal': {'num_ctx': 32768, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
+    },
+    
+    # ===== OPTIMIZED FOR 8GB VRAM GPUs (Tesla P4, RTX 3060 8GB, etc.) =====
+    
+    # Phi-3 Mini: TOP CHOICE for factual extraction with low hallucination
+    'phi3:mini': {
+        'name': 'Phi-3 Mini 3.8B ⭐ BEST FOR 8GB VRAM',
+        'speed': 'Very Fast',
+        'quality': 'Excellent',
+        'size': '2.3 GB',
+        'description': '100% accuracy in extractive/structured tasks. LOWEST hallucination. Enterprise-grade for rule-strict DFIR reports. Excels at chronological timelines, no summarization. Perfect for 8GB VRAM systems without CPU offloading.',
+        'speed_estimate': '~25-35 tok/s GPU, ~10-15 tok/s CPU',
+        'time_estimate': '2-4 minutes (GPU), 8-12 minutes (CPU)',
+        'recommended': True,
+        'cpu_optimal': {'num_ctx': 4096, 'num_thread': 16, 'temperature': 0.1},
+        'gpu_optimal': {'num_ctx': 8192, 'num_thread': 6, 'temperature': 0.1, 'num_gpu_layers': -1}
+    },
+    
+    # Gemma 2 9B: Balanced entity extraction and structured outputs
+    'gemma2:9b': {
+        'name': 'Gemma 2 9B ✅ 8GB VRAM OPTIMIZED',
+        'speed': 'Fast',
+        'quality': 'Excellent',
+        'size': '5.5 GB',
+        'description': 'Excellent entity extraction (9.7/10 avg). Strong prompt adherence and structured JSON-like outputs. Balanced for report generation. Runs fully on 8GB VRAM without CPU offloading.',
+        'speed_estimate': '~20-30 tok/s GPU, ~8-12 tok/s CPU',
+        'time_estimate': '3-6 minutes (GPU), 10-15 minutes (CPU)',
+        'recommended': True,
+        'cpu_optimal': {'num_ctx': 6144, 'num_thread': 16, 'temperature': 0.1},
+        'gpu_optimal': {'num_ctx': 8192, 'num_thread': 8, 'temperature': 0.1, 'num_gpu_layers': -1}
+    },
+    
+    # Qwen 2.5 7B: Strong reasoning for data-heavy reports
+    'qwen2.5:7b': {
+        'name': 'Qwen 2.5 7B ⭐ RECOMMENDED FOR DFIR',
+        'speed': 'Fast',
+        'quality': 'Excellent',
+        'size': '4.7 GB',
+        'description': 'Constrained reasoning (95.9% on math benchmarks). Excellent for data-heavy reports with IOC tables and timestamps. LOW HALLUCINATION for factual extraction. Runs fully on 8GB VRAM without CPU offloading.',
+        'speed_estimate': '~22-32 tok/s GPU, ~9-14 tok/s CPU',
+        'time_estimate': '3-5 minutes (GPU), 9-13 minutes (CPU)',
+        'recommended': True,
+        'cpu_optimal': {'num_ctx': 6144, 'num_thread': 16, 'temperature': 0.1},
+        'gpu_optimal': {'num_ctx': 8192, 'num_thread': 8, 'temperature': 0.1, 'num_gpu_layers': -1}
     }
 }
 
@@ -209,7 +253,7 @@ def check_ollama_status():
         }
 
 
-def generate_case_report_prompt(case, iocs, tagged_events):
+def generate_case_report_prompt(case, iocs, tagged_events, systems=None):
     """
     Build the prompt for AI report generation using HARD RESET structure to prevent hallucination
     
@@ -217,10 +261,14 @@ def generate_case_report_prompt(case, iocs, tagged_events):
         case: Case object
         iocs: List of IOC objects
         tagged_events: List of tagged event dicts from OpenSearch
+        systems: List of System objects (optional, for improved context)
         
     Returns:
         str: Formatted prompt for the LLM with strict data boundaries
     """
+    
+    if systems is None:
+        systems = []
     
     # Build the prompt with HARD RESET CONTEXT structure
     prompt = f"""HARD RESET CONTEXT.
@@ -276,6 +324,23 @@ Investigation Date: {case.created_at.strftime('%Y-%m-%d') if case.created_at els
         prompt += "\n"
     else:
         prompt += "INDICATORS OF COMPROMISE: None defined\n\n"
+    
+    # Add systems in simple format (for AI context)
+    if systems:
+        prompt += f"SYSTEMS IDENTIFIED ({len(systems)} total):\n"
+        for system in systems:
+            system_type_label = {
+                'server': '🖥️ Server',
+                'workstation': '💻 Workstation',
+                'firewall': '🔥 Firewall',
+                'switch': '🔀 Switch',
+                'printer': '🖨️ Printer',
+                'actor_system': '⚠️ Actor System'
+            }.get(system.system_type, system.system_type)
+            prompt += f"- System: {system.system_name} | Type: {system_type_label} | Added By: {system.added_by}\n"
+        prompt += "\n"
+    else:
+        prompt += "SYSTEMS IDENTIFIED: None found (run 'Find Systems' to auto-discover)\n\n"
     
     # Add tagged events in simple format (CSV-like)
     if tagged_events:
@@ -405,6 +470,17 @@ def generate_report_with_ollama(prompt, model='deepseek-r1:32b', hardware_mode='
                         # Get prompt eval count (only in first chunk)
                         if 'prompt_eval_count' in chunk and prompt_eval_count == 0:
                             prompt_eval_count = chunk.get('prompt_eval_count', 0)
+                        
+                        # CRITICAL: Check for cancellation every 10 tokens during streaming
+                        if tokens_generated % 10 == 0 and report_obj and db_session:
+                            try:
+                                db_session.refresh(report_obj)
+                                if report_obj.status == 'cancelled':
+                                    logger.info(f"[AI] Report {report_obj.id} cancelled during streaming (at {tokens_generated} tokens)")
+                                    response.close()  # Close the streaming connection
+                                    return False, {'error': 'Report generation was cancelled by user'}
+                            except Exception as e:
+                                logger.warning(f"[AI] Failed to check cancellation status: {e}")
                         
                         # Update database every 50 tokens (real-time feedback)
                         current_time = time.time()

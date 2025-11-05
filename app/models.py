@@ -163,6 +163,35 @@ class IOCMatch(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class System(db.Model):
+    """Systems identified in case (servers, workstations, firewalls, etc.)"""
+    __tablename__ = 'system'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    system_name = db.Column(db.String(255), nullable=False, index=True)
+    system_type = db.Column(db.String(50), nullable=False, default='workstation')  # server, workstation, firewall, switch, printer, actor_system
+    
+    # User tracking
+    added_by = db.Column(db.String(100), default='CaseScope')  # username or 'CaseScope' for auto-detection
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Visibility control
+    hidden = db.Column(db.Boolean, default=False)
+    
+    # OpenCTI integration
+    opencti_enrichment = db.Column(db.Text)  # JSON: enriched data from OpenCTI
+    opencti_enriched_at = db.Column(db.DateTime)
+    
+    # DFIR-IRIS integration
+    dfir_iris_synced = db.Column(db.Boolean, default=False)
+    dfir_iris_sync_date = db.Column(db.DateTime)
+    dfir_iris_asset_id = db.Column(db.String(100))  # DFIR-IRIS Asset ID
+    
+    # Unique constraint: one system name per case
+    __table_args__ = (db.UniqueConstraint('case_id', 'system_name', name='_case_system_uc'),)
+
+
 class SkippedFile(db.Model):
     """Files skipped during upload (duplicates, 0-events, etc.)"""
     __tablename__ = 'skipped_file'
