@@ -93,15 +93,13 @@
                                     {{ ioc.ioc_value }}
                                 </code>
                             </td>
-                            <td style="max-width: 120px; 
-                                       display: -webkit-box; 
-                                       -webkit-line-clamp: 3; 
-                                       -webkit-box-orient: vertical; 
-                                       overflow: hidden; 
+                            <td style="max-width: 200px; 
                                        word-break: break-word; 
-                                       line-height: 1.4;"
+                                       line-height: 1.4;
+                                       min-height: 40px;
+                                       vertical-align: middle;"
                                 title="{{ ioc.description }}">
-                                {{ ioc.description }}
+                                {{ ioc.description if ioc.description else '—' }}
                             </td>
                             <td>
                                 <span class="status-badge {% if ioc.threat_level == 'critical' %}status-failed{% elif ioc.threat_level == 'high' %}status-indexing{% elif ioc.threat_level == 'medium' %}status-sigma{% else %}status-completed{% endif %}">
