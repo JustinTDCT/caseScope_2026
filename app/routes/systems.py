@@ -17,24 +17,59 @@ logger = logging.getLogger(__name__)
 @systems_bp.route('/case/<int:case_id>/systems')
 @login_required
 def systems_management(case_id):
-    """Systems Management page for a case"""
+    """Systems Management page for a case with pagination and sorting"""
     from main import db
     from models import Case, System, SystemSettings
+    from flask import request
     
     case = db.session.get(Case, case_id)
     if not case:
         flash('Case not found', 'error')
         return redirect(url_for('dashboard'))
     
-    # Get all systems for this case
-    systems = System.query.filter_by(case_id=case_id).order_by(System.created_at.desc()).all()
+    # Get pagination and sorting parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    sort_field = request.args.get('sort', 'system_name')
+    sort_order = request.args.get('order', 'asc')
+    
+    # Build query
+    query = System.query.filter_by(case_id=case_id)
+    
+    # Apply sorting
+    if sort_field == 'system_name':
+        if sort_order == 'asc':
+            query = query.order_by(System.system_name.asc())
+        else:
+            query = query.order_by(System.system_name.desc())
+    elif sort_field == 'system_type':
+        if sort_order == 'asc':
+            query = query.order_by(System.system_type.asc(), System.system_name.asc())
+        else:
+            query = query.order_by(System.system_type.desc(), System.system_name.asc())
+    elif sort_field == 'created_at':
+        if sort_order == 'asc':
+            query = query.order_by(System.created_at.asc())
+        else:
+            query = query.order_by(System.created_at.desc())
+    elif sort_field == 'added_by':
+        if sort_order == 'asc':
+            query = query.order_by(System.added_by.asc(), System.system_name.asc())
+        else:
+            query = query.order_by(System.added_by.desc(), System.system_name.asc())
+    
+    # Paginate
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    systems = pagination.items
+    total_count = pagination.total
+    total_pages = pagination.pages
     
     # Get system settings for integrations
     opencti_enabled = SystemSettings.query.filter_by(setting_key='opencti_enabled').first()
     dfir_iris_enabled = SystemSettings.query.filter_by(setting_key='dfir_iris_enabled').first()
     dfir_iris_auto_sync = SystemSettings.query.filter_by(setting_key='dfir_iris_auto_sync').first()
     
-    # Get stats
+    # Get stats (all systems, not just current page)
     stats = {
         'servers': System.query.filter_by(case_id=case_id, system_type='server', hidden=False).count(),
         'workstations': System.query.filter_by(case_id=case_id, system_type='workstation', hidden=False).count(),
@@ -50,6 +85,12 @@ def systems_management(case_id):
                          case=case,
                          systems=systems,
                          stats=stats,
+                         page=page,
+                         per_page=per_page,
+                         total_count=total_count,
+                         total_pages=total_pages,
+                         sort_field=sort_field,
+                         sort_order=sort_order,
                          opencti_enabled=(opencti_enabled.setting_value == 'true' if opencti_enabled else False),
                          dfir_iris_enabled=(dfir_iris_enabled.setting_value == 'true' if dfir_iris_enabled else False),
                          dfir_iris_auto_sync=(dfir_iris_auto_sync.setting_value == 'true' if dfir_iris_auto_sync else False))
