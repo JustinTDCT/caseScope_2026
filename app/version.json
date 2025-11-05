@@ -1,9 +1,10 @@
 {
-  "version": "1.10.70",
+  "version": "1.10.71",
   "release_date": "2025-11-05",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "💻 Systems Management Standalone Page - Dedicated full-page interface like IOC Management (v1.10.71)",
     "💻 Systems Discovery & Management - Auto-discover and categorize systems (servers, workstations, firewalls, etc.) for improved AI context (v1.10.70)",
     "\ud83d\uddd1\ufe0f Delete Button for Failed & Cancelled Reports - Clean up failed and cancelled AI reports (v1.10.57)",
     "\ud83d\udd04 Update All Models Button - Real-time progress for updating all installed models (v1.10.55)",
