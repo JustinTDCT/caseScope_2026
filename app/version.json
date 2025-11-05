@@ -1,9 +1,10 @@
 {
-  "version": "1.10.76",
+  "version": "1.10.77",
   "release_date": "2025-11-05",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "⚡ PERFORMANCE FIX: OpenSearch Circuit Breaker - Increased limit from 85% to 95% to prevent memory errors during bulk operations (v1.10.77)",
     "🐛 CRITICAL FIX: IOC Hunting Crash During File Upload - Fixed batch_size indentation causing uploads to fail (v1.10.76)",
     "🔧 CRITICAL FIX: OpenCTI Background Enrichment + Table Alignment - Fixed Flask app context in threads & empty cell collapse (v1.10.75)",
     "🗑️ Bulk Actions for Hidden Files - Select and bulk unhide or delete hidden files with confirmation (v1.10.74)",

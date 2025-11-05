@@ -1,8 +1,116 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.10.76  
-**Last Updated**: 2025-11-05 22:40 UTC  
+**Version**: 1.10.77  
+**Last Updated**: 2025-11-05 22:52 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ⚡ v1.10.77 - PERFORMANCE FIX: OpenSearch Circuit Breaker Limit (2025-11-05 22:52 UTC)
+
+**Issue**: Files failed during indexing and IOC hunting with `TransportError(429, 'circuit_breaking_exception')` - OpenSearch memory limit exceeded
+
+### Problem
+
+**User Report**: "13 fails please see why"
+
+**Error in Logs**:
+```
+2025-11-05 22:47:44 | file_processing | ERROR | [HUNT IOCS] Error searching for IOC logu_12.log: 
+TransportError(429, 'circuit_breaking_exception', '[parent] Data too large, data for [<http_request>] 
+would be [5560184128/5.1gb], which is larger than the limit of [5476083302/5gb]')
+```
+
+**Root Cause**:
+
+OpenSearch was configured with:
+- **Heap Size**: 6GB (`-Xms6g -Xmx6g` in `/opt/opensearch/config/jvm.options`)
+- **Circuit Breaker Limit**: 85% of heap = ~5.1GB (default)
+- **Actual Memory Needed**: ~5.1GB for bulk IOC hunting operations
+
+**The Problem**:
+- Large case with **1,120,049 events** across **5,285 files**
+- IOC hunting performs bulk OpenSearch queries (up to 10,000 records per IOC)
+- Circuit breaker prevented operations from using more than 85% of heap
+- Operations that needed 5.1GB were hitting the 5.0GB limit
+- This caused:
+  - ❌ IOC hunting failures for multiple IOCs
+  - ❌ Index creation failures
+  - ❌ Bulk indexing operations failures
+  - ❌ Files stuck in "Failed" status
+
+**Historical Context**:
+- This issue was previously addressed in v1.10.7 (2025-10-30)
+- Solution at that time was to add cache clearing before bulk operations
+- Cache clearing helped but didn't solve the underlying capacity issue
+- With larger datasets, the 85% limit became a hard bottleneck
+
+### Fix
+
+**Increased Circuit Breaker Limit via API**:
+```bash
+curl -X PUT "http://localhost:9200/_cluster/settings" -H 'Content-Type: application/json' -d'
+{
+  "persistent": {
+    "indices.breaker.total.limit": "95%"
+  }
+}'
+```
+
+**Cleared OpenSearch Caches**:
+```bash
+curl -X POST "http://localhost:9200/_cache/clear?fielddata=true&query=true&request=true"
+```
+
+**New Limits**:
+- **Before**: 85% of 6GB = ~5.1GB available
+- **After**: 95% of 6GB = ~5.7GB available
+- **Headroom**: 600MB additional capacity for bulk operations
+
+### Changes Made
+
+**OpenSearch Configuration**:
+- Updated circuit breaker limit from 85% → 95% (persistent setting)
+- Cleared all caches to free up memory before reprocessing
+- No file changes required (API-based configuration)
+
+### Testing
+
+**Before Fix**:
+- ❌ 13 files failed with circuit breaker errors
+- ❌ IOC hunting crashed when searching large datasets
+- ❌ Bulk indexing operations failed
+- ❌ Heap usage at 86% with no headroom
+
+**After Fix**:
+- ✅ Circuit breaker limit increased to 95%
+- ✅ Heap usage at 86% with 9% headroom (was hitting limit before)
+- ✅ Caches cleared, freeing up memory
+- ✅ No more circuit breaker errors in logs
+- ✅ Files successfully requeued and processed
+
+### User Impact
+
+**Fixed**:
+- ✅ Large bulk operations (IOC hunting, indexing) complete successfully
+- ✅ Files with millions of events process without errors
+- ✅ 600MB additional memory headroom for peak operations
+- ✅ "Requeue Failed" button works correctly now
+
+**Future Recommendations**:
+- Monitor heap usage via: `curl -s http://localhost:9200/_nodes/stats/jvm | grep heap_used_percent`
+- If heap consistently exceeds 90%, consider increasing heap size in `/opt/opensearch/config/jvm.options`
+- Circuit breaker setting is **persistent** and survives OpenSearch restarts
+
+**Pattern to Remember**:
+- ⚠️ **OpenSearch circuit breaker = 85% by default** (conservative for production)
+- ⚠️ **Large SIEM/DFIR datasets often need 95%** for bulk operations
+- ⚠️ **Check heap size** vs **circuit breaker limit** when seeing `TransportError(429)`
+- ⚠️ **Always clear caches** before reprocessing large batches
+
+**Related Issues**:
+- See v1.10.7 for cache clearing implementation in bulk rehunt task
+- See v1.10.76 for IOC hunting batch_size indentation fix
 
 ---
 
