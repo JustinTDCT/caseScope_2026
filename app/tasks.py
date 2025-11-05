@@ -669,9 +669,9 @@ def generate_ai_report(self, report_id):
             logger.info(f"[AI REPORT] Found {len(systems)} systems")
             
             # Get tagged events from OpenSearch (using TimelineTag table)
-            # Limit to 50 events to prevent context window overflow (was 100)
+            # NO LIMIT - Send ALL tagged events to AI (full context for better accuracy)
             report.progress_percent = 30
-            report.progress_message = 'Fetching top 50 tagged events from database...'
+            report.progress_message = 'Fetching ALL tagged events from database...'
             db.session.commit()
             
             tagged_events = []
