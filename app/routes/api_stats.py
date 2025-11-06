@@ -64,6 +64,12 @@ def case_stats(case_id):
         case_id=case_id, is_active=True
     ).count()
     
+    # Total systems identified
+    from main import System
+    total_systems = db.session.query(System).filter_by(
+        case_id=case_id, hidden=False
+    ).count()
+    
     return jsonify({
         'success': True,
         'file_stats': {
@@ -73,10 +79,11 @@ def case_stats(case_id):
             'disk_space_mb': disk_space_mb
         },
         'event_stats': {
-            'total_events': total_events,
-            'total_sigma': total_sigma,
-            'total_ioc_events': total_ioc_events,
-            'total_iocs': total_iocs
+            'total_events': int(total_events),
+            'total_sigma': int(total_sigma),
+            'total_ioc_events': int(total_ioc_events),
+            'total_iocs': total_iocs,
+            'total_systems': total_systems
         }
     })
 

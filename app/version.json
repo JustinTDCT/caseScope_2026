@@ -1,9 +1,10 @@
 {
-  "version": "1.11.0",
+  "version": "1.11.1",
   "release_date": "2025-11-06",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "🐛 CRITICAL FIX: PostgreSQL Decimal Formatting - Fixed comma formatting disappearing after auto-refresh due to JSON string serialization (v1.11.1)",
     "🔄 MAJOR UPGRADE: SQLite → PostgreSQL 16 Migration - Production-grade database with connection pooling, no locking, 3-4x faster bulk operations (v1.11.0)",
     "⚡ PERFORMANCE: OpenSearch Heap Increased to 8GB - Upgraded from 6GB to 8GB for large dataset processing (v1.10.79)",
     "⚡ PERFORMANCE FIX: OpenSearch Client Timeout - Increased from 10s to 60s to prevent bulk indexing timeouts (v1.10.78)",

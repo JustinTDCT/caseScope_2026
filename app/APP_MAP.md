@@ -1,8 +1,176 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.11.0  
-**Last Updated**: 2025-11-06 01:10 UTC  
+**Version**: 1.11.1  
+**Last Updated**: 2025-11-06 02:05 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.11.1 - CRITICAL FIX: PostgreSQL Decimal Formatting in JSON APIs (2025-11-06 02:05 UTC)
+
+**Issue**: Comma formatting in large numbers (e.g., "6,059,668") disappeared after 3-second auto-refresh on Files page
+
+### Problem
+
+**User Report**: "we lost commas in the counts... they appeared then vanished again after a refresh (auto 3c one)"
+
+**Symptoms**:
+- ✅ Initial page load: `6,059,668` (commas present)
+- ❌ After 3s refresh: `6059668` (commas disappear)
+- ❌ Issue persisted even in fresh browser (not cache-related)
+
+**Root Cause - PostgreSQL Migration Side Effect**:
+
+When migrating from SQLite → PostgreSQL (v1.11.0), aggregate queries using `func.sum()` now return **PostgreSQL Decimal objects** instead of Python integers:
+
+```python
+# PostgreSQL aggregate query
+total_events = db.session.query(func.sum(CaseFile.event_count)).scalar() or 0
+# Returns: Decimal('6059668') instead of int(6059668)
+```
+
+**The Problem**:
+Flask's `jsonify()` serializes Decimals as **JSON strings**:
+```json
+{
+  "stats": {
+    "total_events": "6059668",  // ← STRING, not number!
+    "sigma_events": "69681"
+  }
+}
+```
+
+**JavaScript Failure**:
+```javascript
+// Frontend code (case_files.html line 892)
+totalEventsEl.textContent = data.stats.total_events.toLocaleString();
+
+// When total_events is a string:
+"6059668".toLocaleString()  // Returns: "6059668" (unchanged!)
+
+// When total_events is a number:
+6059668.toLocaleString()    // Returns: "6,059,668" ✅
+```
+
+**Why This Happened**:
+- SQLite's `func.sum()` returns native Python `int`
+- PostgreSQL's `func.sum()` returns `Decimal` for precision
+- Flask `jsonify()` + `Decimal` = **string serialization** (not number)
+- JavaScript `.toLocaleString()` on strings = no formatting
+
+### Fix
+
+**Converted all aggregate query results to `int()` before JSON serialization**:
+
+#### 1. File: `app/hidden_files.py` (Lines 267-270)
+
+```python
+def get_file_stats_with_hidden(db_session, case_id: int) -> Dict:
+    # ... aggregate queries ...
+    
+    return {
+        'total_files': total_files,
+        'visible_files': visible_files,
+        'hidden_files': hidden_files,
+        'total_space_bytes': int(total_space_bytes),  # ← Added int()
+        'total_events': int(total_events),            # ← Added int()
+        'sigma_events': int(sigma_events),            # ← Added int()
+        'ioc_events': int(ioc_events),                # ← Added int()
+        'files_completed': files_completed,
+        # ... rest of stats ...
+    }
+```
+
+**Used by**: `/case/<id>/status` endpoint (refreshes every 3s)
+
+#### 2. File: `app/routes/api_stats.py` (Lines 82-84)
+
+```python
+@api_stats_bp.route('/api/case/<int:case_id>/stats')
+@login_required
+def case_stats(case_id):
+    # ... aggregate queries ...
+    
+    return jsonify({
+        'success': True,
+        'file_stats': {
+            'total_files': total_files,
+            'indexed_files': indexed_files,
+            'processing_files': processing_files,
+            'disk_space_mb': disk_space_mb
+        },
+        'event_stats': {
+            'total_events': int(total_events),        # ← Added int()
+            'total_sigma': int(total_sigma),          # ← Added int()
+            'total_ioc_events': int(total_ioc_events),# ← Added int()
+            'total_iocs': total_iocs,
+            'total_systems': total_systems
+        }
+    })
+```
+
+**Used by**: Dashboard stats refresh (every 3s)
+
+### System-Wide Audit Results
+
+**All API endpoints checked** for `func.sum()` usage:
+
+✅ **Fixed (2 endpoints)**:
+- `/case/<id>/status` (main.py) → Uses `get_file_stats_with_hidden()` ✅
+- `/api/case/<id>/stats` (routes/api_stats.py) → Direct int() conversion ✅
+
+❌ **Not affected (no changes needed)**:
+- **Template routes** (`render_template()`) - Jinja2 `format` filter handles Decimals correctly
+- **`.count()` queries** - Return integers, not Decimals
+- **Direct column access** (e.g., `file.event_count`) - Already integers from DB schema
+- **Background tasks** (`file_processing.py`) - Store to DB only, not returned via API
+
+### Testing
+
+**Before Fix**:
+```
+Initial Load:  6,059,668 ✅
+After 3s:      6059668   ❌ (commas disappear)
+```
+
+**After Fix**:
+```
+Initial Load:  6,059,668 ✅
+After 3s:      6,059,668 ✅ (commas persist!)
+After 10s:     6,059,668 ✅
+After 30s:     6,059,668 ✅
+```
+
+**Verification**:
+- ✅ Tested on Files page (6M+ events)
+- ✅ Tested on Dashboard (system-wide stats)
+- ✅ Tested with fresh browser (not cache issue)
+- ✅ Auto-refresh preserves formatting
+
+### User Impact
+
+**Before**: Users saw confusing number formatting changes during live monitoring  
+**After**: Consistent comma formatting across all pages and all refresh cycles
+
+### Files Modified
+
+**Code Changes**:
+1. `/opt/casescope/app/hidden_files.py` - Lines 267-270 (int() conversion on return)
+2. `/opt/casescope/app/routes/api_stats.py` - Lines 82-84 (int() conversion on return)
+
+**Documentation**:
+3. `/opt/casescope/app/version.json` - Updated to v1.11.1
+4. `/opt/casescope/app/APP_MAP.md` - Added this section
+
+### Lessons Learned
+
+**PostgreSQL Migration Checklist**:
+- ✅ Schema compatibility (handled)
+- ✅ Data migration (handled)
+- ✅ Sequence creation (handled)
+- ⚠️ **Data type changes** (Decimal vs int) - **Fixed in v1.11.1**
+
+**Best Practice**: Always convert aggregate query results (`func.sum()`, `func.avg()`) to native Python types before JSON serialization when using PostgreSQL.
 
 ---
 
