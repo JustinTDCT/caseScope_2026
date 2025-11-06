@@ -380,16 +380,17 @@ function updateStatsTiles() {
         .then(data => {
             if (data.success) {
                 // Update file statistics
-                document.getElementById('stat-total-files').textContent = data.file_stats.total_files;
-                document.getElementById('stat-indexed-files').textContent = data.file_stats.indexed_files;
-                document.getElementById('stat-processing-files').textContent = data.file_stats.processing_files;
+                document.getElementById('stat-total-files').textContent = data.file_stats.total_files.toLocaleString();
+                document.getElementById('stat-indexed-files').textContent = data.file_stats.indexed_files.toLocaleString();
+                document.getElementById('stat-processing-files').textContent = data.file_stats.processing_files.toLocaleString();
                 document.getElementById('stat-disk-space').textContent = data.file_stats.disk_space_mb + ' MB';
                 
                 // Update event statistics
                 document.getElementById('stat-total-events').textContent = data.event_stats.total_events.toLocaleString();
                 document.getElementById('stat-total-sigma').textContent = data.event_stats.total_sigma.toLocaleString();
                 document.getElementById('stat-total-ioc-events').textContent = data.event_stats.total_ioc_events.toLocaleString();
-                document.getElementById('stat-total-iocs').textContent = data.event_stats.total_iocs;
+                document.getElementById('stat-total-iocs').textContent = data.event_stats.total_iocs.toLocaleString();
+                document.getElementById('stat-total-systems').textContent = data.event_stats.total_systems.toLocaleString();
             }
         })
         .catch(err => console.error('Stats update failed:', err));
