@@ -351,14 +351,14 @@ function updateStatuses() {
                 
                 const sigmaCell = row.querySelector('.sigma-count');
                 if (file.violation_count > 0) {
-                    sigmaCell.innerHTML = `<span class="status-badge status-sigma">${file.violation_count}</span>`;
+                    sigmaCell.innerHTML = `<span class="status-badge status-sigma">${file.violation_count.toLocaleString()}</span>`;
                 } else {
                     sigmaCell.innerHTML = '<span class="text-muted">0</span>';
                 }
                 
                 const iocCell = row.querySelector('.ioc-count');
                 if (file.ioc_event_count > 0) {
-                    iocCell.innerHTML = `<span class="status-badge status-ioc">${file.ioc_event_count}</span>`;
+                    iocCell.innerHTML = `<span class="status-badge status-ioc">${file.ioc_event_count.toLocaleString()}</span>`;
                 } else {
                     iocCell.innerHTML = '<span class="text-muted">0</span>';
                 }
