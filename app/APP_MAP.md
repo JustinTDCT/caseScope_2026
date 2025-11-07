@@ -1,8 +1,377 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.11.15  
-**Last Updated**: 2025-11-07 23:00 UTC  
+**Version**: 1.11.17  
+**Last Updated**: 2025-11-07 23:45 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🧹 v1.11.17 - CLEANUP: Settings Page Model List (2025-11-07 23:45 UTC)
+
+**Change**: Removed old model references from settings page and updated default models to reflect the 4 DFIR-optimized models.
+
+### 1. Problem Statement
+
+**User Request**: "remove models from the settings page which i did not list above"
+
+**Issue**: After replacing the 13 old AI models with 4 DFIR-optimized models in `ai_report.py` (v1.11.15), several files still referenced old models:
+- **routes/settings.py**: Default model was `deepseek-r1:32b` (old, deleted model)
+- **templates/settings.html**: Referenced "Phi-3 14B" in UI text and error messages
+- **main.py**: Default model fallback was `phi3:14b` (old, deleted model)
+
+### 2. Changes Made
+
+#### File: `routes/settings.py`
+
+**Lines Changed**:
+- Line 65: Default model `deepseek-r1:32b` → `llama3.1:8b-instruct-q4_K_M`
+- Line 193: Default model `deepseek-r1:32b` → `llama3.1:8b-instruct-q4_K_M`
+
+**Before**:
+```python
+ai_model_name = get_setting('ai_model_name', 'deepseek-r1:32b')
+```
+
+**After**:
+```python
+ai_model_name = get_setting('ai_model_name', 'llama3.1:8b-instruct-q4_K_M')
+```
+
+#### File: `templates/settings.html`
+
+**Lines Changed**:
+- Line 287: "Phi-3 14B via Ollama" → "DFIR-Optimized models via Ollama"
+- Lines 302-306: Removed "Phi-3 14B Model" status check, replaced with generic "Installed Models" count
+- Lines 309-311: Updated example command from `ollama pull phi3:14b` → `ollama pull llama3.1:8b-instruct-q4_K_M`
+- Lines 516-526: Updated "Performance Information" section to reflect DFIR-optimized models
+
+**Before** (line 287):
+```html
+Generate automated DFIR reports using local AI (Phi-3 14B via Ollama)
+```
+
+**After** (line 287):
+```html
+Generate automated DFIR reports using local AI (DFIR-Optimized models via Ollama)
+```
+
+**Before** (lines 302-306):
+```html
+<li><strong>Phi-3 14B Model:</strong> {% if ai_status.model_available %}✅ Available{% else %}❌ Not found{% endif %}</li>
+{% if ai_status.models %}
+<li><strong>Installed Models:</strong> {{ ai_status.models|join(', ') }}</li>
+{% endif %}
+```
+
+**After** (lines 302-306):
+```html
+{% if ai_status.models %}
+<li><strong>Installed Models ({{ ai_status.models|length }}):</strong> {{ ai_status.models|join(', ') }}</li>
+{% else %}
+<li><strong>Models:</strong> ❌ No models installed</li>
+{% endif %}
+```
+
+**Before** (lines 519-524):
+```html
+<li><strong>Generation Time:</strong> 3-5 minutes average (depends on CPU cores and case complexity)</li>
+<li><strong>Processing:</strong> Runs on CPU only (no GPU required)</li>
+<li><strong>Privacy:</strong> 100% local - no data sent to external services</li>
+<li><strong>Cost:</strong> $0 - completely free and self-hosted</li>
+<li><strong>Quality:</strong> GPT-3.5 level analysis for DFIR investigations</li>
+```
+
+**After** (lines 520-525):
+```html
+<li><strong>Generation Time:</strong> 3-5 minutes average for 8GB models (GPU), 10-15 minutes (CPU)</li>
+<li><strong>Processing:</strong> GPU-optimized (8GB VRAM) or CPU fallback mode</li>
+<li><strong>Privacy:</strong> 100% local - no data sent to external services</li>
+<li><strong>Cost:</strong> $0 - completely free and self-hosted</li>
+<li><strong>Quality:</strong> Specialized DFIR models for timeline reconstruction, IOC analysis, and MITRE ATT&CK mapping</li>
+<li><strong>Models:</strong> 4 DFIR-specialized models (Llama 3.1 8B, Mistral 7B, DeepSeek-Coder V2 16B Lite, Qwen 2.5 7B) — ~24GB total disk space</li>
+```
+
+#### File: `main.py`
+
+**Lines Changed**:
+- Line 724: Default model `phi3:14b` → `llama3.1:8b-instruct-q4_K_M`
+
+**Before**:
+```python
+model_name=get_setting('ai_model_name', 'phi3:14b'),
+```
+
+**After**:
+```python
+model_name=get_setting('ai_model_name', 'llama3.1:8b-instruct-q4_K_M'),
+```
+
+### 3. Model List Display
+
+**How It Works**:
+The settings page dynamically generates the model list from `MODEL_INFO` in `ai_report.py`:
+
+1. **routes/settings.py** (lines 86-108):
+   ```python
+   for model_id, model_data in MODEL_INFO.items():
+       is_installed = model_id in installed_model_names
+       # ... build model card data
+       all_models.append({...})
+   ```
+
+2. **templates/settings.html** (lines 432-494):
+   ```html
+   {% for model in all_models %}
+   <label style="cursor: pointer;">
+       <input type="radio" name="ai_model_name" value="{{ model.name }}" ...>
+       <div class="model-card">
+           <h4>{{ model.display_name }}</h4>
+           <p>{{ model.description }}</p>
+           <!-- ... speed, quality, size, CPU offload % -->
+       </div>
+   </label>
+   {% endfor %}
+   ```
+
+**Result**: Since `MODEL_INFO` now only contains 4 DFIR-optimized models (v1.11.15), the settings page automatically displays only those 4 models. No hardcoded model lists exist.
+
+### 4. Benefits
+
+**Consistency**:
+- ✅ All default model references point to `llama3.1:8b-instruct-q4_K_M` (the recommended DFIR model)
+- ✅ No hardcoded references to deleted models (Phi-3, DeepSeek-R1, etc.)
+- ✅ Settings page dynamically reflects `MODEL_INFO` — single source of truth
+
+**User Experience**:
+- ✅ Users only see the 4 DFIR-optimized models in the settings page
+- ✅ Clear messaging about DFIR specialization (timeline reconstruction, IOC analysis, MITRE mapping)
+- ✅ Updated performance expectations (3-5 min GPU, 10-15 min CPU for 8B models)
+- ✅ Accurate disk space info (~24GB for all 4 models)
+
+**Maintenance**:
+- ✅ Future model changes only require updating `MODEL_INFO` in `ai_report.py`
+- ✅ Settings page auto-updates to reflect available models
+- ✅ No scattered model references across codebase
+
+### 5. Testing
+
+**Verification Steps**:
+1. Navigate to System Settings page (`/settings`)
+2. Scroll to "AI Report Generation" section
+3. Verify only 4 models are displayed:
+   - ⭐ Llama 3.1 8B Instruct (Q4) — RECOMMENDED
+   - Mistral 7B Instruct v0.3 (Q4)
+   - DeepSeek-Coder V2 16B Lite Instruct (Q4)
+   - Qwen 2.5 7B Instruct (Q4)
+4. Verify description says "DFIR-Optimized models via Ollama"
+5. Verify performance info mentions "DFIR-specialized models"
+6. Verify no references to old models (Phi-3, DeepSeek-R1, Llama 3.3, etc.)
+
+### 6. Files Changed
+
+1. **app/routes/settings.py** (2 changes):
+   - Line 65: Default model updated
+   - Line 193: Default model updated
+
+2. **app/templates/settings.html** (4 changes):
+   - Line 287: Updated header description
+   - Lines 302-306: Removed Phi-3 reference, added model count
+   - Lines 309-311: Updated example command
+   - Lines 516-526: Updated performance info section
+
+3. **app/main.py** (1 change):
+   - Line 724: Default model updated
+
+4. **app/version.json**: Version bumped to 1.11.17, added feature entry
+
+5. **app/APP_MAP.md**: Version bumped to 1.11.17, added this section
+
+### 7. Lessons Learned
+
+1. **Default Values Propagate**: When changing model names, check all `get_setting()` calls with default values to ensure they reference valid models.
+
+2. **UI Text Must Match Backend**: UI descriptions (e.g., "Phi-3 14B via Ollama") must be updated when backend model list changes to avoid user confusion.
+
+3. **Dynamic Lists Reduce Maintenance**: Using `MODEL_INFO` as a single source of truth for the settings page eliminates the need to update multiple hardcoded model lists.
+
+4. **Generic Messaging is Better**: Instead of hardcoding model names in UI text ("Phi-3 14B Model"), use generic messaging ("Installed Models") so UI doesn't break when models change.
+
+---
+
+## 📋 v1.11.16 - ENHANCEMENT: Enhanced AI Report Prompt with Strict Evidence & NIST Guidance (2025-11-07 23:15 UTC)
+
+**Change**: Complete overhaul of AI report generation prompt with enhanced DFIR-specific requirements.
+
+### 1. Problem Statement
+
+**User Request**: "adjust the AI prompt" - provided a comprehensive DFIR-optimized prompt with strict evidence requirements, detailed formatting rules, and NIST control guidance.
+
+**Previous Prompt Issues**:
+- Generic formatting rules (3-5 paragraphs vs. exactly 3)
+- No evidence citation requirements for timeline entries
+- Loose MITRE mapping (no consolidation or evidence references)
+- No NIST control framework integration
+- Missing IOC table column specifications
+- No self-check requirements before finalization
+
+### 2. New Prompt Enhancements
+
+**Evidence Requirements**:
+- Every timeline entry MUST include an "Evidence" line with event record ID, quoted fields, IOC name/value, and system/host
+- Format: `Evidence: <EventID/EventRecordID or unique reference + brief quoted field(s) from data>`
+
+**Strict Timeline Formatting**:
+```
+[TIMESTAMP or NO DATA PRESENT] — ACTION (concise)
+System: <hostname and/or IP from data or NO DATA PRESENT>
+User/Account: <from data or NO DATA PRESENT>
+IOC: <matched IOC value(s) or NO DATA PRESENT>
+Evidence: <EventID/EventRecordID or unique reference + brief quoted field(s) from data>
+MITRE: <TACTIC / TECHNIQUE ID + NAME or "MITRE not determinable from provided data">
+```
+
+**Executive Summary**:
+- Exactly 3 paragraphs (not 3-5)
+- Plain English explanation of what happened, sequence, and observed impact
+- If impact unclear: must write "Impact: NO DATA PRESENT"
+
+**IOC Table Columns** (explicit requirements):
+- Indicator | Type | Threat Level | Description | First Seen (if present) | Systems/Events Referencing (if identifiable)
+- Missing fields: write "NO DATA PRESENT" in that cell
+
+**MITRE Mapping** (Section D - Consolidated):
+- Provide ONLY techniques used in the timeline
+- Format: `TACTIC — T#### Name | Evidence references (timestamps/records)`
+- If none determinable: `"MITRE not determinable from provided data"`
+
+**Section E: What/Why/How to Prevent**:
+- **What happened**: 1 short paragraph, plain English, data-only
+- **Why it happened**: Identify control gaps ONLY if evidenced (missing MFA, weak/compromised creds, lack of monitoring). If not evidenced: "NO DATA PRESENT"
+- **How to prevent**: Specific, actionable recommendations aligned to NIST guidance using "Implement/verify" phrasing (not "lacked")
+
+**NIST Framework Integration**:
+- **NIST SP 800-63B**: MFA/2FA, memorized secret policies
+- **NIST SP 800-53**: AC-6 (least privilege), IA-2 (identification/authentication), AU-2/6/12 (audit/logging), IR-4/5 (incident response)
+- **NIST SP 800-61**: IR process
+- Controls: Strong password policies, MFA for VPN/RDP, privileged access management, centralized logging/EDR/MDR, network segmentation (only if logically address issues in data)
+
+**Self-Check Requirements**:
+- Remove any statement not directly supported by data; replace with "NO DATA PRESENT"
+- Confirm every timeline line has Evidence and MITRE (or explicit not-determinable phrase)
+
+### 3. Benefits
+
+**Forensic Rigor**:
+- ✅ Every timeline entry traceable to specific evidence (event IDs, IOC values, quoted fields)
+- ✅ No unsupported claims ("NO DATA PRESENT" for missing details)
+- ✅ MITRE techniques consolidated with evidence references
+- ✅ Self-check ensures completeness before finalization
+
+**NIST Compliance**:
+- ✅ Recommendations aligned to NIST SP 800-53, 800-61, 800-63B
+- ✅ Control gap analysis based on observed evidence
+- ✅ Actionable preventive controls with framework references
+
+**Report Quality**:
+- ✅ Consistent timeline formatting (exact 6-line structure per entry)
+- ✅ IOC table with all required columns
+- ✅ 3-paragraph executive summary (not 3-5)
+- ✅ 1200+ word minimum enforced
+
+**Fact Discipline**:
+- ✅ "NO DATA PRESENT" replaces assumptions
+- ✅ "MITRE not determinable from provided data" replaces guesses
+- ✅ No outside threat intel (only MITRE ATT&CK names/IDs)
+
+### 4. Files Changed
+
+**File**: `app/ai_report.py`
+
+**Changes**:
+1. **Function docstring** (lines 213-227): Updated to reflect "DFIR-optimized HARD RESET structure (v1.11.16)" with evidence requirements
+2. **Prompt header comment** (line 229): Updated to "(DFIR-Optimized v1.11.16)"
+3. **Prompt rules** (lines 230-348): Complete replacement with enhanced structure:
+   - **DATA SCOPE**: Explicit "NO DATA PRESENT" requirement
+   - **FACT DISCIPLINE**: No inventing, assuming, generalizing; MITRE ATT&CK only
+   - **OUTPUT SECTIONS**: A-E defined with strict requirements
+   - **TIMELINE CONSTRAINTS**: 6-line format per entry with Evidence + MITRE
+   - **EXECUTIVE SUMMARY**: Exactly 3 paragraphs
+   - **IOCs TABLE**: 6 required columns
+   - **MITRE MAPPING**: Consolidated techniques with evidence references
+   - **WHAT/WHY/HOW TO PREVENT**: NIST framework integration (SP 800-63B, 800-53, 800-61)
+   - **SELF-CHECK**: Pre-finalization validation steps
+
+**Before** (lines 230-258):
+- 10 simple rules
+- Generic formatting
+- No evidence requirements
+- No NIST integration
+
+**After** (lines 230-348):
+- ~120 lines of detailed DFIR-specific requirements
+- Strict timeline formatting (6-line structure)
+- Evidence citation mandatory
+- NIST SP 800-53/61/63B integration
+- Self-check requirements
+
+### 5. Example Timeline Entry Format
+
+**Before** (generic):
+```
+2024-01-15 10:30:00 - User logged in via VPN
+Computer: FIREWALL-01
+```
+
+**After** (DFIR-optimized with evidence):
+```
+[2024-01-15 10:30:00] — VPN authentication successful
+
+System: FIREWALL-01 (10.10.10.1)
+User/Account: john.doe@company.com
+IOC: NO DATA PRESENT
+Evidence: Event 4624 (RecordID: 12345), TargetUserName="john.doe@company.com", IpAddress="10.10.10.1", LogonType="10"
+MITRE: INITIAL ACCESS / T1078.001 Valid Accounts: Default Accounts
+```
+
+### 6. Testing
+
+**Verification**:
+1. ✅ Prompt length increased from ~30 lines to ~120 lines
+2. ✅ Evidence requirements added to timeline format
+3. ✅ NIST framework references integrated (SP 800-53, 800-61, 800-63B)
+4. ✅ Self-check requirements added before finalization
+5. ✅ "NO DATA PRESENT" replaces all missing data references
+6. ✅ MITRE consolidation with evidence references
+
+**Expected Results**:
+- AI reports will have consistent 6-line timeline format
+- Every timeline entry will include Evidence line (event IDs, quoted fields)
+- MITRE mapping will reference specific timestamps/records
+- Section E will include NIST SP 800-53/61/63B control recommendations
+- Reports will not make unsupported claims (replaced with "NO DATA PRESENT")
+
+### 7. User Impact
+
+**Positive**:
+- ✅ Higher forensic rigor (every claim traceable to evidence)
+- ✅ NIST-aligned recommendations for compliance
+- ✅ Consistent report formatting across all AI models
+- ✅ No hallucinations or unsupported claims
+- ✅ Better for court/legal review (evidence citations)
+
+**Neutral**:
+- Reports may be slightly longer due to Evidence lines
+- "NO DATA PRESENT" will appear frequently for incomplete datasets
+
+### 8. Lessons Learned
+
+1. **Evidence Citation is Critical**: DFIR reports must trace every claim to specific event IDs, IOC values, or quoted log fields for legal/court admissibility.
+
+2. **NIST Framework Provides Structure**: Referencing NIST SP 800-53/61/63B gives actionable, industry-standard recommendations aligned to established controls.
+
+3. **"NO DATA PRESENT" > Assumptions**: Explicitly stating missing data is more professional than guessing or inventing details.
+
+4. **Consolidated MITRE Mapping**: Listing techniques with evidence references (timestamps/records) makes reports more defensible and traceable.
 
 ---
 

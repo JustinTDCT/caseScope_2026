@@ -284,7 +284,7 @@
             <div class="card-header">
                 <h2 class="card-title">🤖 AI Report Generation</h2>
                 <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
-                    Generate automated DFIR reports using local AI (Phi-3 14B via Ollama)
+                    Generate automated DFIR reports using local AI (DFIR-Optimized models via Ollama)
                 </p>
             </div>
             
@@ -299,16 +299,17 @@
                     </div>
                     <ul style="margin: var(--spacing-xs) 0 0 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
                         <li><strong>Ollama:</strong> {% if ai_status.running %}✅ Running{% elif ai_status.installed %}⚠️ Installed but not running{% else %}❌ Not installed{% endif %}</li>
-                        <li><strong>Phi-3 14B Model:</strong> {% if ai_status.model_available %}✅ Available{% else %}❌ Not found{% endif %}</li>
                         {% if ai_status.models %}
-                        <li><strong>Installed Models:</strong> {{ ai_status.models|join(', ') }}</li>
+                        <li><strong>Installed Models ({{ ai_status.models|length }}):</strong> {{ ai_status.models|join(', ') }}</li>
+                        {% else %}
+                        <li><strong>Models:</strong> ❌ No models installed</li>
                         {% endif %}
                     </ul>
                     {% if not ai_status.running or not ai_status.model_available %}
                     <p style="margin: var(--spacing-sm) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
-                        ⚠️ <strong>To enable AI features:</strong> Install Ollama and pull the phi3:14b model
+                        ⚠️ <strong>To enable AI features:</strong> Install Ollama and pull a DFIR-optimized model
                         <br>
-                        <code style="background: var(--color-background); padding: 2px 6px; border-radius: 3px;">curl -fsSL https://ollama.com/install.sh | sh && ollama pull phi3:14b</code>
+                        <code style="background: var(--color-background); padding: 2px 6px; border-radius: 3px;">curl -fsSL https://ollama.com/install.sh | sh && ollama pull llama3.1:8b-instruct-q4_K_M</code>
                     </p>
                     {% endif %}
                     
@@ -513,14 +514,15 @@
                 <!-- AI Performance Info -->
                 <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-info); margin-top: var(--spacing-md);">
                     <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
-                        ⚡ Performance Information
+                        ⚡ DFIR-Optimized AI Models
                     </h3>
                     <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
-                        <li><strong>Generation Time:</strong> 3-5 minutes average (depends on CPU cores and case complexity)</li>
-                        <li><strong>Processing:</strong> Runs on CPU only (no GPU required)</li>
+                        <li><strong>Generation Time:</strong> 3-5 minutes average for 8GB models (GPU), 10-15 minutes (CPU)</li>
+                        <li><strong>Processing:</strong> GPU-optimized (8GB VRAM) or CPU fallback mode</li>
                         <li><strong>Privacy:</strong> 100% local - no data sent to external services</li>
                         <li><strong>Cost:</strong> $0 - completely free and self-hosted</li>
-                        <li><strong>Quality:</strong> GPT-3.5 level analysis for DFIR investigations</li>
+                        <li><strong>Quality:</strong> Specialized DFIR models for timeline reconstruction, IOC analysis, and MITRE ATT&CK mapping</li>
+                        <li><strong>Models:</strong> 4 DFIR-specialized models (Llama 3.1 8B, Mistral 7B, DeepSeek-Coder V2 16B Lite, Qwen 2.5 7B) — ~24GB total disk space</li>
                     </ul>
                 </div>
             </div>
