@@ -17,15 +17,15 @@ logger = get_logger('app')
 # All models fit in 7.5GB VRAM (Tesla P4). Total: ~24 GB disk space (was ~317 GB)
 # Model names verified against actual Ollama registry (2025-11-07)
 MODEL_INFO = {
-    # ===== DFIR-OPTIMIZED MODELS (Fits entirely in 7.5GB VRAM) =====
+    # ===== DFIR-OPTIMIZED MODELS WITH FORENSIC ANALYST PROFILES =====
     
-    # Llama 3.1 8B Instruct: General reasoning + summarization (DEFAULT/RECOMMENDED)
-    'llama3.1:8b-instruct-q4_K_M': {
-        'name': 'Llama 3.1 8B Instruct (Q4)',
+    # DFIR-Llama: General reasoning + summarization (DEFAULT/RECOMMENDED)
+    'dfir-llama:latest': {
+        'name': 'DFIR-Llama 3.1 8B (Forensic Profile)',
         'speed': 'Fast',
         'quality': 'Excellent',
         'size': '4.9 GB',
-        'description': 'Strong general reasoning + summarization → excellent timelines & plain-English exec summaries. Blends raw events + IOC lists into coherent narratives. Maps steps to ATT&CK. Great default brain. Runs fully on 7.5GB VRAM without CPU offloading.',
+        'description': 'DFIR-trained forensic analyst profile. Strong evidence discipline, timeline construction, MITRE mapping. No hallucinations. Excellent for general incident response. Runs fully on 7.5GB VRAM.',
         'speed_estimate': '~25-35 tok/s GPU (100% on-device), ~10-15 tok/s CPU',
         'time_estimate': '3-5 minutes (GPU), 10-15 minutes (CPU)',
         'recommended': True,
@@ -33,13 +33,13 @@ MODEL_INFO = {
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
-    # Mistral 7B Instruct: Short-to-mid context formatting
-    'mistral:7b-instruct-v0.3-q4_K_M': {
-        'name': 'Mistral 7B Instruct v0.3 (Q4)',
+    # DFIR-Mistral: Short-to-mid context formatting
+    'dfir-mistral:latest': {
+        'name': 'DFIR-Mistral 7B (Forensic Profile)',
         'speed': 'Fast',
         'quality': 'Excellent',
         'size': '4.4 GB',
-        'description': 'Efficient, sharp on short-to-mid contexts. Very reliable formatting (tables, bullet timelines). Chronological reconstruction from mixed EVTX/NDJSON/firewall rows. Terse, clear outputs. Runs fully on 7.5GB VRAM without CPU offloading.',
+        'description': 'DFIR-trained forensic analyst profile. Efficient chronological reconstruction. Reliable formatting (tables, timelines). Sharp on short-to-mid contexts. Runs fully on 7.5GB VRAM.',
         'speed_estimate': '~25-35 tok/s GPU (100% on-device), ~10-15 tok/s CPU',
         'time_estimate': '3-5 minutes (GPU), 10-15 minutes (CPU)',
         'recommended': True,
@@ -47,13 +47,13 @@ MODEL_INFO = {
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
-    # DeepSeek-Coder V2 16B Lite: Code/log savvy
-    'deepseek-coder-v2:16b-lite-instruct-q4_K_M': {
-        'name': 'DeepSeek-Coder V2 16B Lite Instruct (Q4)',
+    # DFIR-DeepSeek: Code/log/PowerShell expert
+    'dfir-deepseek:latest': {
+        'name': 'DFIR-DeepSeek-Coder 16B (Forensic Profile)',
         'speed': 'Moderate',
         'quality': 'Excellent',
         'size': '10 GB',
-        'description': 'Code/log savvy. Great at PowerShell decoding, regex extraction, and reasoning over event fields. De-obfuscation snippets + stitching log artifacts into causal chains. May use minor CPU offloading (~15%) on 7.5GB VRAM.',
+        'description': 'DFIR-trained forensic analyst profile specialized in script analysis. PowerShell decoding, obfuscation detection, command-line parsing. Excellent for script-heavy attacks. May use minor CPU offloading (~15%) on 7.5GB VRAM.',
         'speed_estimate': '~15-25 tok/s GPU (85% on-device, 15% CPU offload), ~8-12 tok/s CPU',
         'time_estimate': '5-8 minutes (GPU), 12-18 minutes (CPU)',
         'recommended': True,
@@ -61,13 +61,13 @@ MODEL_INFO = {
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # 16 threads for CPU offloading
     },
     
-    # Qwen 2.5 7B Instruct: Long lists and structured reasoning
-    'qwen2.5:7b': {
-        'name': 'Qwen 2.5 7B Instruct (Q4)',
+    # DFIR-Qwen: Long lists and low hallucination
+    'dfir-qwen:latest': {
+        'name': 'DFIR-Qwen 2.5 7B (Forensic Profile)',
         'speed': 'Fast',
         'quality': 'Excellent',
         'size': '4.7 GB',
-        'description': 'Strong structure and retrieval-style reasoning. Good with long lists (IOCs, hosts, IP notes). "Read these 300 events + IOC table and produce a timestamped timeline with MITRE tags." Constrained reasoning (95.9% on math benchmarks). LOW HALLUCINATION. Runs fully on 7.5GB VRAM without CPU offloading.',
+        'description': 'DFIR-trained forensic analyst profile. Strong structured reasoning. Excellent with long IOC lists (100+) and large event datasets (300+). Constrained reasoning = LOW HALLUCINATION. Runs fully on 7.5GB VRAM.',
         'speed_estimate': '~22-32 tok/s GPU (100% on-device), ~9-14 tok/s CPU',
         'time_estimate': '3-5 minutes (GPU), 9-13 minutes (CPU)',
         'recommended': True,
@@ -211,7 +211,9 @@ def check_ollama_status():
 
 def generate_case_report_prompt(case, iocs, tagged_events, systems=None):
     """
-    Build the prompt for AI report generation using HARD RESET structure to prevent hallucination
+    Build the prompt for AI report generation using DFIR-optimized HARD RESET structure (v1.11.16)
+    
+    Enhanced with strict evidence requirements, MITRE mapping, and NIST control guidance.
     
     Args:
         case: Case object
@@ -220,41 +222,133 @@ def generate_case_report_prompt(case, iocs, tagged_events, systems=None):
         systems: List of System objects (optional, for improved context)
         
     Returns:
-        str: Formatted prompt for the LLM with strict data boundaries
+        str: Formatted DFIR-optimized prompt with strict data boundaries, evidence requirements,
+             timeline formatting, IOC tables, MITRE mapping, and NIST control recommendations
     """
     
     if systems is None:
         systems = []
     
-    # Build the prompt with HARD RESET CONTEXT structure
+    # Build the prompt with HARD RESET CONTEXT structure (DFIR-Optimized v1.11.16)
     prompt = f"""HARD RESET CONTEXT.
 
 YOU MUST FOLLOW THESE RULES — NO EXCEPTIONS:
 
-1. ONLY use the data between <<<DATA>>> and <<<END DATA>>>.
+DATA SCOPE
 
-2. If a detail is not in the dataset, write "NO DATA PRESENT".
+ONLY use the data between <<<DATA>>> and <<<END DATA>>>.
 
-3. Produce ALL sections before stopping:
-   A. Executive Summary (3–5 paragraphs)
-   B. Timeline (every event in chronological order, earliest first)
-   C. IOCs (table format with all IOCs listed)
-   D. MITRE Mapping
-   E. What Happened / Why / How to Prevent
+If a detail is not present inside that block, write exactly: "NO DATA PRESENT".
 
-4. Minimum output length = 1200 words.
+FACT DISCIPLINE
 
-5. Do NOT summarize. Do NOT infer. Do NOT make up ANY details.
+Do NOT invent, assume, or generalize.
 
-6. When finished, output exactly: ***END OF REPORT***
+Do NOT pull in outside knowledge, tools, or threat intel beyond MITRE ATT&CK names/IDs.
 
-7. If output reaches token limit, CONTINUE WRITING without waiting for user.
+If a MITRE technique cannot be determined from the provided evidence, write: "MITRE not determinable from provided data".
 
-8. Use term "destination systems" NOT "target systems".
+OUTPUT SECTIONS — produce ALL before stopping:
 
-9. IPs listed are SSLVPN assigned IPs (not public internet IPs).
+A. Executive Summary (3 paragraphs, plain English)
 
-10. All timestamps are in UTC format.
+B. Timeline (every incident-relevant event in strict chronological order, earliest first)
+
+C. IOCs (table including every IOC from data)
+
+D. MITRE Mapping (consolidated list of techniques/tactics referenced in the timeline)
+
+E. What Happened / Why / How to Prevent (three brief sections; see rules below)
+
+TIMELINE CONSTRAINTS
+
+Use timestamps exactly as provided (assume UTC; do not convert).
+
+If a timestamp is missing or ambiguous, show "Timestamp: NO DATA PRESENT" and place the item after all entries with real timestamps.
+
+Each timeline entry MUST include an "Evidence" line pointing to the exact supporting item(s): event record ID and/or event text snippet, IOC name/value, and system/host.
+
+Use the term "destination systems" (not "target systems").
+
+IPs listed are SSLVPN assigned IPs (not public internet IPs), per data.
+
+FORMAT FOR EACH TIMELINE ENTRY (exactly):
+
+[TIMESTAMP or NO DATA PRESENT] — ACTION (concise)
+
+System: <hostname and/or IP from data or NO DATA PRESENT>
+
+User/Account: <from data or NO DATA PRESENT>
+
+IOC: <matched IOC value(s) or NO DATA PRESENT>
+
+Evidence: <EventID/EventRecordID or unique reference + brief quoted field(s) from data>
+
+MITRE: <TACTIC / TECHNIQUE ID + NAME or "MITRE not determinable from provided data">
+
+EXECUTIVE SUMMARY (3 paragraphs)
+
+Plain English.
+
+Explain what happened, the sequence at a high level, and the observed impact — only from data.
+
+If impact is unclear: write "Impact: NO DATA PRESENT".
+
+IOCs TABLE
+
+Include all indicators exactly as listed (no enrichment).
+
+Columns: Indicator | Type | Threat Level | Description | First Seen (if present) | Systems/Events Referencing (if identifiable)
+
+If any field is missing, write "NO DATA PRESENT" in that cell.
+
+MITRE MAPPING (Section D)
+
+Provide a consolidated list of only the techniques you used in the timeline.
+
+Format: TACTIC — T#### Name | Evidence references (timestamps/records)
+
+If none determinable: output a single line "MITRE not determinable from provided data".
+
+WHAT / WHY / HOW TO PREVENT (Section E)
+
+What happened: 1 short paragraph, plain English, data-only.
+
+Why it happened: Identify control gaps only if evidenced (e.g., missing MFA, weak/compromised credentials, lack of monitoring). If not evidenced, write "NO DATA PRESENT".
+
+How to prevent: Give specific, actionable recommendations aligned to NIST guidance without asserting they were absent unless evidenced. Use phrasing such as "Implement/verify" rather than "lacked."
+
+Reference examples (choose relevant ones only):
+
+NIST SP 800-63B (MFA/2FA, memorized secret policies)
+
+NIST SP 800-53 (AC-6, IA-2, AU-2/6/12, IR-4/5)
+
+NIST SP 800-61 (IR process)
+
+Mention controls like strong password policies, MFA for VPN/RDP, privileged access management, centralized logging/EDR/MDR, and network segmentation only if they logically address issues seen in the data.
+
+MINIMUM LENGTH
+
+Minimum output length = 1200 words.
+
+LANGUAGE & CLARITY
+
+Use precise, professional Markdown.
+
+No filler, no marketing language, no hypotheticals beyond what's in data.
+
+CONTINUATION & ENDING
+
+If output approaches token limit, CONTINUE WRITING until all sections (A–E) are complete.
+
+When finished, output exactly: ***END OF REPORT***
+
+SELF-CHECK BEFORE FINALIZING
+
+Remove any statement not directly supported by data; replace with "NO DATA PRESENT".
+
+Confirm every timeline line has Evidence and MITRE (or the explicit not-determinable phrase).
 
 ---
 
@@ -337,11 +431,7 @@ Investigation Date: {case.created_at.strftime('%Y-%m-%d') if case.created_at els
     prompt += """
 <<<END DATA>>>
 
-Generate a professional DFIR investigation report with ALL sections (A through E) listed in the rules above.
-
-Use markdown formatting. Be thorough and detailed. Minimum 1200 words.
-
-Begin now.
+Generate a professional DFIR investigation report with ALL sections (A through E) listed in the rules above. Use Markdown formatting. Be thorough and detailed. Minimum 1200 words. Begin now.
 """
     
     return prompt

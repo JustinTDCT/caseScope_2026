@@ -721,7 +721,7 @@ def generate_ai_report(case_id):
         case_id=case_id,
         generated_by=current_user.id,
         status='pending',
-        model_name=get_setting('ai_model_name', 'llama3.1:8b-instruct-q4_K_M'),
+        model_name=get_setting('ai_model_name', 'dfir-llama:latest'),
         estimated_duration_seconds=estimated_seconds
     )
     

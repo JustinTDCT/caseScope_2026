@@ -62,7 +62,7 @@ def index():
     
     # Get AI settings
     ai_enabled = get_setting('ai_enabled', 'false') == 'true'
-    ai_model_name = get_setting('ai_model_name', 'llama3.1:8b-instruct-q4_K_M')
+    ai_model_name = get_setting('ai_model_name', 'dfir-llama:latest')
     ai_hardware_mode = get_setting('ai_hardware_mode', 'cpu')  # cpu or gpu
     ai_gpu_vram = get_setting('ai_gpu_vram', '8')  # VRAM in GB
     
@@ -190,7 +190,7 @@ def save():
     
     # AI settings
     ai_enabled = request.form.get('ai_enabled') == 'on'
-    ai_model_name = request.form.get('ai_model_name', 'llama3.1:8b-instruct-q4_K_M').strip()
+    ai_model_name = request.form.get('ai_model_name', 'dfir-llama:latest').strip()
     ai_hardware_mode = request.form.get('ai_hardware_mode', 'cpu').strip().lower()
     ai_gpu_vram = request.form.get('ai_gpu_vram', '8').strip()
     
