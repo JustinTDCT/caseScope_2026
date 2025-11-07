@@ -1,9 +1,10 @@
 {
-  "version": "1.11.13",
+  "version": "1.11.14",
   "release_date": "2025-11-07",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "⚡ PERFORMANCE: Increased CPU Threading for GPU Mode - Large models now use 16 CPU threads (was 8) for better multi-core utilization when offloading to CPU (v1.11.14)",
     "✨ ENHANCEMENT: AI Reports Include System IP Addresses - Systems in AI prompts now include IP addresses for better network correlation (v1.11.13)",
     "✨ ENHANCEMENT: Clickable VPN Tables - VPN Authentication & Failed VPN Attempt rows now clickable to view full event details (v1.11.12)",
     "🚫 NEW FEATURE: Failed VPN Attempts Analysis - Search Event ID 4625 by firewall IP, shows ALL failed attempts (no deduplication), username/workstation tracking (v1.11.11)",

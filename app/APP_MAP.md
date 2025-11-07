@@ -1,8 +1,130 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.11.13  
-**Last Updated**: 2025-11-07 22:30 UTC  
+**Version**: 1.11.14  
+**Last Updated**: 2025-11-07 22:50 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ⚡ v1.11.14 - PERFORMANCE: Increased CPU Thread Count for GPU Mode with Offloading (2025-11-07 22:50 UTC)
+
+**Issue**: Large models (DeepSeek-R1 32B, Llama 3.3 70B, etc.) running in GPU mode with CPU offloading were only using 1-2 CPU cores instead of all 16 available cores, causing slow generation speeds.
+
+### 1. Problem Diagnosis
+
+**User's System**:
+- **GPU**: 7.5 GB VRAM (Tesla P4 or similar)
+- **CPU**: 16 cores available
+- **Model**: DeepSeek-R1 32B (19 GB)
+- **Offload**: ~13 GB to CPU (~68% of model)
+
+**Observed Behavior**:
+```
+htop output:
+- Only core 14 at 100%
+- Load average: 1.18 (1-2 cores utilized)
+- 68.7G system RAM used by ollama runner
+- 6 GB / 7.5 GB VRAM used
+```
+
+**Root Cause**: In GPU mode, we were setting `num_thread: 8` for large models. When Ollama offloads layers to CPU due to insufficient VRAM, those offloaded layers run with limited threading, resulting in poor CPU utilization.
+
+### 2. Why This Happens
+
+When a model is **too large for VRAM**:
+1. GPU layers process on GPU (fast)
+2. CPU-offloaded layers process on CPU (slow)
+3. **Bottleneck**: CPU layers only use a few threads
+4. **Result**: 15 of 16 CPU cores sit idle while 1 core struggles
+
+**Threading Philosophy**:
+- **Full GPU mode** (no offload): Fewer CPU threads OK (8 threads sufficient)
+- **GPU + CPU offload** (partial): Need MORE CPU threads (16+ threads)
+- **Full CPU mode** (no GPU): Maximum CPU threads (16 threads)
+
+### 3. Changes Made
+
+**File**: `ai_report.py`
+
+**Updated Models** (GPU mode `num_thread`: 8 → 16):
+- ✅ `deepseek-r1:32b` - GPU threads: 8 → **16**
+- ✅ `deepseek-r1:70b` - GPU threads: 8 → **16**
+- ✅ `llama3.3:latest` - GPU threads: 8 → **16**
+- ✅ `qwen2.5:32b` - GPU threads: 8 → **16**
+- ✅ `mistral-large:123b-instruct-2407-q4_K_M` - GPU threads: 8 → **16**
+
+**Example Change** (line 30):
+```python
+# BEFORE
+'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
+
+# AFTER
+'gpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
+```
+
+**Unchanged Models** (don't offload or <10GB):
+- `phi4:latest` - 9 GB, fits in VRAM, threads: 6 (optimal)
+- `phi3:mini` - 2.3 GB, fits in VRAM, threads: 6 (optimal)
+- `gemma2:9b` - 5.5 GB, fits in VRAM, threads: 8 (optimal)
+- `qwen2.5:7b` - 4.7 GB, fits in VRAM, threads: 8 (optimal)
+
+### 4. Expected Performance Improvement
+
+**Before** (8 threads, 1-2 cores active):
+- Offloaded CPU layers: 1-2 cores at 100%
+- Other 14 cores: idle
+- Tokens/second: ~5-8 tok/s (CPU-bound)
+
+**After** (16 threads, up to 16 cores active):
+- Offloaded CPU layers: up to 16 cores utilized
+- Tokens/second: ~10-15 tok/s (estimated 1.5-2x faster)
+
+**Note**: GPU layers will still be fast. The improvement is **only for the CPU-offloaded layers**, which will now run across multiple cores instead of 1-2 cores.
+
+### 5. How to Test
+
+**IMPORTANT**: The currently running AI report (visible in htop) was started with the OLD settings and will NOT benefit from this change. 
+
+**To test the improvement**:
+1. **Cancel** the current AI report, OR wait for it to finish
+2. **Start a NEW AI report** (after Celery worker restart)
+3. Monitor `htop` during generation
+4. **Expected**: Multiple CPU cores at high utilization (not just 1-2)
+5. **Expected**: Faster tokens/second (check AI report progress)
+
+**Check Threading in Logs**:
+```bash
+journalctl -u casescope-worker -n 100 | grep "Generating report"
+# Look for: threads=16 (was previously threads=8)
+```
+
+### 6. Technical Background: Ollama Threading
+
+**Ollama's `num_thread` Parameter**:
+- Controls CPU threads for **CPU inference layers**
+- In GPU mode: applies to prompt processing + offloaded layers
+- In CPU mode: applies to all inference
+- Default: 4-8 threads (conservative)
+- Maximum: Number of CPU cores (16 in this system)
+
+**Why More Threads Help with Offloading**:
+- Matrix multiplication (model inference) is highly parallelizable
+- With 16 threads, CPU layers can distribute work across all cores
+- Offloading ~13 GB (68% of model) means **most inference is on CPU**, so CPU threading is critical
+
+### 7. Future Optimization Ideas
+
+If still seeing single-core bottlenecks:
+1. **Check Ollama BLAS backend**: Ensure using optimized BLAS (OpenBLAS, MKL, or cuBLAS)
+2. **Reduce model size**: Use smaller quantization (Q4_K_M → Q3_K_M)
+3. **Reduce context**: Lower `num_ctx` from 16384 to 8192 (saves VRAM)
+4. **Upgrade GPU**: 16-24 GB VRAM GPU would eliminate CPU offloading
+
+### 8. Files Modified
+
+| File | Changes | Lines |
+|------|---------|-------|
+| `ai_report.py` | • Increased `num_thread` from 8 to 16 in GPU mode for 5 large models<br>• Added comments explaining CPU offloading rationale | 30, 42, 56, 84, 112 |
 
 ---
 

@@ -27,7 +27,7 @@ MODEL_INFO = {
         'time_estimate': '5-10 minutes (GPU), 15-25 minutes (CPU)',
         'recommended': True,
         'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
+        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
     },
     'deepseek-r1:70b': {
         'name': 'DeepSeek-R1 70B',
@@ -39,7 +39,7 @@ MODEL_INFO = {
         'time_estimate': '5-12 minutes (GPU), 25-40 minutes (CPU)',
         'recommended': True,
         'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
+        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
     },
     
     # Llama 3.3 70B: Superior instruction adherence
@@ -53,7 +53,7 @@ MODEL_INFO = {
         'time_estimate': '5-10 minutes (GPU), 20-30 minutes (CPU)',
         'recommended': True,
         'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
+        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
     },
     
     # Phi-4 14B: Efficient and punches above weight
@@ -81,7 +81,7 @@ MODEL_INFO = {
         'time_estimate': '4-8 minutes (GPU), 12-18 minutes (CPU)',
         'recommended': False,
         'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
+        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
     },
     
     # Gemma 2 27B: Efficient and fast (REQUIRES FULL QUANTIZATION NAME)
@@ -109,7 +109,7 @@ MODEL_INFO = {
         'time_estimate': '6-12 minutes (GPU), 30-50 minutes (CPU)',
         'recommended': False,
         'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
+        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
     },
     
     # ===== OPTIMIZED FOR 8GB VRAM GPUs (Tesla P4, RTX 3060 8GB, etc.) =====
