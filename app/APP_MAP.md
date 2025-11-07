@@ -1,8 +1,125 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.11.12  
-**Last Updated**: 2025-11-07 22:00 UTC  
+**Version**: 1.11.13  
+**Last Updated**: 2025-11-07 22:30 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.11.13 - ENHANCEMENT: AI Reports Include System IP Addresses (2025-11-07 22:30 UTC)
+
+**Feature**: AI-generated reports now include IP addresses for each system in the "SYSTEMS IDENTIFIED" section of the prompt.
+
+### 1. Problem Statement
+
+**User Request**: "turn to AI report generation - augment the data you provide to also include the systems in system management"
+
+**Current Status**: 
+- ✅ Systems were already included in AI reports (as of v1.11.8)
+- ❌ IP addresses were NOT included (even though IP field was added in v1.11.8)
+
+**Previous Prompt Format**:
+```
+SYSTEMS IDENTIFIED (3 total):
+- System: ATN-DC01 | Type: 🖥️ Server | Added By: jdube
+- System: ATN-FS01 | Type: 🖥️ Server | Added By: jdube
+- System: ATN-WS01 | Type: 💻 Workstation | Added By: auto
+```
+
+**New Prompt Format**:
+```
+SYSTEMS IDENTIFIED (3 total):
+- System: ATN-DC01 | Type: 🖥️ Server | IP: 10.10.10.5 | Added By: jdube
+- System: ATN-FS01 | Type: 🖥️ Server | IP: 10.10.10.6 | Added By: jdube
+- System: ATN-WS01 | Type: 💻 Workstation | IP: 10.10.10.101 | Added By: auto
+```
+
+### 2. Implementation
+
+**File**: `ai_report.py` (lines 365-383)
+
+**Change**:
+```python
+# Add systems in simple format (for AI context)
+if systems:
+    prompt += f"SYSTEMS IDENTIFIED ({len(systems)} total):\n"
+    for system in systems:
+        system_type_label = {
+            'server': '🖥️ Server',
+            'workstation': '💻 Workstation',
+            'firewall': '🔥 Firewall',
+            'switch': '🔀 Switch',
+            'printer': '🖨️ Printer',
+            'actor_system': '⚠️ Actor System'
+        }.get(system.system_type, system.system_type)
+        
+        # Include IP address if available
+        ip_info = f" | IP: {system.ip_address}" if system.ip_address else ""
+        prompt += f"- System: {system.system_name} | Type: {system_type_label}{ip_info} | Added By: {system.added_by}\n"
+    prompt += "\n"
+else:
+    prompt += "SYSTEMS IDENTIFIED: None found (run 'Find Systems' to auto-discover)\n\n"
+```
+
+**Key Changes**:
+- Added conditional IP address inclusion: `ip_info = f" | IP: {system.ip_address}" if system.ip_address else ""`
+- IP is only displayed if present (gracefully handles systems without IP addresses)
+- Maintains clean, CSV-like format for AI parsing
+
+### 3. Context: Systems Were Already Included
+
+**Note**: Systems have been included in AI report generation since **v1.11.8** (2025-11-07 19:30 UTC).
+
+**Data Flow** (`tasks.py` lines 733-736, 799):
+```python
+# Get systems for case (for improved AI context)
+from models import System
+systems = System.query.filter_by(case_id=case.id, hidden=False).all()
+logger.info(f"[AI REPORT] Found {len(systems)} systems")
+
+# ... later ...
+prompt = generate_case_report_prompt(case, iocs, tagged_events, systems)
+```
+
+**What Was Missing**: Only the IP address was not included in the prompt text (even though it was in the database and available via the `system` object).
+
+### 4. Benefits for AI Analysis
+
+**Enhanced Context for AI**:
+1. **Network Topology**: AI can understand IP ranges and network segmentation
+2. **Lateral Movement**: Correlate events across systems using IP addresses
+3. **VPN Analysis**: Match firewall IPs with VPN authentication events
+4. **Incident Timeline**: Connect events by source/destination IPs
+5. **IOC Correlation**: Match IP-based IOCs with systems
+
+**Example Use Case**:
+- User tags VPN authentication events showing IP `10.10.10.5`
+- Systems management shows `ATN-DC01` has IP `10.10.10.5`
+- AI report can now state: "Attacker authenticated via VPN and accessed Domain Controller (ATN-DC01, 10.10.10.5)"
+
+### 5. Files Modified
+
+| File | Changes | Lines |
+|------|---------|-------|
+| `ai_report.py` | • Added IP address to systems prompt<br>• Conditional display (only if IP present) | 365-383 |
+
+### 6. Testing
+
+**Verification Steps**:
+1. Generate AI report for case with systems
+2. Check Celery logs: `journalctl -u casescope-worker -n 50`
+3. View report's "Prompt Sent" in database (`ai_report.prompt_sent`)
+4. Confirm IP addresses appear in "SYSTEMS IDENTIFIED" section
+
+**Expected Output** (in prompt):
+```
+SYSTEMS IDENTIFIED (3 total):
+- System: FIREWALL-01 | Type: 🔥 Firewall | IP: 192.168.1.1 | Added By: jdube
+- System: ATN-DC01 | Type: 🖥️ Server | IP: 10.10.10.5 | Added By: auto
+- System: ATN-WS-UNKNOWN | Type: 💻 Workstation | Added By: auto
+```
+
+(Note: System without IP will not display ` | IP: ...`)
 
 ---
 

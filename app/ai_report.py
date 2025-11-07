@@ -374,7 +374,10 @@ Investigation Date: {case.created_at.strftime('%Y-%m-%d') if case.created_at els
                 'printer': '🖨️ Printer',
                 'actor_system': '⚠️ Actor System'
             }.get(system.system_type, system.system_type)
-            prompt += f"- System: {system.system_name} | Type: {system_type_label} | Added By: {system.added_by}\n"
+            
+            # Include IP address if available
+            ip_info = f" | IP: {system.ip_address}" if system.ip_address else ""
+            prompt += f"- System: {system.system_name} | Type: {system_type_label}{ip_info} | Added By: {system.added_by}\n"
         prompt += "\n"
     else:
         prompt += "SYSTEMS IDENTIFIED: None found (run 'Find Systems' to auto-discover)\n\n"
