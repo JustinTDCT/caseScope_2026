@@ -1483,16 +1483,16 @@ function showAIReportReview(reportId) {
             `;
             
             modal.innerHTML = `
-                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                <div style="background: var(--color-background); width: 95%; max-width: 1400px; height: 90%; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.3); color: var(--color-text);">
                     <!-- Header -->
-                    <div style="padding: 20px; border-bottom: 2px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="padding: 20px; border-bottom: 2px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <h2 style="margin: 0; font-size: 1.5rem;">🔍 AI Report Review</h2>
-                            <p style="margin: 5px 0 0 0; font-size: 0.875rem; color: #666;">
+                            <h2 style="margin: 0; font-size: 1.5rem; color: var(--color-text);">🔍 AI Report Review</h2>
+                            <p style="margin: 5px 0 0 0; font-size: 0.875rem; color: var(--color-text-muted);">
                                 Model: ${data.model_name} | Tokens: ${data.total_tokens || 'N/A'} | Prompt: ${(data.prompt_length / 1024).toFixed(1)}KB | Response: ${(data.response_length / 1024).toFixed(1)}KB
                             </p>
                         </div>
-                        <button onclick="document.getElementById('aiReviewModal').remove()" style="background: none; border: none; font-size: 2rem; cursor: pointer; color: #666;">
+                        <button onclick="document.getElementById('aiReviewModal').remove()" style="background: none; border: none; font-size: 2rem; cursor: pointer; color: var(--color-text-muted);">
                             ×
                         </button>
                     </div>
@@ -1502,32 +1502,32 @@ function showAIReportReview(reportId) {
                         <!-- Prompt Section -->
                         <div style="flex: 1; display: flex; flex-direction: column;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                                <h3 style="margin: 0; font-size: 1.125rem;">📤 Prompt Sent to AI</h3>
+                                <h3 style="margin: 0; font-size: 1.125rem; color: var(--color-text);">📤 Prompt Sent to AI</h3>
                                 <button onclick="navigator.clipboard.writeText(document.getElementById('promptText').textContent)" class="btn btn-sm btn-primary">
                                     📋 Copy
                                 </button>
                             </div>
-                            <div style="flex: 1; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 15px; overflow-y: auto;">
-                                <pre id="promptText" style="margin: 0; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-wrap: break-word; color: #1a1a1a;">${escapeHtml(data.prompt_sent)}</pre>
+                            <div style="flex: 1; background: var(--color-background-secondary); border: 1px solid var(--color-border); border-radius: 4px; padding: 15px; overflow-y: auto;">
+                                <pre id="promptText" style="margin: 0; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-wrap: break-word; color: var(--color-text) !important;">${escapeHtml(data.prompt_sent)}</pre>
                             </div>
                         </div>
                         
                         <!-- Response Section -->
                         <div style="flex: 1; display: flex; flex-direction: column;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                                <h3 style="margin: 0; font-size: 1.125rem;">📥 Raw AI Response</h3>
+                                <h3 style="margin: 0; font-size: 1.125rem; color: var(--color-text);">📥 Raw AI Response</h3>
                                 <button onclick="navigator.clipboard.writeText(document.getElementById('responseText').textContent)" class="btn btn-sm btn-primary">
                                     📋 Copy
                                 </button>
                             </div>
-                            <div style="flex: 1; background: #ffffff; border: 1px solid #e0e0e0; border-radius: 4px; padding: 15px; overflow-y: auto;">
-                                <pre id="responseText" style="margin: 0; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-wrap: break-word; color: #1a1a1a;">${escapeHtml(data.raw_response)}</pre>
+                            <div style="flex: 1; background: var(--color-background-secondary); border: 1px solid var(--color-border); border-radius: 4px; padding: 15px; overflow-y: auto;">
+                                <pre id="responseText" style="margin: 0; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-wrap: break-word; color: var(--color-text) !important;">${escapeHtml(data.raw_response)}</pre>
                             </div>
                         </div>
                     </div>
                     
                     <!-- Footer -->
-                    <div style="padding: 15px 20px; border-top: 2px solid #e0e0e0; background: #f8f9fa; text-align: center; font-size: 0.875rem; color: #666;">
+                    <div style="padding: 15px 20px; border-top: 2px solid var(--color-border); background: var(--color-background-secondary); text-align: center; font-size: 0.875rem; color: var(--color-text-muted);">
                         Use this to verify data accuracy and debug hallucination issues. Compare the prompt data with what appears in the response.
                     </div>
                 </div>
