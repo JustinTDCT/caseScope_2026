@@ -62,19 +62,19 @@
             </div>
             <div style="margin-bottom: var(--spacing-xs);">
                 <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case Created By</div>
-                <div><strong>{{ case.created_by or 'System' }}</strong></div>
+                <div><strong>{{ creator_name }}</strong></div>
             </div>
             <div style="margin-bottom: var(--spacing-xs);">
                 <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case Assigned To User</div>
-                <div><strong>{{ case.assigned_to or 'Unassigned' }}</strong></div>
+                <div><strong>{{ assigned_name }}</strong></div>
             </div>
             <div style="margin-bottom: var(--spacing-xs);">
                 <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">DFIR-IRIS Sync Status</div>
-                <div><strong>Not Enabled</strong></div>
+                <div><strong>{% if dfir_iris_enabled %}✅ Enabled{% else %}Not Enabled{% endif %}</strong></div>
             </div>
             <div style="grid-column: 1 / -1; margin-bottom: var(--spacing-xs);">
                 <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case Description</div>
-                <div><strong>{{ case.description or 'No description provided' }}</strong></div>
+                <div style="white-space: pre-wrap;"><strong>{{ case.description or 'No description provided' }}</strong></div>
             </div>
         </div>
     </div>

@@ -330,11 +330,7 @@
                             <br><span class="text-muted" style="font-size: 0.75rem;">{{ file.uploaded_at.strftime('%H:%M') }}</span>
                         </td>
                         <td>
-                            {% if file.uploaded_by %}
-                            <span class="text-muted">User #{{ file.uploaded_by }}</span>
-                            {% else %}
-                            <span class="text-muted">—</span>
-                            {% endif %}
+                            <span class="text-muted">{{ file.uploader_name or '—' }}</span>
                         </td>
                         <td>
                             <div style="display: flex; gap: 4px; flex-wrap: wrap;">

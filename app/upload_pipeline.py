@@ -518,6 +518,21 @@ def filter_zero_event_files(db, CaseFile, SkippedFile, queue: List[Tuple], case_
                     case_file.is_indexed = True
                     case_file.is_hidden = True  # Hidden from UI
                     
+                    # Set file_type based on extension if not already set
+                    if not case_file.file_type or case_file.file_type == 'UNKNOWN':
+                        filename_lower = filename.lower()
+                        if filename_lower.endswith('.evtx'):
+                            case_file.file_type = 'EVTX'
+                        elif filename_lower.endswith('.ndjson'):
+                            case_file.file_type = 'NDJSON'
+                        elif filename_lower.endswith('.json'):
+                            case_file.file_type = 'JSON'
+                        elif filename_lower.endswith('.csv'):
+                            case_file.file_type = 'CSV'
+                        else:
+                            case_file.file_type = 'UNKNOWN'
+                        logger.info(f"[FILTER]   Set file_type to: {case_file.file_type}")
+                    
                     # Archive the EVTX file (for audit purposes)
                     archive_path = os.path.join(archive_dir, filename)
                     shutil.move(file_path, archive_path)

@@ -45,6 +45,16 @@
                 <div class="stat-item-label">Hard Disk Size / Used</div>
                 <div class="stat-item-value">{{ system_status.disk_total_gb }} GB / {{ system_status.disk_used_gb }} GB ({{ system_status.disk_percent|round(1) }}%)</div>
             </div>
+            {% if system_status.gpu_info %}
+            <div class="stat-item">
+                <div class="stat-item-label">GPU{% if system_status.gpu_info|length > 1 %}s{% endif %}</div>
+                <div class="stat-item-value">
+                    {% for gpu in system_status.gpu_info %}
+                        {{ gpu }}{% if not loop.last %}<br>{% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
             <div class="stat-item">
                 <div class="stat-item-label">Space Consumed by Case Files</div>
                 <div class="stat-item-value">{{ case_files_space_gb }} GB</div>
@@ -133,7 +143,7 @@
                 <div class="stat-item-label">Total SIGMA Violations Found</div>
                 <div>
                     <a href="{{ url_for('sigma_management') }}" class="stat-item-value-large" style="color: var(--color-warning);">
-                        {{ total_sigma_violations }}
+                        {{ "{:,}".format(total_sigma_violations) }}
                     </a>
                 </div>
             </div>
@@ -141,7 +151,7 @@
                 <div class="stat-item-label">Total IOC Events Found</div>
                 <div>
                     <span class="stat-item-value-large" style="color: var(--color-error);">
-                        {{ total_ioc_events }}
+                        {{ "{:,}".format(total_ioc_events) }}
                     </span>
                 </div>
             </div>

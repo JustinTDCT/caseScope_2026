@@ -67,6 +67,7 @@ class CaseFile(db.Model):
     
     # Processing status
     indexing_status = db.Column(db.String(50), default='Queued')  # Queued, Indexing, Completed, Failed
+    error_message = db.Column(db.Text)  # Detailed error message for failed files
     is_indexed = db.Column(db.Boolean, default=False)
     is_hidden = db.Column(db.Boolean, default=False)  # Hide 0-event files
     is_deleted = db.Column(db.Boolean, default=False)
@@ -170,6 +171,7 @@ class System(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
     system_name = db.Column(db.String(255), nullable=False, index=True)
+    ip_address = db.Column(db.String(45))  # IPv4 (15) or IPv6 (45) address
     system_type = db.Column(db.String(50), nullable=False, default='workstation')  # server, workstation, firewall, switch, printer, actor_system
     
     # User tracking

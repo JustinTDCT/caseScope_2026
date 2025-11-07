@@ -133,18 +133,42 @@ def case_files(case_id):
     
     files_query = files_query.order_by(CaseFile.uploaded_at.desc())
     
+    # File type breakdown - get ALL files (visible + hidden) to match "Completed" count
+    all_files_query = db.session.query(CaseFile).filter_by(
+        case_id=case_id,
+        is_deleted=False
+    )
+    # Apply same search filter if provided
+    if search_term:
+        search_filter = or_(
+            CaseFile.original_filename.ilike(f'%{search_term}%'),
+            CaseFile.file_hash.ilike(f'%{search_term}%')
+        )
+        all_files_query = all_files_query.filter(search_filter)
+    
+    all_files = all_files_query.all()
+    file_types = {}
+    for f in all_files:
+        ft = f.file_type or 'Unknown'
+        file_types[ft] = file_types.get(ft, 0) + 1
+    
     pagination = files_query.paginate(page=page, per_page=per_page, error_out=False)
     files = pagination.items
     
+    # Fetch uploader usernames for display
+    from models import User
+    for file in files:
+        if file.uploaded_by:
+            uploader = db.session.get(User, file.uploaded_by)
+            if uploader:
+                file.uploader_name = uploader.full_name or uploader.username
+            else:
+                file.uploader_name = f'User #{file.uploaded_by}'
+        else:
+            file.uploader_name = 'System'
+    
     # Get comprehensive stats (includes hidden count)
     stats = get_file_stats_with_hidden(db.session, case_id)
-    
-    # File type breakdown (visible files only)
-    all_visible_files = files_query.all()
-    file_types = {}
-    for f in all_visible_files:
-        ft = f.file_type or 'Unknown'
-        file_types[ft] = file_types.get(ft, 0) + 1
     
     return render_template('case_files.html',
                           case=case,

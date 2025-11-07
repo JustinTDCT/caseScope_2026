@@ -149,59 +149,82 @@ def toggle_case_status(case_id):
 @login_required
 @admin_required
 def delete_case(case_id):
-    """Delete a case and all associated data (admin only)"""
-    from main import db, Case, CaseFile, SigmaViolation, IOCMatch, TimelineTag, opensearch_client
+    """Delete a case and all associated data asynchronously (admin only)"""
+    from main import db, Case
+    from tasks import delete_case_async
     
     case = db.session.get(Case, case_id)
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     try:
-        # Get all files for OpenSearch cleanup
-        files = db.session.query(CaseFile).filter_by(case_id=case_id).all()
+        # Start async deletion task
+        task = delete_case_async.delay(case_id)
         
-        # Delete OpenSearch indices
-        deleted_indices = 0
-        for file in files:
-            if file.opensearch_key:
-                # IMPORTANT: Use make_index_name() to ensure consistent index name generation
-                from utils import make_index_name
-                index_name = make_index_name(case_id, file.original_filename)
-                try:
-                    if opensearch_client.indices.exists(index=index_name):
-                        opensearch_client.indices.delete(index=index_name)
-                        deleted_indices += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete index {index_name}: {e}")
-        
-        # Delete database records (cascade should handle most)
-        db.session.query(TimelineTag).filter_by(case_id=case_id).delete()
-        db.session.query(IOCMatch).filter_by(case_id=case_id).delete()
-        db.session.query(SigmaViolation).filter_by(case_id=case_id).delete()
-        db.session.query(CaseFile).filter_by(case_id=case_id).delete()
-        
-        # Store case name before deletion
-        case_name = case.name
-        
-        # Delete the case itself
-        db.session.delete(case)
-        db.session.commit()
-        
-        # Audit log
-        from audit_logger import log_action
-        log_action('delete_case', resource_type='case', resource_id=case_id,
-                  resource_name=case_name, 
-                  details={'indices_deleted': deleted_indices, 'files_deleted': len(files)})
-        
-        logger.info(f"[ADMIN] Case {case_id} deleted by user {current_user.id}: {deleted_indices} indices, {len(files)} files")
+        logger.info(f"[ADMIN] Case {case_id} deletion started by user {current_user.id}, task_id={task.id}")
         
         return jsonify({
             'success': True,
-            'message': f'Case deleted: {deleted_indices} indices, {len(files)} files'
+            'task_id': task.id,
+            'case_id': case_id,
+            'case_name': case.name,
+            'message': 'Deletion started'
         })
     
     except Exception as e:
-        db.session.rollback()
-        logger.error(f"[ADMIN] Error deleting case {case_id}: {e}", exc_info=True)
+        logger.error(f"[ADMIN] Error starting case deletion {case_id}: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@cases_bp.route('/case/<int:case_id>/delete/status/<task_id>', methods=['GET'])
+@login_required
+@admin_required
+def delete_case_status(case_id, task_id):
+    """Poll deletion progress status"""
+    from celery.result import AsyncResult
+    from celery_app import celery_app
+    
+    try:
+        task = AsyncResult(task_id, app=celery_app)
+        
+        if task.state == 'PENDING':
+            response = {
+                'state': 'PENDING',
+                'progress': 0,
+                'message': 'Waiting to start...'
+            }
+        elif task.state == 'PROGRESS':
+            response = {
+                'state': 'PROGRESS',
+                'progress': task.info.get('progress', 0),
+                'step': task.info.get('step', ''),
+                'message': task.info.get('message', ''),
+                **{k: v for k, v in task.info.items() if k not in ['progress', 'step', 'message']}
+            }
+        elif task.state == 'SUCCESS':
+            result = task.result
+            response = {
+                'state': 'SUCCESS',
+                'progress': 100,
+                'message': 'Deletion complete',
+                'result': result
+            }
+        elif task.state == 'FAILURE':
+            response = {
+                'state': 'FAILURE',
+                'progress': 0,
+                'message': str(task.info)
+            }
+        else:
+            response = {
+                'state': task.state,
+                'progress': 0,
+                'message': 'Unknown state'
+            }
+        
+        return jsonify(response)
+    
+    except Exception as e:
+        logger.error(f"[ADMIN] Error checking deletion status {task_id}: {e}", exc_info=True)
+        return jsonify({'state': 'ERROR', 'message': str(e)}), 500
 

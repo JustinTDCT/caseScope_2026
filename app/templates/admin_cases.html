@@ -106,15 +106,20 @@ function toggleStatus(caseId, currentStatus) {
     });
 }
 
+let deleteTaskId = null;
+let deleteIntervalId = null;
+
 function deleteCase(caseId, caseName) {
     const confirmation = prompt(
         `⚠️ DELETE CASE: "${caseName}"\n\n` +
         `This will PERMANENTLY delete:\n` +
-        `• All files and their data\n` +
+        `• Physical files on disk\n` +
         `• All OpenSearch indices\n` +
         `• All SIGMA violations\n` +
-        `• All IOC matches\n` +
-        `• All timeline tags\n\n` +
+        `• All IOC matches & IOCs\n` +
+        `• All systems & timeline tags\n` +
+        `• All AI reports\n` +
+        `• All search history\n\n` +
         `Type "DELETE" to confirm:`
     );
     
@@ -122,6 +127,7 @@ function deleteCase(caseId, caseName) {
         return;
     }
     
+    // Start deletion
     fetch(`/case/${caseId}/delete`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'}
@@ -129,16 +135,82 @@ function deleteCase(caseId, caseName) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            alert('✅ Case deleted: ' + data.message);
-            location.reload();
+            deleteTaskId = data.task_id;
+            showDeleteProgress(caseId, data.case_name);
+            pollDeleteProgress(caseId);
         } else {
             alert('❌ Error: ' + data.error);
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('Network error');
+        alert('Network error starting deletion');
     });
+}
+
+function showDeleteProgress(caseId, caseName) {
+    document.getElementById('deleteProgressModal').style.display = 'flex';
+    document.getElementById('deleteCaseName').textContent = caseName;
+    document.getElementById('deleteProgress').style.width = '0%';
+    document.getElementById('deleteProgress').textContent = '0%';
+    document.getElementById('deleteStep').textContent = 'Starting deletion...';
+    document.getElementById('deleteDetails').innerHTML = '';
+}
+
+function pollDeleteProgress(caseId) {
+    if (!deleteTaskId) return;
+    
+    deleteIntervalId = setInterval(() => {
+        fetch(`/case/${caseId}/delete/status/${deleteTaskId}`)
+            .then(response => response.json())
+            .then(data => {
+                const progress = data.progress || 0;
+                document.getElementById('deleteProgress').style.width = progress + '%';
+                document.getElementById('deleteProgress').textContent = progress + '%';
+                document.getElementById('deleteStep').textContent = data.message || 'Processing...';
+                
+                // Show details
+                let details = '';
+                if (data.files) details += `📁 Files: ${data.files}\n`;
+                if (data.iocs) details += `🚨 IOCs: ${data.iocs}\n`;
+                if (data.systems) details += `💻 Systems: ${data.systems}\n`;
+                if (data.sigma) details += `⚠️ SIGMA: ${data.sigma}\n`;
+                if (data.ai_reports) details += `🤖 AI Reports: ${data.ai_reports}\n`;
+                if (data.indices_deleted !== undefined) details += `🗂️ Indices Deleted: ${data.indices_deleted}\n`;
+                
+                if (details) {
+                    document.getElementById('deleteDetails').textContent = details;
+                }
+                
+                // Check if done
+                if (data.state === 'SUCCESS') {
+                    clearInterval(deleteIntervalId);
+                    document.getElementById('deleteProgress').style.background = 'var(--color-success)';
+                    document.getElementById('deleteStep').innerHTML = '✅ <strong>Deletion Complete!</strong>';
+                    
+                    setTimeout(() => {
+                        document.getElementById('deleteProgressModal').style.display = 'none';
+                        location.reload();
+                    }, 2000);
+                } else if (data.state === 'FAILURE' || data.state === 'ERROR') {
+                    clearInterval(deleteIntervalId);
+                    document.getElementById('deleteProgress').style.background = 'var(--color-error)';
+                    document.getElementById('deleteStep').innerHTML = '❌ <strong>Deletion Failed:</strong> ' + data.message;
+                }
+            })
+            .catch(error => {
+                console.error('Polling error:', error);
+                clearInterval(deleteIntervalId);
+                document.getElementById('deleteStep').innerHTML = '❌ <strong>Connection Lost</strong>';
+            });
+    }, 500); // Poll every 500ms for smooth progress
+}
+
+function closeDeleteProgress() {
+    if (deleteIntervalId) {
+        clearInterval(deleteIntervalId);
+    }
+    document.getElementById('deleteProgressModal').style.display = 'none';
 }
 </script>
 
@@ -158,5 +230,37 @@ function deleteCase(caseId, caseName) {
     color: white;
 }
 </style>
+
+<!-- Deletion Progress Modal -->
+<div id="deleteProgressModal" class="modal-overlay" style="display: none;">
+    <div class="modal-container" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title">🗑️ Deleting Case: <span id="deleteCaseName"></span></h2>
+            <button onclick="closeDeleteProgress()" class="modal-close">✕</button>
+        </div>
+        <div class="modal-body" style="padding: var(--spacing-lg);">
+            <div style="margin-bottom: var(--spacing-md);">
+                <div style="font-weight: 600; margin-bottom: var(--spacing-sm);" id="deleteStep">
+                    Starting deletion...
+                </div>
+                <div style="background: var(--color-bg-secondary); border-radius: var(--border-radius); overflow: hidden; height: 32px; position: relative;">
+                    <div id="deleteProgress" 
+                         style="background: var(--color-warning); height: 100%; width: 0%; transition: width 0.3s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 0.875rem;">
+                        0%
+                    </div>
+                </div>
+            </div>
+            
+            <div style="background: var(--color-bg-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); font-family: 'Courier New', monospace; font-size: 0.875rem; white-space: pre-line; min-height: 120px;" id="deleteDetails">
+                <!-- Details populated by JavaScript -->
+            </div>
+            
+            <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); background: var(--color-bg-tertiary); border-radius: var(--border-radius); font-size: 0.875rem;">
+                <strong>⚠️ Note:</strong> Please wait for deletion to complete. Do not close this window or navigate away.
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 

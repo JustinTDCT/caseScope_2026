@@ -124,7 +124,7 @@ SYSTEM_TYPE_PATTERNS = {
 @systems_bp.route('/case/<int:case_id>/systems/list', methods=['GET'])
 @login_required
 def list_systems(case_id):
-    """Get all systems for a case"""
+    """Get all systems for a case (optionally filtered by type)"""
     from main import db
     from models import Case, System
     
@@ -132,17 +132,28 @@ def list_systems(case_id):
     if not case:
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
-    # Get all systems for this case (include hidden for admin/analyst)
-    if current_user.role in ['administrator', 'analyst']:
-        systems = System.query.filter_by(case_id=case_id).order_by(System.created_at.desc()).all()
-    else:
-        systems = System.query.filter_by(case_id=case_id, hidden=False).order_by(System.created_at.desc()).all()
+    # Get optional type filter
+    system_type = request.args.get('type', None)
+    
+    # Build query
+    query = System.query.filter_by(case_id=case_id)
+    
+    # Filter by type if provided
+    if system_type:
+        query = query.filter_by(system_type=system_type)
+    
+    # Filter by visibility based on user role
+    if current_user.role not in ['administrator', 'analyst']:
+        query = query.filter_by(hidden=False)
+    
+    systems = query.order_by(System.created_at.desc()).all()
     
     systems_data = []
     for sys in systems:
         systems_data.append({
             'id': sys.id,
             'system_name': sys.system_name,
+            'ip_address': sys.ip_address,
             'system_type': sys.system_type,
             'added_by': sys.added_by,
             'created_at': sys.created_at.strftime('%Y-%m-%d %H:%M:%S'),
@@ -190,6 +201,7 @@ def add_system(case_id):
     try:
         system_name = request.form.get('system_name', '').strip()
         system_type = request.form.get('system_type', 'workstation')
+        ip_address = request.form.get('ip_address', '').strip() or None
         
         if not system_name:
             return jsonify({'success': False, 'error': 'System name is required'}), 400
@@ -203,6 +215,7 @@ def add_system(case_id):
         system = System(
             case_id=case_id,
             system_name=system_name,
+            ip_address=ip_address,
             system_type=system_type,
             added_by=current_user.username,
             hidden=False
@@ -269,6 +282,7 @@ def edit_system(case_id, system_id):
     
     try:
         system.system_name = request.form.get('system_name', system.system_name).strip()
+        system.ip_address = request.form.get('ip_address', '').strip() or None
         system.system_type = request.form.get('system_type', system.system_type)
         
         db.session.commit()
@@ -448,6 +462,36 @@ def scan_systems(case_id):
         
         logger.info(f"[Systems] Discovered {len(discovered_systems)} unique systems")
         
+        # Get IP addresses for discovered systems
+        logger.info(f"[Systems] Resolving IP addresses for systems...")
+        system_ips = {}
+        
+        # Query for IP addresses using normalized_computer and host.ip fields
+        try:
+            s = Search(using=opensearch_client, index=index_pattern)
+            s = s.filter('exists', field='normalized_computer')
+            s = s.filter('exists', field='host.ip')
+            s = s[:0]  # Don't return documents
+            
+            # Aggregate by computer name, get most common IP (top_hits)
+            s.aggs.bucket('by_computer', 'terms', field='normalized_computer.keyword', size=1000) \
+                  .metric('top_ip', 'top_hits', size=1, _source=['host.ip'])
+            
+            response = s.execute()
+            
+            if response.aggregations and hasattr(response.aggregations, 'by_computer'):
+                for bucket in response.aggregations.by_computer.buckets:
+                    computer_name = bucket.key
+                    if bucket.top_ip.hits.hits:
+                        ip = bucket.top_ip.hits.hits[0]['_source'].get('host', {}).get('ip')
+                        if ip:
+                            system_ips[computer_name] = ip
+                            logger.debug(f"[Systems] {computer_name} -> {ip}")
+            
+            logger.info(f"[Systems] Resolved IPs for {len(system_ips)} systems")
+        except Exception as e:
+            logger.warning(f"[Systems] Could not resolve IPs: {e}")
+        
         # Categorize and save systems
         new_systems = 0
         updated_systems = 0
@@ -456,6 +500,9 @@ def scan_systems(case_id):
             # Check if already exists
             existing = System.query.filter_by(case_id=case_id, system_name=sys_name).first()
             
+            # Get IP address for this system
+            ip_address = system_ips.get(sys_name)
+            
             if not existing:
                 # Categorize system type
                 system_type = categorize_system(sys_name)
@@ -463,6 +510,7 @@ def scan_systems(case_id):
                 system = System(
                     case_id=case_id,
                     system_name=sys_name,
+                    ip_address=ip_address,
                     system_type=system_type,
                     added_by='CaseScope',
                     hidden=False
@@ -470,8 +518,12 @@ def scan_systems(case_id):
                 db.session.add(system)
                 new_systems += 1
                 
-                logger.debug(f"[Systems] New system: {sys_name} (type: {system_type}, events: {sys_data['count']})")
+                logger.debug(f"[Systems] New system: {sys_name} (type: {system_type}, IP: {ip_address}, events: {sys_data['count']})")
             else:
+                # Update IP address if we found one and it's not already set
+                if ip_address and not existing.ip_address:
+                    existing.ip_address = ip_address
+                    logger.debug(f"[Systems] Updated IP for {sys_name}: {ip_address}")
                 updated_systems += 1
         
         db.session.commit()

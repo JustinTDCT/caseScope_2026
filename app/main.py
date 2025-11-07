@@ -300,13 +300,13 @@ def dashboard():
     total_iocs = db.session.query(IOC).count()
     
     # Events Status
-    total_events = db.session.query(CaseFile).filter_by(is_deleted=False, is_hidden=False).with_entities(
+    total_events = int(db.session.query(CaseFile).filter_by(is_deleted=False, is_hidden=False).with_entities(
         db.func.sum(CaseFile.event_count)
-    ).scalar() or 0
+    ).scalar() or 0)
     total_sigma_violations = db.session.query(SigmaViolation).count()
-    total_ioc_events = db.session.query(CaseFile).filter_by(is_deleted=False, is_hidden=False).with_entities(
+    total_ioc_events = int(db.session.query(CaseFile).filter_by(is_deleted=False, is_hidden=False).with_entities(
         db.func.sum(CaseFile.ioc_event_count)
-    ).scalar() or 0
+    ).scalar() or 0)
     
     # Software Status
     software_versions = get_software_versions()
@@ -589,6 +589,20 @@ def view_case(case_id):
         flash('Case not found', 'error')
         return redirect(url_for('dashboard'))
     
+    # Get creator username
+    creator_name = 'System'
+    if case.created_by:
+        creator = db.session.get(User, case.created_by)
+        if creator:
+            creator_name = creator.full_name or creator.username
+    
+    # Get assigned user name
+    assigned_name = 'Unassigned'
+    if case.assigned_to:
+        assignee = db.session.get(User, case.assigned_to)
+        if assignee:
+            assigned_name = assignee.full_name or assignee.username
+    
     # Get only the 10 most recent files for display
     files = db.session.query(CaseFile).filter_by(case_id=case_id, is_deleted=False, is_hidden=False).order_by(CaseFile.uploaded_at.desc()).limit(10).all()
     
@@ -605,7 +619,13 @@ def view_case(case_id):
         hidden=False
     ).count()
     
-    return render_template('view_case_enhanced.html', case=case, files=files, total_iocs=total_iocs, total_systems=total_systems)
+    # Check DFIR-IRIS integration status
+    dfir_iris_enabled = False
+    iris_setting = SystemSettings.query.filter_by(setting_key='dfir_iris_enabled').first()
+    if iris_setting and iris_setting.setting_value == 'true':
+        dfir_iris_enabled = True
+    
+    return render_template('view_case_enhanced.html', case=case, files=files, total_iocs=total_iocs, total_systems=total_systems, creator_name=creator_name, assigned_name=assigned_name, dfir_iris_enabled=dfir_iris_enabled)
 
 
 # ============================================================================
@@ -2188,6 +2208,400 @@ def add_field_as_ioc(case_id):
         'ioc_id': ioc.id,
         'ioc_value': ioc_value
     })
+
+
+@app.route('/case/<int:case_id>/search/logins-ok', methods=['GET'])
+@login_required
+def show_logins_ok(case_id):
+    """Show distinct successful Windows logon events (Event ID 4624)"""
+    from login_analysis import get_successful_logins
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Get date range parameters (use same filters as main search)
+    date_range = request.args.get('date_range', 'all')
+    custom_date_start = None
+    custom_date_end = None
+    
+    if date_range == 'custom':
+        custom_date_start_str = request.args.get('custom_date_start', '')
+        custom_date_end_str = request.args.get('custom_date_end', '')
+        
+        if custom_date_start_str:
+            try:
+                custom_date_start = datetime.fromisoformat(custom_date_start_str)
+            except:
+                pass
+        
+        if custom_date_end_str:
+            try:
+                custom_date_end = datetime.fromisoformat(custom_date_end_str)
+            except:
+                pass
+    
+    # Get latest event timestamp for relative date filters
+    latest_event_timestamp = None
+    if date_range in ['24h', '7d', '30d']:
+        try:
+            index_pattern = f"case_{case_id}_*"
+            latest_query = {
+                "size": 1,
+                "sort": [{"normalized_timestamp": {"order": "desc"}}],
+                "_source": ["normalized_timestamp"]
+            }
+            latest_result = opensearch_client.search(index=index_pattern, body=latest_query)
+            if latest_result['hits']['hits']:
+                timestamp_str = latest_result['hits']['hits'][0]['_source'].get('normalized_timestamp')
+                if timestamp_str:
+                    latest_event_timestamp = datetime.fromisoformat(timestamp_str)
+        except Exception as e:
+            logger.warning(f"[LOGINS_OK] Could not get latest timestamp: {e}")
+            latest_event_timestamp = datetime.utcnow()
+    
+    # Get login data
+    result = get_successful_logins(
+        opensearch_client,
+        case_id,
+        date_range=date_range,
+        custom_date_start=custom_date_start,
+        custom_date_end=custom_date_end,
+        latest_event_timestamp=latest_event_timestamp
+    )
+    
+    return jsonify(result)
+
+
+@app.route('/case/<int:case_id>/search/logins-failed', methods=['GET'])
+@login_required
+def show_logins_failed(case_id):
+    """Show distinct failed Windows logon events (Event ID 4625)"""
+    from login_analysis import get_failed_logins
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Get date range parameters (use same filters as main search)
+    date_range = request.args.get('date_range', 'all')
+    custom_date_start = None
+    custom_date_end = None
+    
+    if date_range == 'custom':
+        custom_date_start_str = request.args.get('custom_date_start', '')
+        custom_date_end_str = request.args.get('custom_date_end', '')
+        
+        if custom_date_start_str:
+            try:
+                custom_date_start = datetime.fromisoformat(custom_date_start_str)
+            except:
+                pass
+        
+        if custom_date_end_str:
+            try:
+                custom_date_end = datetime.fromisoformat(custom_date_end_str)
+            except:
+                pass
+    
+    # Get latest event timestamp for relative date filters
+    latest_event_timestamp = None
+    if date_range in ['24h', '7d', '30d']:
+        try:
+            index_pattern = f"case_{case_id}_*"
+            latest_query = {
+                "size": 1,
+                "sort": [{"normalized_timestamp": {"order": "desc"}}],
+                "_source": ["normalized_timestamp"]
+            }
+            latest_result = opensearch_client.search(index=index_pattern, body=latest_query)
+            if latest_result['hits']['hits']:
+                timestamp_str = latest_result['hits']['hits'][0]['_source'].get('normalized_timestamp')
+                if timestamp_str:
+                    latest_event_timestamp = datetime.fromisoformat(timestamp_str)
+        except Exception as e:
+            logger.warning(f"[LOGINS_FAILED] Could not get latest timestamp: {e}")
+            latest_event_timestamp = datetime.utcnow()
+    
+    # Get failed login data
+    result = get_failed_logins(
+        opensearch_client,
+        case_id,
+        date_range=date_range,
+        custom_date_start=custom_date_start,
+        custom_date_end=custom_date_end,
+        latest_event_timestamp=latest_event_timestamp
+    )
+    
+    return jsonify(result)
+
+
+@app.route('/case/<int:case_id>/search/rdp-connections', methods=['GET'])
+@login_required
+def show_rdp_connections(case_id):
+    """Show distinct RDP connections (Event ID 1149 - TerminalServices-RemoteConnectionManager)"""
+    from login_analysis import get_rdp_connections
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Get date range parameters (use same filters as main search)
+    date_range = request.args.get('date_range', 'all')
+    custom_date_start = None
+    custom_date_end = None
+    
+    if date_range == 'custom':
+        custom_date_start_str = request.args.get('custom_date_start', '')
+        custom_date_end_str = request.args.get('custom_date_end', '')
+        
+        if custom_date_start_str:
+            try:
+                custom_date_start = datetime.fromisoformat(custom_date_start_str)
+            except:
+                pass
+        
+        if custom_date_end_str:
+            try:
+                custom_date_end = datetime.fromisoformat(custom_date_end_str)
+            except:
+                pass
+    
+    # Get latest event timestamp for relative date filters
+    latest_event_timestamp = None
+    if date_range in ['24h', '7d', '30d']:
+        try:
+            index_pattern = f"case_{case_id}_*"
+            latest_query = {
+                "size": 1,
+                "sort": [{"normalized_timestamp": {"order": "desc"}}],
+                "_source": ["normalized_timestamp"]
+            }
+            latest_result = opensearch_client.search(index=index_pattern, body=latest_query)
+            if latest_result['hits']['hits']:
+                timestamp_str = latest_result['hits']['hits'][0]['_source'].get('normalized_timestamp')
+                if timestamp_str:
+                    latest_event_timestamp = datetime.fromisoformat(timestamp_str)
+        except Exception as e:
+            logger.warning(f"[RDP_CONNECTIONS] Could not get latest timestamp: {e}")
+            latest_event_timestamp = datetime.utcnow()
+    
+    # Get RDP connection data
+    result = get_rdp_connections(
+        opensearch_client,
+        case_id,
+        date_range=date_range,
+        custom_date_start=custom_date_start,
+        custom_date_end=custom_date_end,
+        latest_event_timestamp=latest_event_timestamp
+    )
+    
+    return jsonify(result)
+
+
+@app.route('/case/<int:case_id>/search/console-logins', methods=['GET'])
+@login_required
+def show_console_logins(case_id):
+    """Show distinct console logins (Event ID 4624 with LogonType = 2)"""
+    from login_analysis import get_console_logins
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Get date range parameters (use same filters as main search)
+    date_range = request.args.get('date_range', 'all')
+    custom_date_start = None
+    custom_date_end = None
+    
+    if date_range == 'custom':
+        custom_date_start_str = request.args.get('custom_date_start', '')
+        custom_date_end_str = request.args.get('custom_date_end', '')
+        
+        if custom_date_start_str:
+            try:
+                custom_date_start = datetime.fromisoformat(custom_date_start_str)
+            except:
+                pass
+        
+        if custom_date_end_str:
+            try:
+                custom_date_end = datetime.fromisoformat(custom_date_end_str)
+            except:
+                pass
+    
+    # Get latest event timestamp for relative date filters
+    latest_event_timestamp = None
+    if date_range in ['24h', '7d', '30d']:
+        try:
+            index_pattern = f"case_{case_id}_*"
+            latest_query = {
+                "size": 1,
+                "sort": [{"normalized_timestamp": {"order": "desc"}}],
+                "_source": ["normalized_timestamp"]
+            }
+            latest_result = opensearch_client.search(index=index_pattern, body=latest_query)
+            if latest_result['hits']['hits']:
+                timestamp_str = latest_result['hits']['hits'][0]['_source'].get('normalized_timestamp')
+                if timestamp_str:
+                    latest_event_timestamp = datetime.fromisoformat(timestamp_str)
+        except Exception as e:
+            logger.warning(f"[CONSOLE_LOGINS] Could not get latest timestamp: {e}")
+            latest_event_timestamp = datetime.utcnow()
+    
+    # Get console login data
+    result = get_console_logins(
+        opensearch_client,
+        case_id,
+        date_range=date_range,
+        custom_date_start=custom_date_start,
+        custom_date_end=custom_date_end,
+        latest_event_timestamp=latest_event_timestamp
+    )
+    
+    return jsonify(result)
+
+
+@app.route('/case/<int:case_id>/search/vpn-authentications', methods=['GET'])
+@login_required
+def show_vpn_authentications(case_id):
+    """Show VPN authentications (Event ID 4624 with firewall IP) - NO deduplication"""
+    from login_analysis import get_vpn_authentications
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Get firewall IP and name from request
+    firewall_ip = request.args.get('firewall_ip', '')
+    firewall_name = request.args.get('firewall_name', 'Firewall')
+    
+    if not firewall_ip:
+        return jsonify({'success': False, 'error': 'Firewall IP is required'}), 400
+    
+    # Get date range parameters (use same filters as main search)
+    date_range = request.args.get('date_range', 'all')
+    custom_date_start = None
+    custom_date_end = None
+    
+    if date_range == 'custom':
+        custom_date_start_str = request.args.get('custom_date_start', '')
+        custom_date_end_str = request.args.get('custom_date_end', '')
+        
+        if custom_date_start_str:
+            try:
+                custom_date_start = datetime.fromisoformat(custom_date_start_str)
+            except:
+                pass
+        
+        if custom_date_end_str:
+            try:
+                custom_date_end = datetime.fromisoformat(custom_date_end_str)
+            except:
+                pass
+    
+    # Get latest event timestamp for relative date filters
+    latest_event_timestamp = None
+    if date_range in ['24h', '7d', '30d']:
+        try:
+            index_pattern = f"case_{case_id}_*"
+            latest_query = {
+                "size": 1,
+                "sort": [{"normalized_timestamp": {"order": "desc"}}],
+                "_source": ["normalized_timestamp"]
+            }
+            latest_result = opensearch_client.search(index=index_pattern, body=latest_query)
+            if latest_result['hits']['hits']:
+                timestamp_str = latest_result['hits']['hits'][0]['_source'].get('normalized_timestamp')
+                if timestamp_str:
+                    latest_event_timestamp = datetime.fromisoformat(timestamp_str)
+        except Exception as e:
+            logger.warning(f"[VPN_AUTHS] Could not get latest timestamp: {e}")
+            latest_event_timestamp = datetime.utcnow()
+    
+    # Get VPN authentication data (ALL events, no deduplication)
+    result = get_vpn_authentications(
+        opensearch_client,
+        case_id,
+        firewall_ip=firewall_ip,
+        date_range=date_range,
+        custom_date_start=custom_date_start,
+        custom_date_end=custom_date_end,
+        latest_event_timestamp=latest_event_timestamp
+    )
+    
+    return jsonify(result)
+
+
+@app.route('/case/<int:case_id>/search/vpn-failed-attempts', methods=['GET'])
+@login_required
+def show_failed_vpn_attempts(case_id):
+    """Show failed VPN attempts (Event ID 4625 with firewall IP) - NO deduplication"""
+    from login_analysis import get_failed_vpn_attempts
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    # Get firewall IP and name from request
+    firewall_ip = request.args.get('firewall_ip', '')
+    firewall_name = request.args.get('firewall_name', 'Firewall')
+    
+    if not firewall_ip:
+        return jsonify({'success': False, 'error': 'Firewall IP is required'}), 400
+    
+    # Get date range parameters (use same filters as main search)
+    date_range = request.args.get('date_range', 'all')
+    custom_date_start = None
+    custom_date_end = None
+    
+    if date_range == 'custom':
+        custom_date_start_str = request.args.get('custom_date_start', '')
+        custom_date_end_str = request.args.get('custom_date_end', '')
+        
+        if custom_date_start_str:
+            try:
+                custom_date_start = datetime.fromisoformat(custom_date_start_str)
+            except:
+                pass
+        
+        if custom_date_end_str:
+            try:
+                custom_date_end = datetime.fromisoformat(custom_date_end_str)
+            except:
+                pass
+    
+    # Get latest event timestamp for relative date filters
+    latest_event_timestamp = None
+    if date_range in ['24h', '7d', '30d']:
+        try:
+            index_pattern = f"case_{case_id}_*"
+            latest_query = {
+                "size": 1,
+                "sort": [{"normalized_timestamp": {"order": "desc"}}],
+                "_source": ["normalized_timestamp"]
+            }
+            latest_result = opensearch_client.search(index=index_pattern, body=latest_query)
+            if latest_result['hits']['hits']:
+                timestamp_str = latest_result['hits']['hits'][0]['_source'].get('normalized_timestamp')
+                if timestamp_str:
+                    latest_event_timestamp = datetime.fromisoformat(timestamp_str)
+        except Exception as e:
+            logger.warning(f"[FAILED_VPN] Could not get latest timestamp: {e}")
+            latest_event_timestamp = datetime.utcnow()
+    
+    # Get failed VPN attempt data (ALL events, no deduplication)
+    result = get_failed_vpn_attempts(
+        opensearch_client,
+        case_id,
+        firewall_ip=firewall_ip,
+        date_range=date_range,
+        custom_date_start=custom_date_start,
+        custom_date_end=custom_date_end,
+        latest_event_timestamp=latest_event_timestamp
+    )
+    
+    return jsonify(result)
 
 
 @app.route('/sigma')

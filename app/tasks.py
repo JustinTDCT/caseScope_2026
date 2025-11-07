@@ -6,11 +6,56 @@ Minimal task orchestrator - delegates to file_processing.py modular functions
 
 import os
 import logging
+import shutil
 from datetime import datetime
 
 from celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# OPENSEARCH SHARD LIMIT PROTECTION
+# ============================================================================
+
+def check_opensearch_shard_capacity(opensearch_client, threshold_percent=90):
+    """
+    Check if OpenSearch cluster has capacity for more shards
+    Returns: (has_capacity: bool, current_shards: int, max_shards: int, message: str)
+    """
+    try:
+        # Get cluster stats
+        cluster_stats = opensearch_client.cluster.stats()
+        current_shards = cluster_stats['indices']['shards']['total']
+        
+        # Get cluster settings
+        cluster_settings = opensearch_client.cluster.get_settings()
+        max_shards_setting = cluster_settings.get('persistent', {}).get('cluster', {}).get('max_shards_per_node')
+        
+        # Default OpenSearch shard limit is 1000 per node, but we set it higher
+        # If not explicitly set, assume default * number of nodes
+        if not max_shards_setting:
+            nodes = cluster_stats['nodes']['count']['total']
+            max_shards = 1000 * nodes
+        else:
+            nodes = cluster_stats['nodes']['count']['total']
+            max_shards = int(max_shards_setting) * nodes
+        
+        # Calculate threshold
+        threshold = int(max_shards * (threshold_percent / 100.0))
+        has_capacity = current_shards < threshold
+        
+        message = f"OpenSearch Shards: {current_shards:,}/{max_shards:,} ({(current_shards/max_shards*100):.1f}%)"
+        
+        if not has_capacity:
+            logger.warning(f"[SHARD_LIMIT] {message} - THRESHOLD EXCEEDED ({threshold_percent}%)")
+        
+        return has_capacity, current_shards, max_shards, message
+        
+    except Exception as e:
+        logger.error(f"[SHARD_LIMIT] Failed to check shard capacity: {e}")
+        # On error, assume we have capacity to avoid blocking legitimate operations
+        return True, 0, 0, f"Shard check failed: {str(e)}"
 
 
 # ============================================================================
@@ -78,6 +123,28 @@ def process_file(self, file_id, operation='full'):
             
             case_file.celery_task_id = self.request.id
             db.session.commit()
+            
+            # CRITICAL: Check OpenSearch shard capacity before processing
+            # This prevents the worker from crashing when hitting shard limits
+            if operation in ['full', 'reindex']:
+                has_capacity, current_shards, max_shards, shard_message = check_opensearch_shard_capacity(
+                    opensearch_client, threshold_percent=95
+                )
+                logger.info(f"[TASK] {shard_message}")
+                
+                if not has_capacity:
+                    error_msg = f"OpenSearch shard limit nearly reached ({current_shards:,}/{max_shards:,}). Please consolidate indices or increase shard limit."
+                    logger.error(f"[TASK] {error_msg}")
+                    case_file.indexing_status = 'Failed'
+                    case_file.error_message = error_msg
+                    db.session.commit()
+                    return {
+                        'status': 'error',
+                        'message': error_msg,
+                        'file_id': file_id,
+                        'event_count': 0,
+                        'index_name': None
+                    }
             
             index_name = make_index_name(case.id, case_file.original_filename)
             
@@ -863,4 +930,227 @@ def generate_ai_report(self, report_id):
                 'status': 'error',
                 'report_id': report_id,
                 'message': str(e)
+            }
+
+
+# ============================================================================
+# CASE DELETION TASK (ASYNC WITH PROGRESS TRACKING)
+# ============================================================================
+
+@celery_app.task(bind=True, name='tasks.delete_case_async')
+def delete_case_async(self, case_id):
+    """
+    Asynchronously delete a case and ALL associated data with progress tracking.
+    
+    Deletes:
+    1. Physical files on disk
+    2. OpenSearch indices
+    3. Database records: CaseFile, IOC, IOCMatch, System, SigmaViolation, 
+       TimelineTag, AIReport (cascade AIReportChat), SkippedFile, SearchHistory, Case
+    
+    Progress tracking:
+    - Updates task metadata with current step, progress %, and counts
+    - Frontend polls /case/<id>/delete/status for real-time updates
+    """
+    from main import app, db, opensearch_client
+    from models import (Case, CaseFile, IOC, IOCMatch, System, SigmaViolation, 
+                        TimelineTag, AIReport, SkippedFile, SearchHistory)
+    from utils import make_index_name
+    
+    logger.info(f"[DELETE_CASE] Starting async deletion of case {case_id}")
+    
+    # Helper function to update progress
+    def update_progress(step, progress_percent, message, **counts):
+        """Update Celery task metadata for frontend polling"""
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'step': step,
+                'progress': progress_percent,
+                'message': message,
+                **counts
+            }
+        )
+        logger.info(f"[DELETE_CASE] [{progress_percent}%] {step}: {message}")
+    
+    # Use app context for all database operations (same pattern as AI report generation)
+    with app.app_context():
+        try:
+            # Step 1: Get case information
+            update_progress('Initializing', 0, 'Looking up case...')
+            case = db.session.get(Case, case_id)
+            if not case:
+                logger.error(f"[DELETE_CASE] Case {case_id} not found")
+                return {
+                    'status': 'error',
+                    'message': 'Case not found'
+                }
+            
+            case_name = case.name
+            upload_folder = f"/opt/casescope/uploads/{case_id}"
+            staging_folder = f"/opt/casescope/staging/{case_id}"
+            
+            # Step 2: Count all data for progress tracking
+            update_progress('Counting', 5, 'Counting files and data...')
+            
+            files = db.session.query(CaseFile).filter_by(case_id=case_id).all()
+            iocs_count = db.session.query(IOC).filter_by(case_id=case_id).count()
+            ioc_matches_count = db.session.query(IOCMatch).filter_by(case_id=case_id).count()
+            systems_count = db.session.query(System).filter_by(case_id=case_id).count()
+            sigma_count = db.session.query(SigmaViolation).filter_by(case_id=case_id).count()
+            timeline_count = db.session.query(TimelineTag).filter_by(case_id=case_id).count()
+            aireport_count = db.session.query(AIReport).filter_by(case_id=case_id).count()
+            skipped_count = db.session.query(SkippedFile).filter_by(case_id=case_id).count()
+            search_count = db.session.query(SearchHistory).filter_by(case_id=case_id).count()
+            
+            total_files = len(files)
+            
+            update_progress('Counted', 10, f'Found {total_files} files, {iocs_count} IOCs, {systems_count} systems',
+                           files=total_files, iocs=iocs_count, systems=systems_count,
+                           sigma=sigma_count, ai_reports=aireport_count)
+            
+            # Step 3: Delete physical files on disk
+            update_progress('Deleting Files', 15, f'Removing physical files...')
+            
+            # Delete uploads folder
+            if os.path.exists(upload_folder):
+                try:
+                    shutil.rmtree(upload_folder)
+                    logger.info(f"[DELETE_CASE] Deleted upload folder: {upload_folder}")
+                except Exception as e:
+                    logger.warning(f"[DELETE_CASE] Failed to delete upload folder {upload_folder}: {e}")
+            
+            # Delete staging folder
+            if os.path.exists(staging_folder):
+                try:
+                    shutil.rmtree(staging_folder)
+                    logger.info(f"[DELETE_CASE] Deleted staging folder: {staging_folder}")
+                except Exception as e:
+                    logger.warning(f"[DELETE_CASE] Failed to delete staging folder {staging_folder}: {e}")
+            
+            # Step 4: Delete OpenSearch indices (20% - 50%) - OPTIMIZED with wildcard pattern
+            update_progress('Deleting Indices', 20, f'Deleting OpenSearch indices for case {case_id}...')
+            
+            # Use wildcard pattern to delete ALL indices for this case in ONE API call
+            # Pattern: case_{case_id}_* (ensures we ONLY delete THIS case's indices)
+            index_pattern = f"case_{case_id}_*"
+            deleted_indices = 0
+            
+            try:
+                # Get list of matching indices first (for count)
+                matching_indices = opensearch_client.cat.indices(index=index_pattern, format='json')
+                deleted_indices = len(matching_indices)
+                
+                update_progress('Deleting Indices', 30, f'Found {deleted_indices} indices matching pattern: {index_pattern}')
+                logger.info(f"[DELETE_CASE] Deleting {deleted_indices} indices with pattern: {index_pattern}")
+                
+                # Delete all matching indices in ONE call
+                if deleted_indices > 0:
+                    opensearch_client.indices.delete(index=index_pattern)
+                    update_progress('Deleting Indices', 50, f'✅ Deleted {deleted_indices} indices in single operation')
+                    logger.info(f"[DELETE_CASE] ✅ Deleted {deleted_indices} indices using wildcard pattern")
+                else:
+                    update_progress('Deleting Indices', 50, 'No indices to delete')
+                    logger.info(f"[DELETE_CASE] No indices found for case {case_id}")
+                    
+            except Exception as e:
+                logger.warning(f"[DELETE_CASE] Failed to delete indices with pattern {index_pattern}: {e}")
+                # Fallback: try individual deletion if wildcard fails
+                logger.info(f"[DELETE_CASE] Falling back to individual index deletion...")
+                deleted_indices = 0
+                for idx, file in enumerate(files):
+                    if file.opensearch_key:
+                        index_name = make_index_name(case_id, file.original_filename)
+                        try:
+                            if opensearch_client.indices.exists(index=index_name):
+                                opensearch_client.indices.delete(index=index_name)
+                                deleted_indices += 1
+                        except Exception as e2:
+                            logger.warning(f"[DELETE_CASE] Failed to delete index {index_name}: {e2}")
+            
+            # Step 5: Delete database records (50% - 95%)
+            update_progress('Deleting DB: AIReports', 55, f'Deleting {aireport_count} AI reports...')
+            db.session.query(AIReport).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: Search History', 60, f'Deleting {search_count} search history entries...')
+            db.session.query(SearchHistory).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: Timeline Tags', 65, f'Deleting {timeline_count} timeline tags...')
+            db.session.query(TimelineTag).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: IOC Matches', 70, f'Deleting {ioc_matches_count} IOC matches...')
+            db.session.query(IOCMatch).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: SIGMA Violations', 75, f'Deleting {sigma_count} SIGMA violations...')
+            db.session.query(SigmaViolation).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: IOCs', 80, f'Deleting {iocs_count} IOCs...')
+            db.session.query(IOC).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: Systems', 83, f'Deleting {systems_count} systems...')
+            db.session.query(System).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: Skipped Files', 86, f'Deleting {skipped_count} skipped files...')
+            db.session.query(SkippedFile).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            update_progress('Deleting DB: Files', 90, f'Deleting {total_files} file records...')
+            db.session.query(CaseFile).filter_by(case_id=case_id).delete()
+            db.session.commit()
+            
+            # Step 6: Delete the case itself
+            update_progress('Deleting Case', 95, f'Removing case "{case_name}"...')
+            db.session.delete(case)
+            db.session.commit()
+            
+            # Step 7: Done!
+            update_progress('Complete', 100, f'Case "{case_name}" deleted successfully')
+            
+            # Audit log
+            from audit_logger import log_action
+            log_action('delete_case', resource_type='case', resource_id=case_id,
+                      resource_name=case_name, 
+                      details={
+                          'files_deleted': total_files,
+                          'indices_deleted': deleted_indices,
+                          'iocs_deleted': iocs_count,
+                          'systems_deleted': systems_count,
+                          'sigma_violations_deleted': sigma_count,
+                          'ai_reports_deleted': aireport_count
+                      })
+            
+            logger.info(f"[DELETE_CASE] ✅ Case {case_id} '{case_name}' deleted successfully")
+            logger.info(f"[DELETE_CASE] Summary: {total_files} files, {deleted_indices} indices, "
+                       f"{iocs_count} IOCs, {systems_count} systems, {sigma_count} SIGMA violations")
+            
+            return {
+                'status': 'success',
+                'case_id': case_id,
+                'case_name': case_name,
+                'summary': {
+                    'files_deleted': total_files,
+                    'indices_deleted': deleted_indices,
+                    'iocs_deleted': iocs_count,
+                    'systems_deleted': systems_count,
+                    'sigma_violations_deleted': sigma_count,
+                    'timeline_tags_deleted': timeline_count,
+                    'ai_reports_deleted': aireport_count
+                }
+            }
+        
+        except Exception as e:
+            logger.error(f"[DELETE_CASE] Fatal error deleting case {case_id}: {e}", exc_info=True)
+            db.session.rollback()
+            
+            return {
+                'status': 'error',
+                'case_id': case_id,
+                'message': f'Deletion failed: {str(e)}'
             }

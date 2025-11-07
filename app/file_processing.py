@@ -347,8 +347,18 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 logger.info(f"[INDEX FILE] Index {index_name} already exists")
         except Exception as e:
             logger.error(f"[INDEX FILE] Failed to create index {index_name}: {e}")
-            # CRITICAL: Cannot continue without a valid index
-            case_file.indexing_status = f'Failed: {str(e)[:100]}'
+            
+            # Check if this is a shard limit error
+            error_str = str(e)
+            if 'maximum shards open' in error_str or 'max_shards_per_node' in error_str:
+                logger.critical(f"[INDEX FILE] ⚠️  OPENSEARCH SHARD LIMIT REACHED - Cannot create more indices")
+                case_file.indexing_status = 'Failed: Shard Limit'
+                case_file.error_message = 'OpenSearch shard limit reached. Please consolidate indices or increase cluster.max_shards_per_node setting.'
+            else:
+                # Generic index creation failure
+                case_file.indexing_status = f'Failed: {str(e)[:100]}'
+                case_file.error_message = str(e)[:500] if hasattr(case_file, 'error_message') else None
+            
             commit_with_retry(db.session, logger_instance=logger)
             return {
                 'status': 'error',

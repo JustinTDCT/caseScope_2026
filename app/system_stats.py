@@ -10,6 +10,63 @@ import psutil
 from pathlib import Path
 
 
+def get_gpu_info():
+    """Detect GPU information using nvidia-smi, lspci, or other methods"""
+    try:
+        # Try nvidia-smi first (NVIDIA GPUs)
+        env = os.environ.copy()
+        env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
+        result = subprocess.run(['nvidia-smi', '--query-gpu=gpu_name,driver_version,memory.total', 
+                                '--format=csv,noheader,nounits'],
+                              capture_output=True, text=True, timeout=5,
+                              env=env)
+        if result.returncode == 0 and result.stdout.strip():
+            # Parse nvidia-smi output
+            lines = result.stdout.strip().split('\n')
+            gpus = []
+            for line in lines:
+                parts = [p.strip() for p in line.split(',')]
+                if len(parts) >= 3:
+                    gpu_name = parts[0]
+                    driver = parts[1]
+                    vram_mb = parts[2]
+                    vram_gb = round(float(vram_mb) / 1024, 1)
+                    gpus.append(f"{gpu_name} ({vram_gb}GB VRAM, Driver: {driver})")
+            
+            if gpus:
+                return gpus
+    except Exception as e:
+        pass  # nvidia-smi not available or failed
+    
+    try:
+        # Fallback: Try lspci for any GPU
+        env = os.environ.copy()
+        env['PATH'] = '/usr/bin:/usr/local/bin:/bin:/sbin:/usr/sbin:' + env.get('PATH', '')
+        result = subprocess.run(['lspci'], capture_output=True, text=True, timeout=5,
+                              env=env)
+        if result.returncode == 0:
+            gpus = []
+            for line in result.stdout.split('\n'):
+                # Look for VGA, 3D, or Display controller
+                if 'VGA' in line or '3D controller' in line or 'Display controller' in line:
+                    # Extract GPU name (everything after the : )
+                    if ':' in line:
+                        gpu_line = line.split(':', 2)[-1].strip()
+                        # Clean up common prefixes
+                        gpu_line = gpu_line.replace('VGA compatible controller:', '').strip()
+                        gpu_line = gpu_line.replace('3D controller:', '').strip()
+                        gpu_line = gpu_line.replace('Display controller:', '').strip()
+                        if gpu_line and 'vendor' not in gpu_line.lower():
+                            gpus.append(gpu_line)
+            
+            if gpus:
+                return gpus
+    except Exception as e:
+        pass  # lspci not available or failed
+    
+    return None  # No GPU detected
+
+
 def get_system_status():
     """Get system status information"""
     try:
@@ -32,7 +89,10 @@ def get_system_status():
         # OS info
         os_name = f"{platform.system()} {platform.release()}"
         
-        return {
+        # GPU detection
+        gpu_info = get_gpu_info()
+        
+        result = {
             'os_name': os_name,
             'cpu_cores': cpu_count,
             'cpu_usage': cpu_percent,
@@ -43,6 +103,12 @@ def get_system_status():
             'disk_used_gb': disk_used_gb,
             'disk_percent': disk_percent
         }
+        
+        # Add GPU info if found
+        if gpu_info:
+            result['gpu_info'] = gpu_info
+        
+        return result
     except Exception as e:
         print(f"Error getting system status: {e}")
         return None
@@ -87,12 +153,34 @@ def get_software_versions():
     # Python version
     versions['Python'] = platform.python_version()
     
-    # SQLite version
+    # PostgreSQL version
     try:
-        import sqlite3
-        versions['SQLite3'] = sqlite3.sqlite_version
-    except:
-        versions['SQLite3'] = 'Unknown'
+        import os as os_module
+        env = os_module.environ.copy()
+        env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
+        result = subprocess.run(['psql', '--version'], 
+                              capture_output=True, text=True, timeout=5,
+                              env=env)
+        if result.returncode == 0 and result.stdout:
+            # Parse version from output like "psql (PostgreSQL) 16.10"
+            version_line = result.stdout.strip()
+            # Extract version number (e.g., "16.10" from "psql (PostgreSQL) 16.10")
+            if 'PostgreSQL' in version_line or 'psql' in version_line:
+                parts = version_line.split()
+                # Look for version number pattern (contains dot)
+                for part in parts:
+                    if '.' in part and part[0].isdigit():
+                        versions['PostgreSQL'] = part.strip()
+                        break
+                else:
+                    versions['PostgreSQL'] = 'Installed'
+            else:
+                versions['PostgreSQL'] = 'Installed'
+        else:
+            versions['PostgreSQL'] = 'Unknown'
+    except Exception as e:
+        print(f"PostgreSQL version detection error: {e}")
+        versions['PostgreSQL'] = 'Unknown'
     
     # Flask version
     try:
@@ -110,17 +198,27 @@ def get_software_versions():
     
     # Redis version
     try:
+        import os as os_module
+        env = os_module.environ.copy()
+        env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
         result = subprocess.run(['redis-cli', '--version'], 
-                              capture_output=True, text=True, timeout=5)
-        if result.returncode == 0 and result.stdout:
+                              capture_output=True, text=True, timeout=5,
+                              env=env)
+        if result.returncode == 0:
             # Parse version from output like "redis-cli 7.0.15"
             version_line = result.stdout.strip()
             parts = version_line.split()
-            if len(parts) >= 2:
+            if len(parts) >= 2 and '.' in parts[1]:
                 # Extract just the version number (second part)
                 versions['Redis'] = parts[1].strip()
             else:
-                versions['Redis'] = 'Installed'
+                # Fallback: try to find any part with dots (version pattern)
+                for part in parts:
+                    if '.' in part and part[0].isdigit():
+                        versions['Redis'] = part.strip()
+                        break
+                else:
+                    versions['Redis'] = 'Installed'
         else:
             versions['Redis'] = 'Unknown'
     except Exception as e:
