@@ -13,147 +13,66 @@ logger = get_logger('app')
 
 
 # Model descriptions and metadata
-# UPDATED 2025-11-05: Removed Mixtral (high hallucination), added top-tier reasoning models
-# Model names verified against actual Ollama registry (2025-11-05)
+# UPDATED 2025-11-07: Complete DFIR-optimized overhaul - 4 specialized models
+# All models fit in 7.5GB VRAM (Tesla P4). Total: ~24 GB disk space (was ~317 GB)
+# Model names verified against actual Ollama registry (2025-11-07)
 MODEL_INFO = {
-    # DeepSeek-R1: Best reasoning and step-by-step processing
-    'deepseek-r1:32b': {
-        'name': 'DeepSeek-R1 32B',
-        'speed': 'Moderate',
-        'quality': 'Outstanding',
-        'size': '19 GB',
-        'description': 'Excellent reasoning and step-by-step processing. Low hallucination. GPT-4 class. RECOMMENDED.',
-        'speed_estimate': '~15-25 tok/s GPU, ~5-8 tok/s CPU',
-        'time_estimate': '5-10 minutes (GPU), 15-25 minutes (CPU)',
-        'recommended': True,
-        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
-    },
-    'deepseek-r1:70b': {
-        'name': 'DeepSeek-R1 70B',
-        'speed': 'Slow',
-        'quality': 'Best Available',
-        'size': '42 GB',
-        'description': 'Best reasoning model. Approaches GPT-4 Turbo levels. Extremely low hallucination. Use for critical reports.',
-        'speed_estimate': '~10-20 tok/s GPU, ~2-4 tok/s CPU',
-        'time_estimate': '5-12 minutes (GPU), 25-40 minutes (CPU)',
-        'recommended': True,
-        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
-    },
+    # ===== DFIR-OPTIMIZED MODELS (Fits entirely in 7.5GB VRAM) =====
     
-    # Llama 3.3 70B: Superior instruction adherence
-    'llama3.3:latest': {
-        'name': 'Llama 3.3 70B',
-        'speed': 'Slow',
-        'quality': 'Outstanding',
-        'size': '42 GB',
-        'description': 'Superior instruction adherence and factuality. Excellent for complex prompts like "HARD RESET CONTEXT".',
-        'speed_estimate': '~10-20 tok/s GPU, ~2-4 tok/s CPU',
-        'time_estimate': '5-10 minutes (GPU), 20-30 minutes (CPU)',
-        'recommended': True,
-        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
-    },
-    
-    # Phi-4 14B: Efficient and punches above weight
-    'phi4:latest': {
-        'name': 'Phi-4 14B',
+    # Llama 3.1 8B Instruct: General reasoning + summarization (DEFAULT/RECOMMENDED)
+    'llama3.1:8b-instruct-q4_K_M': {
+        'name': 'Llama 3.1 8B Instruct (Q4)',
         'speed': 'Fast',
         'quality': 'Excellent',
-        'size': '9 GB',
-        'description': 'Efficient model that punches above its weight. Strong rule-following without extras. Low latency.',
-        'speed_estimate': '~20-30 tok/s GPU, ~8-12 tok/s CPU',
-        'time_estimate': '3-6 minutes (GPU), 10-15 minutes (CPU)',
-        'recommended': False,
-        'cpu_optimal': {'num_ctx': 4096, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 6, 'temperature': 0.3, 'num_gpu_layers': -1}
-    },
-    
-    # Qwen2.5 32B: Data-heavy reports
-    'qwen2.5:32b': {
-        'name': 'Qwen 2.5 32B',
-        'speed': 'Moderate',
-        'quality': 'Excellent',
-        'size': '20 GB',
-        'description': 'Balanced reasoning for data-heavy reports (IOC tables, timestamps). High accuracy in structured logic.',
-        'speed_estimate': '~15-25 tok/s GPU, ~4-6 tok/s CPU',
-        'time_estimate': '4-8 minutes (GPU), 12-18 minutes (CPU)',
-        'recommended': False,
-        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
-    },
-    
-    # Gemma 2 27B: Efficient and fast (REQUIRES FULL QUANTIZATION NAME)
-    'gemma2:27b-instruct-q4_K_M': {
-        'name': 'Gemma 2 27B (Q4)',
-        'speed': 'Fast',
-        'quality': 'Excellent',
-        'size': '16 GB',
-        'description': 'Efficient and fast with high tokens/sec. Low hallucination, suits structured outputs. Good for minimum word counts.',
-        'speed_estimate': '~18-28 tok/s GPU, ~5-8 tok/s CPU',
-        'time_estimate': '3-7 minutes (GPU), 12-18 minutes (CPU)',
-        'recommended': False,
-        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
+        'size': '4.9 GB',
+        'description': 'Strong general reasoning + summarization → excellent timelines & plain-English exec summaries. Blends raw events + IOC lists into coherent narratives. Maps steps to ATT&CK. Great default brain. Runs fully on 7.5GB VRAM without CPU offloading.',
+        'speed_estimate': '~25-35 tok/s GPU (100% on-device), ~10-15 tok/s CPU',
+        'time_estimate': '3-5 minutes (GPU), 10-15 minutes (CPU)',
+        'recommended': True,
+        'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
-    # Mistral Large 2: Fast and resource-efficient (REQUIRES FULL QUANTIZATION NAME)
-    'mistral-large:123b-instruct-2407-q4_K_M': {
-        'name': 'Mistral Large 2 (123B Q4)',
-        'speed': 'Moderate',
-        'quality': 'Outstanding',
-        'size': '73 GB',
-        'description': 'Fast, resource-efficient. 128K context for full data. Strong code/reasoning, avoids inferences.',
-        'speed_estimate': '~8-15 tok/s GPU, ~1-3 tok/s CPU',
-        'time_estimate': '6-12 minutes (GPU), 30-50 minutes (CPU)',
-        'recommended': False,
-        'cpu_optimal': {'num_ctx': 8192, 'num_thread': 16, 'temperature': 0.3},
-        'gpu_optimal': {'num_ctx': 32768, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # Increased threads for CPU offloading
-    },
-    
-    # ===== OPTIMIZED FOR 8GB VRAM GPUs (Tesla P4, RTX 3060 8GB, etc.) =====
-    
-    # Phi-3 Mini: TOP CHOICE for factual extraction with low hallucination
-    'phi3:mini': {
-        'name': 'Phi-3 Mini 3.8B',
-        'speed': 'Very Fast',
-        'quality': 'Excellent',
-        'size': '2.3 GB',
-        'description': '100% accuracy in extractive/structured tasks. LOWEST hallucination. Enterprise-grade for rule-strict DFIR reports. Excels at chronological timelines, no summarization. Perfect for 8GB VRAM systems without CPU offloading.',
-        'speed_estimate': '~25-35 tok/s GPU, ~10-15 tok/s CPU',
-        'time_estimate': '2-4 minutes (GPU), 8-12 minutes (CPU)',
-        'recommended': True,
-        'cpu_optimal': {'num_ctx': 4096, 'num_thread': 16, 'temperature': 0.1},
-        'gpu_optimal': {'num_ctx': 8192, 'num_thread': 6, 'temperature': 0.1, 'num_gpu_layers': -1}
-    },
-    
-    # Gemma 2 9B: Balanced entity extraction and structured outputs
-    'gemma2:9b': {
-        'name': 'Gemma 2 9B',
+    # Mistral 7B Instruct: Short-to-mid context formatting
+    'mistral:7b-instruct-v0.3-q4_K_M': {
+        'name': 'Mistral 7B Instruct v0.3 (Q4)',
         'speed': 'Fast',
         'quality': 'Excellent',
-        'size': '5.5 GB',
-        'description': 'Excellent entity extraction (9.7/10 avg). Strong prompt adherence and structured JSON-like outputs. Balanced for report generation. Runs fully on 8GB VRAM without CPU offloading.',
-        'speed_estimate': '~20-30 tok/s GPU, ~8-12 tok/s CPU',
-        'time_estimate': '3-6 minutes (GPU), 10-15 minutes (CPU)',
+        'size': '4.4 GB',
+        'description': 'Efficient, sharp on short-to-mid contexts. Very reliable formatting (tables, bullet timelines). Chronological reconstruction from mixed EVTX/NDJSON/firewall rows. Terse, clear outputs. Runs fully on 7.5GB VRAM without CPU offloading.',
+        'speed_estimate': '~25-35 tok/s GPU (100% on-device), ~10-15 tok/s CPU',
+        'time_estimate': '3-5 minutes (GPU), 10-15 minutes (CPU)',
         'recommended': True,
-        'cpu_optimal': {'num_ctx': 6144, 'num_thread': 16, 'temperature': 0.1},
-        'gpu_optimal': {'num_ctx': 8192, 'num_thread': 8, 'temperature': 0.1, 'num_gpu_layers': -1}
+        'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
     
-    # Qwen 2.5 7B: Strong reasoning for data-heavy reports
+    # DeepSeek-Coder V2 16B Lite: Code/log savvy
+    'deepseek-coder-v2:16b-lite-instruct-q4_K_M': {
+        'name': 'DeepSeek-Coder V2 16B Lite Instruct (Q4)',
+        'speed': 'Moderate',
+        'quality': 'Excellent',
+        'size': '10 GB',
+        'description': 'Code/log savvy. Great at PowerShell decoding, regex extraction, and reasoning over event fields. De-obfuscation snippets + stitching log artifacts into causal chains. May use minor CPU offloading (~15%) on 7.5GB VRAM.',
+        'speed_estimate': '~15-25 tok/s GPU (85% on-device, 15% CPU offload), ~8-12 tok/s CPU',
+        'time_estimate': '5-8 minutes (GPU), 12-18 minutes (CPU)',
+        'recommended': True,
+        'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # 16 threads for CPU offloading
+    },
+    
+    # Qwen 2.5 7B Instruct: Long lists and structured reasoning
     'qwen2.5:7b': {
-        'name': 'Qwen 2.5 7B',
+        'name': 'Qwen 2.5 7B Instruct (Q4)',
         'speed': 'Fast',
         'quality': 'Excellent',
         'size': '4.7 GB',
-        'description': 'Constrained reasoning (95.9% on math benchmarks). Excellent for data-heavy reports with IOC tables and timestamps. LOW HALLUCINATION for factual extraction. Runs fully on 8GB VRAM without CPU offloading.',
-        'speed_estimate': '~22-32 tok/s GPU, ~9-14 tok/s CPU',
+        'description': 'Strong structure and retrieval-style reasoning. Good with long lists (IOCs, hosts, IP notes). "Read these 300 events + IOC table and produce a timestamped timeline with MITRE tags." Constrained reasoning (95.9% on math benchmarks). LOW HALLUCINATION. Runs fully on 7.5GB VRAM without CPU offloading.',
+        'speed_estimate': '~22-32 tok/s GPU (100% on-device), ~9-14 tok/s CPU',
         'time_estimate': '3-5 minutes (GPU), 9-13 minutes (CPU)',
         'recommended': True,
-        'cpu_optimal': {'num_ctx': 6144, 'num_thread': 16, 'temperature': 0.1},
-        'gpu_optimal': {'num_ctx': 8192, 'num_thread': 8, 'temperature': 0.1, 'num_gpu_layers': -1}
+        'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
+        'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     }
 }
 

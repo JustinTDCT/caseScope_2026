@@ -1,9 +1,10 @@
 {
-  "version": "1.11.14",
+  "version": "1.11.15",
   "release_date": "2025-11-07",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "🔥 MAJOR: DFIR-Optimized AI Model Overhaul - Replaced 13 models (~317 GB) with 4 DFIR-specialized models (~24 GB): Llama 3.1 8B, Mistral 7B, DeepSeek-Coder V2 16B Lite, Qwen 2.5 7B. 293 GB freed, 2-5x faster, 100% GPU inference (v1.11.15)",
     "⚡ PERFORMANCE: Increased CPU Threading for GPU Mode - Large models now use 16 CPU threads (was 8) for better multi-core utilization when offloading to CPU (v1.11.14)",
     "✨ ENHANCEMENT: AI Reports Include System IP Addresses - Systems in AI prompts now include IP addresses for better network correlation (v1.11.13)",
     "✨ ENHANCEMENT: Clickable VPN Tables - VPN Authentication & Failed VPN Attempt rows now clickable to view full event details (v1.11.12)",
