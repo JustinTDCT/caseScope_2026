@@ -1154,3 +1154,183 @@ def delete_case_async(self, case_id):
                 'case_id': case_id,
                 'message': f'Deletion failed: {str(e)}'
             }
+
+
+# ============================================================================
+# AI MODEL TRAINING
+# ============================================================================
+
+@celery_app.task(bind=True, name='tasks.train_dfir_model_from_opencti')
+def train_dfir_model_from_opencti(self):
+    """
+    Train DFIR model using OpenCTI threat intelligence
+    Modular design: delegates to ai_training.py and LoRA training scripts
+    """
+    from flask import current_app as app
+    
+    with app.app_context():
+        from main import db
+        from routes.settings import get_setting
+        from ai_training import generate_training_data_from_opencti
+        
+        log_buffer = []
+        
+        def log(message):
+            """Log and update task state"""
+            timestamp = datetime.now().strftime('%H:%M:%S')
+            log_message = f"[{timestamp}] {message}"
+            log_buffer.append(log_message)
+            logger.info(f"[AI_TRAIN] {message}")
+            
+            # Update task state with log
+            self.update_state(
+                state='PROGRESS',
+                meta={'log': '\n'.join(log_buffer), 'progress': len(log_buffer)}
+            )
+        
+        try:
+            log("=" * 60)
+            log("🎓 AI Model Training from OpenCTI")
+            log("=" * 60)
+            log("")
+            
+            # Step 1: Get OpenCTI credentials
+            log("Step 1/5: Retrieving OpenCTI configuration...")
+            opencti_url = get_setting('opencti_url', '')
+            opencti_api_key = get_setting('opencti_api_key', '')
+            
+            if not opencti_url or not opencti_api_key:
+                raise Exception("OpenCTI credentials not configured")
+            
+            log(f"✅ OpenCTI URL: {opencti_url}")
+            log("")
+            
+            # Step 2: Generate training data from OpenCTI
+            log("Step 2/5: Generating training data from OpenCTI threat reports...")
+            result = generate_training_data_from_opencti(
+                opencti_url=opencti_url,
+                opencti_api_key=opencti_api_key,
+                limit=100,
+                progress_callback=log
+            )
+            
+            if not result['success']:
+                raise Exception(result.get('error', 'Training data generation failed'))
+            
+            training_file = result['file_path']
+            example_count = result['example_count']
+            
+            log("")
+            log(f"✅ Generated {example_count} training examples")
+            log(f"✅ Saved to: {training_file}")
+            log("")
+            
+            # Step 3: Setup training environment (if needed)
+            log("Step 3/5: Checking training environment...")
+            
+            import subprocess
+            venv_path = "/opt/casescope/lora_training/venv"
+            
+            if not os.path.exists(venv_path):
+                log("⚠️  Training environment not set up. Installing dependencies...")
+                log("This may take 10-15 minutes...")
+                
+                setup_script = "/opt/casescope/lora_training/scripts/1_setup_environment.sh"
+                result = subprocess.run(
+                    ["bash", setup_script],
+                    capture_output=True,
+                    text=True,
+                    cwd="/opt/casescope/lora_training"
+                )
+                
+                if result.returncode != 0:
+                    log(f"❌ Setup failed: {result.stderr}")
+                    raise Exception(f"Training environment setup failed: {result.stderr}")
+                
+                log("✅ Training environment installed")
+            else:
+                log("✅ Training environment already set up")
+            
+            log("")
+            
+            # Step 4: Train LoRA model
+            log("Step 4/5: Training LoRA adapter...")
+            log("This will take 30-60 minutes depending on GPU/CPU...")
+            log("")
+            
+            python_exe = f"{venv_path}/bin/python3"
+            train_script = "/opt/casescope/lora_training/scripts/2_train_lora.py"
+            
+            # Train with optimal settings
+            train_cmd = [
+                python_exe,
+                train_script,
+                "--base_model", "unsloth/llama-3.1-8b-instruct-bnb-4bit",
+                "--training_data", training_file,
+                "--output_dir", "/opt/casescope/lora_training/models/dfir-opencti-trained",
+                "--epochs", "3",
+                "--batch_size", "1",
+                "--lora_rank", "16"
+            ]
+            
+            log(f"Running: {' '.join(train_cmd)}")
+            log("")
+            
+            # Run training (this is the long part)
+            process = subprocess.Popen(
+                train_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                cwd="/opt/casescope/lora_training"
+            )
+            
+            # Stream training output
+            for line in iter(process.stdout.readline, ''):
+                if line:
+                    log(line.strip())
+            
+            process.wait()
+            
+            if process.returncode != 0:
+                raise Exception("LoRA training failed")
+            
+            log("")
+            log("✅ LoRA training complete!")
+            log("")
+            
+            # Step 5: Deploy to Ollama (TODO: implement merge & export)
+            log("Step 5/5: Deploying trained model...")
+            log("⚠️  Manual step: Run merge_and_export.py to create Ollama model")
+            log("For now, LoRA adapter saved to: /opt/casescope/lora_training/models/dfir-opencti-trained")
+            log("")
+            
+            log("=" * 60)
+            log("✅ Training Complete!")
+            log("=" * 60)
+            log(f"Training examples: {example_count}")
+            log(f"LoRA adapter: /opt/casescope/lora_training/models/dfir-opencti-trained")
+            log("")
+            log("Next steps:")
+            log("1. Merge LoRA with base model")
+            log("2. Export to Ollama format")
+            log("3. Deploy as dfir-analyst-trained:latest")
+            
+            return {
+                'status': 'success',
+                'message': 'AI training completed successfully',
+                'training_file': training_file,
+                'example_count': example_count,
+                'model_path': '/opt/casescope/lora_training/models/dfir-opencti-trained'
+            }
+            
+        except Exception as e:
+            error_msg = f"Training failed: {e}"
+            log("")
+            log(f"❌ {error_msg}")
+            logger.error(f"[AI_TRAIN] {error_msg}", exc_info=True)
+            
+            return {
+                'status': 'failed',
+                'error': str(e)
+            }

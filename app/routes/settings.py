@@ -614,3 +614,74 @@ def setup_gpu_stream():
     
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
+
+@settings_bp.route('/train_ai', methods=['POST'])
+@login_required
+@admin_required
+def train_ai():
+    """Start AI training using OpenCTI threat intel"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Check OpenCTI is enabled
+        opencti_enabled = get_setting('opencti_enabled', 'false') == 'true'
+        if not opencti_enabled:
+            return jsonify({'success': False, 'error': 'OpenCTI integration must be enabled first'}), 400
+        
+        # Check Ollama is running
+        from ai_report import check_ollama_status
+        ai_status = check_ollama_status()
+        if not ai_status.get('running'):
+            return jsonify({'success': False, 'error': 'Ollama is not running'}), 400
+        
+        # Start async training task
+        from tasks import train_dfir_model_from_opencti
+        task = train_dfir_model_from_opencti.delay()
+        
+        logger.info(f"[Settings] Started AI training task: {task.id}")
+        
+        return jsonify({
+            'success': True,
+            'task_id': task.id,
+            'message': 'Training started'
+        })
+        
+    except Exception as e:
+        logger.error(f"[Settings] Error starting AI training: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@settings_bp.route('/train_ai_status/<task_id>', methods=['GET'])
+@login_required
+@admin_required
+def train_ai_status(task_id):
+    """Get AI training status"""
+    from celery.result import AsyncResult
+    
+    task = AsyncResult(task_id)
+    
+    response = {
+        'status': task.state.lower(),
+        'log': ''
+    }
+    
+    # Get task metadata (log messages)
+    if task.info:
+        if isinstance(task.info, dict):
+            response['log'] = task.info.get('log', '')
+            response['progress'] = task.info.get('progress', 0)
+        elif isinstance(task.info, str):
+            response['log'] = task.info
+    
+    # If completed, include result
+    if task.state == 'SUCCESS':
+        response['status'] = 'completed'
+        if task.result:
+            response['result'] = task.result
+    elif task.state == 'FAILURE':
+        response['status'] = 'failed'
+        response['error'] = str(task.info) if task.info else 'Unknown error'
+    
+    return jsonify(response)
+
