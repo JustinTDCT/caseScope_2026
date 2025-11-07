@@ -331,15 +331,29 @@
                     <!-- Train AI Button (requires OpenCTI) -->
                     {% if opencti_enabled and ai_status.running and ai_status.models %}
                     <div style="margin-top: var(--spacing-md); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border);">
+                        <!-- Warning Banner -->
+                        <div style="background: linear-gradient(135deg, #ffd89b 0%, #19547b 100%); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md); border-left: 4px solid #f39c12;">
+                            <div style="display: flex; align-items: center; gap: var(--spacing-sm); color: white; font-weight: 600; margin-bottom: var(--spacing-xs);">
+                                <span style="font-size: 1.2rem;">⚠️</span>
+                                <span>Long-Running Process</span>
+                            </div>
+                            <p style="color: white; margin: 0; font-size: 0.875rem; line-height: 1.5;">
+                                Training a custom AI model is <strong>resource-intensive</strong> and will take <strong>30-60 minutes</strong> (or longer on CPU-only systems).
+                                <br>
+                                The system will remain operational, but GPU/CPU usage will be high during training.
+                            </p>
+                        </div>
+                        
+                        <!-- Train Button -->
                         <button type="button" 
                                 id="trainAIButton"
                                 onclick="startAITraining()" 
-                                style="padding: var(--spacing-sm) var(--spacing-md); background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; gap: var(--spacing-xs); font-weight: 600;">
+                                style="padding: var(--spacing-sm) var(--spacing-md); background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; gap: var(--spacing-xs); font-weight: 600; width: 100%; justify-content: center;">
                             <span>🎓</span>
                             <span>Train AI on OpenCTI Threat Intel</span>
                         </button>
-                        <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.75rem;">
-                            Automatically train custom DFIR model using threat reports from OpenCTI. Creates industry-standard LoRA adapter. (~30-60 minutes)
+                        <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.75rem; text-align: center;">
+                            Pulls 100+ threat reports from OpenCTI, generates training data, and trains LoRA adapter
                         </p>
                     </div>
                     {% endif %}
@@ -1063,15 +1077,36 @@ function closeGPUSetupModal() {
 
 // AI Training Functions
 function startAITraining() {
-    // Confirm with user
-    if (!confirm('🎓 Train Custom DFIR Model\n\nThis will:\n• Pull 100+ threat reports from OpenCTI\n• Generate training examples\n• Train LoRA adapter (~30-60 minutes)\n• Deploy as dfir-analyst-trained:latest\n\nProceed?')) {
+    // Enhanced confirmation with prominent warning
+    const confirmMessage = `⚠️  AI MODEL TRAINING - READ CAREFULLY ⚠️
+
+This process will:
+✓ Pull 100+ threat reports from OpenCTI
+✓ Generate training examples automatically
+✓ Train a custom LoRA adapter
+
+⏰ TIME REQUIRED: 30-60 minutes (GPU) or 2-4 hours (CPU)
+💻 SYSTEM IMPACT: High GPU/CPU usage during training
+📊 You can monitor progress in real-time
+
+The system will remain operational, but performance may be reduced.
+
+Do you want to start training now?`;
+
+    if (!confirm(confirmMessage)) {
         return;
     }
     
-    // Disable button
+    // Disable button with spinning indicator
     const btn = document.getElementById('trainAIButton');
     btn.disabled = true;
-    btn.innerHTML = '<span>⏳</span><span>Starting training...</span>';
+    btn.style.opacity = '0.6';
+    btn.innerHTML = '<span style="animation: spin 1s linear infinite;">⏳</span><span>Starting training...</span>';
+    
+    // Add spinning animation
+    const style = document.createElement('style');
+    style.textContent = '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+    document.head.appendChild(style);
     
     // Start training
     fetch('/settings/train_ai', {
@@ -1086,41 +1121,95 @@ function startAITraining() {
         } else {
             alert('❌ Training failed: ' + data.error);
             btn.disabled = false;
+            btn.style.opacity = '1';
             btn.innerHTML = '<span>🎓</span><span>Train AI on OpenCTI Threat Intel</span>';
         }
     })
     .catch(error => {
         alert('❌ Error starting training: ' + error);
         btn.disabled = false;
+        btn.style.opacity = '1';
         btn.innerHTML = '<span>🎓</span><span>Train AI on OpenCTI Threat Intel</span>';
     });
 }
 
 function showAITrainingProgress(taskId) {
+    // Store start time for elapsed time calculation
+    const startTime = Date.now();
+    
     // Create modal
     const modal = document.createElement('div');
     modal.id = 'aiTrainingModal';
-    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 9999;';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center; z-index: 9999;';
     
     modal.innerHTML = `
-        <div style="background: var(--color-background); width: 80%; max-width: 800px; height: 80%; border-radius: 8px; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
-            <div style="padding: 20px; border-bottom: 2px solid var(--color-border);">
-                <h2 style="margin: 0; color: var(--color-text);">🎓 AI Training in Progress</h2>
-                <p style="margin: 5px 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
-                    This may take 30-60 minutes. You can close this window and check back later.
+        <div style="background: var(--color-background); width: 85%; max-width: 900px; height: 85%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 8px 32px rgba(0,0,0,0.6);">
+            <!-- Header -->
+            <div style="padding: 24px; border-bottom: 2px solid var(--color-border); background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    <span style="font-size: 2rem;">🎓</span>
+                    <h2 style="margin: 0; color: white; font-size: 1.5rem;">AI Training in Progress</h2>
+                </div>
+                <p style="margin: 0; color: rgba(255,255,255,0.9); font-size: 0.875rem;">
+                    ⚠️ <strong>Estimated Time:</strong> 30-60 minutes (GPU) or 2-4 hours (CPU)
+                    <br>
+                    You can close this window and check back later. Training will continue in the background.
                 </p>
             </div>
-            <div style="flex: 1; padding: 20px; overflow-y: auto; font-family: monospace; font-size: 0.875rem; background: var(--color-background-secondary); color: var(--color-text);" id="trainingLog">
-                <div style="color: var(--color-info);">⏳ Initializing training...</div>
+            
+            <!-- Progress Bar -->
+            <div style="padding: 20px; border-bottom: 1px solid var(--color-border);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span style="color: var(--color-text); font-weight: 600; font-size: 0.875rem;">Training Progress</span>
+                    <span id="elapsedTime" style="color: var(--color-text-muted); font-size: 0.875rem;">Elapsed: 0m 0s</span>
+                </div>
+                <div style="width: 100%; height: 24px; background: var(--color-background-secondary); border-radius: 12px; overflow: hidden; border: 2px solid var(--color-border);">
+                    <div id="progressBar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); transition: width 0.5s ease; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; font-size: 0.75rem;"></div>
+                </div>
+                <div id="currentStep" style="margin-top: 8px; color: var(--color-text-muted); font-size: 0.875rem;">Step 1/5: Initializing...</div>
             </div>
-            <div style="padding: 15px 20px; border-top: 2px solid var(--color-border); display: flex; justify-content: space-between; align-items: center;">
-                <div id="trainingStatus" style="color: var(--color-text-muted); font-size: 0.875rem;">Status: Initializing</div>
-                <button onclick="closeAITrainingModal()" class="btn btn-secondary" style="padding: 8px 16px;">Close</button>
+            
+            <!-- Training Log -->
+            <div style="flex: 1; padding: 20px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.8rem; background: var(--color-background-secondary); color: var(--color-text); line-height: 1.6;" id="trainingLog">
+                <div style="color: var(--color-info);">⏳ Initializing training environment...</div>
+            </div>
+            
+            <!-- Footer -->
+            <div style="padding: 16px 20px; border-top: 2px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; background: var(--color-background-secondary);">
+                <div id="trainingStatus" style="color: var(--color-text); font-weight: 600; font-size: 0.875rem;">
+                    <span style="display: inline-block; width: 12px; height: 12px; background: #ffa500; border-radius: 50%; margin-right: 8px; animation: pulse 1.5s ease-in-out infinite;"></span>
+                    Status: Initializing
+                </div>
+                <button onclick="closeAITrainingModal()" class="btn btn-secondary" style="padding: 10px 20px; font-weight: 600;">Close Window</button>
             </div>
         </div>
     `;
     
+    // Add pulse animation for status indicator
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.1); }
+        }
+    `;
+    document.head.appendChild(style);
+    
     document.body.appendChild(modal);
+    
+    // Update elapsed time every second
+    const elapsedTimer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        const elapsedEl = document.getElementById('elapsedTime');
+        if (elapsedEl) {
+            elapsedEl.textContent = `Elapsed: ${minutes}m ${seconds}s`;
+        }
+    }, 1000);
+    
+    // Store timer ID to clear later
+    modal.dataset.timerIntervalId = elapsedTimer;
     
     // Poll for updates
     pollAITrainingStatus(taskId);
@@ -1129,6 +1218,8 @@ function showAITrainingProgress(taskId) {
 function pollAITrainingStatus(taskId) {
     const log = document.getElementById('trainingLog');
     const status = document.getElementById('trainingStatus');
+    const progressBar = document.getElementById('progressBar');
+    const currentStep = document.getElementById('currentStep');
     
     const poll = setInterval(() => {
         fetch(`/settings/train_ai_status/${taskId}`)
@@ -1137,44 +1228,114 @@ function pollAITrainingStatus(taskId) {
                 // Update log
                 if (data.log) {
                     log.innerHTML = data.log.split('\n').map(line => {
-                        if (line.includes('✅') || line.includes('SUCCESS')) {
-                            return `<div style="color: var(--color-success);">${escapeHtml(line)}</div>`;
-                        } else if (line.includes('❌') || line.includes('ERROR')) {
-                            return `<div style="color: var(--color-error);">${escapeHtml(line)}</div>`;
+                        if (line.includes('✅') || line.includes('SUCCESS') || line.includes('complete')) {
+                            return `<div style="color: var(--color-success); font-weight: 600;">${escapeHtml(line)}</div>`;
+                        } else if (line.includes('❌') || line.includes('ERROR') || line.includes('failed')) {
+                            return `<div style="color: var(--color-error); font-weight: 600;">${escapeHtml(line)}</div>`;
                         } else if (line.includes('⚠️') || line.includes('WARNING')) {
                             return `<div style="color: var(--color-warning);">${escapeHtml(line)}</div>`;
+                        } else if (line.includes('Step')) {
+                            return `<div style="color: var(--color-info); font-weight: 600; margin-top: 8px;">${escapeHtml(line)}</div>`;
                         } else {
-                            return `<div>${escapeHtml(line)}</div>`;
+                            return `<div style="opacity: 0.9;">${escapeHtml(line)}</div>`;
                         }
                     }).join('');
                     log.scrollTop = log.scrollHeight;
+                    
+                    // Calculate progress based on log content
+                    let progress = 0;
+                    let step = 'Initializing';
+                    
+                    if (data.log.includes('Step 1/5')) {
+                        progress = 5;
+                        step = 'Step 1/5: Retrieving OpenCTI configuration';
+                    }
+                    if (data.log.includes('Step 2/5')) {
+                        progress = 20;
+                        step = 'Step 2/5: Generating training data from OpenCTI';
+                    }
+                    if (data.log.includes('Generated') && data.log.includes('training examples')) {
+                        progress = 35;
+                    }
+                    if (data.log.includes('Step 3/5')) {
+                        progress = 40;
+                        step = 'Step 3/5: Checking training environment';
+                    }
+                    if (data.log.includes('Step 4/5')) {
+                        progress = 50;
+                        step = 'Step 4/5: Training LoRA adapter (this is the long part...)';
+                    }
+                    if (data.log.includes('Training LoRA')) {
+                        progress = 55;
+                    }
+                    if (data.log.includes('epoch') || data.log.includes('loss')) {
+                        progress = Math.min(85, progress + 5); // Gradually increase during training
+                    }
+                    if (data.log.includes('LoRA training complete')) {
+                        progress = 90;
+                    }
+                    if (data.log.includes('Step 5/5')) {
+                        progress = 95;
+                        step = 'Step 5/5: Finalizing and saving model';
+                    }
+                    if (data.log.includes('Training Complete')) {
+                        progress = 100;
+                        step = 'Complete!';
+                    }
+                    
+                    // Update progress bar
+                    if (progressBar) {
+                        progressBar.style.width = `${progress}%`;
+                        progressBar.textContent = progress > 10 ? `${progress}%` : '';
+                    }
+                    if (currentStep) {
+                        currentStep.textContent = step;
+                    }
                 }
                 
-                // Update status
+                // Update status with pulsing indicator
                 if (data.status) {
-                    status.textContent = `Status: ${data.status}`;
-                    
-                    if (data.status === 'completed') {
-                        status.innerHTML = '<span style="color: var(--color-success);">✅ Training Complete!</span>';
+                    if (data.status === 'progress') {
+                        status.innerHTML = '<span style="display: inline-block; width: 12px; height: 12px; background: #ffa500; border-radius: 50%; margin-right: 8px; animation: pulse 1.5s ease-in-out infinite;"></span>Status: Training...';
+                    } else if (data.status === 'completed') {
+                        status.innerHTML = '<span style="display: inline-block; width: 12px; height: 12px; background: #51cf66; border-radius: 50%; margin-right: 8px;"></span><span style="color: var(--color-success); font-weight: 700;">✅ Training Complete!</span>';
                         clearInterval(poll);
+                        
+                        // Clear elapsed timer
+                        const modal = document.getElementById('aiTrainingModal');
+                        if (modal && modal.dataset.timerIntervalId) {
+                            clearInterval(parseInt(modal.dataset.timerIntervalId));
+                        }
                         
                         // Re-enable button
                         const btn = document.getElementById('trainAIButton');
-                        btn.disabled = false;
-                        btn.innerHTML = '<span>🎓</span><span>Train AI on OpenCTI Threat Intel</span>';
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.style.opacity = '1';
+                            btn.innerHTML = '<span>🎓</span><span>Train AI on OpenCTI Threat Intel</span>';
+                        }
                         
                         // Show success message
                         setTimeout(() => {
-                            alert('✅ AI Training Complete!\n\nYour custom DFIR model is now available as:\ndfir-analyst-trained:latest\n\nRefresh the page to use it.');
+                            alert('✅ AI Training Complete!\n\nYour custom DFIR model has been trained!\n\nLoRA adapter saved to:\n/opt/casescope/lora_training/models/dfir-opencti-trained\n\nNext: Run merge_and_export.py to deploy to Ollama.');
                         }, 1000);
                     } else if (data.status === 'failed') {
-                        status.innerHTML = '<span style="color: var(--color-error);">❌ Training Failed</span>';
+                        status.innerHTML = '<span style="display: inline-block; width: 12px; height: 12px; background: #ff6b6b; border-radius: 50%; margin-right: 8px;"></span><span style="color: var(--color-error); font-weight: 700;">❌ Training Failed</span>';
                         clearInterval(poll);
+                        
+                        // Clear elapsed timer
+                        const modal = document.getElementById('aiTrainingModal');
+                        if (modal && modal.dataset.timerIntervalId) {
+                            clearInterval(parseInt(modal.dataset.timerIntervalId));
+                        }
                         
                         // Re-enable button
                         const btn = document.getElementById('trainAIButton');
-                        btn.disabled = false;
-                        btn.innerHTML = '<span>🎓</span><span>Train AI on OpenCTI Threat Intel</span>';
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.style.opacity = '1';
+                            btn.innerHTML = '<span>🎓</span><span>Train AI on OpenCTI Threat Intel</span>';
+                        }
                     }
                 }
             })
@@ -1187,6 +1348,10 @@ function pollAITrainingStatus(taskId) {
 function closeAITrainingModal() {
     const modal = document.getElementById('aiTrainingModal');
     if (modal) {
+        // Clear elapsed timer
+        if (modal.dataset.timerIntervalId) {
+            clearInterval(parseInt(modal.dataset.timerIntervalId));
+        }
         modal.remove();
     }
 }
