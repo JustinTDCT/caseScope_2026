@@ -1,8 +1,129 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.11.17  
-**Last Updated**: 2025-11-07 23:45 UTC  
+**Version**: 1.11.18  
+**Last Updated**: 2025-11-07 22:40 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.11.18 - BUG FIX: AI Report Review Modal (2025-11-07 23:00 UTC)
+
+**Change**: Fixed "Review AI" modal to display prompt and response side-by-side with proper text visibility.
+
+### 1. Problem Statement
+
+**User Report**: "review AI button next to a report no longer shows report and actual prompt" → "the side by side still isnt work"
+
+**Issues**:
+1. **Side-by-side layout broken** - Prompt and response not displaying horizontally
+2. **Text visibility issue** - Text color not showing properly on white background
+
+### 2. Root Cause
+
+**Layout Issue**: Missing explicit `flex-direction: row` and flexbox sizing constraints caused columns to collapse or stack vertically.
+
+**Color Issue**: Missing explicit text color on `<pre>` tags meant text inherited page colors incorrectly.
+
+### 3. Fix Applied
+
+**File**: `app/templates/view_case_enhanced.html` (lines 1501-1527)
+
+**Restored to Original v1.10.45 Code** with critical flexbox fixes:
+
+**Changes Made**:
+1. **Added `flex-direction: row`** - Explicitly set horizontal layout on parent content container
+2. **Added `min-width: 0`** - On both column containers to prevent flex overflow issues
+3. **Added `min-height: 0`** - On content areas and parent to fix flexbox scrolling in nested flex containers
+4. **Added `color: #1a1a1a`** - Hardcoded dark text color on `<pre>` tags for visibility on white/light gray backgrounds
+
+**Before** (broken):
+```html
+<div style="flex: 1; display: flex; gap: 20px; padding: 20px; overflow: hidden;">
+    <div style="flex: 1; display: flex; flex-direction: column;">
+        <div style="flex: 1; background: #f8f9fa; ...">
+            <pre style="... color: var(--color-text);">...</pre>
+```
+
+**After** (working):
+```html
+<div style="flex: 1; display: flex; flex-direction: row; gap: 20px; padding: 20px; overflow: hidden; min-height: 0;">
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+        <div style="flex: 1; min-height: 0; background: #f8f9fa; ...">
+            <pre style="... color: #1a1a1a;">...</pre>
+```
+
+### 4. Technical Details
+
+**Flexbox Constraints Explained**:
+- **`min-width: 0`**: Prevents flex items from overflowing when content is too wide (default is `auto`, which can cause layout breaks)
+- **`min-height: 0`**: Allows nested flex containers to scroll properly (default is `auto`, which prevents shrinking below content size)
+- **`flex-direction: row`**: Explicit horizontal layout (even though `row` is default, making it explicit prevents CSS inheritance issues)
+
+**Original Working Version**: Restored modal structure from v1.10.45 (commit `0f8299d`) which had:
+- White modal background
+- Light gray (`#f8f9fa`) text containers
+- Hardcoded dark text (`#1a1a1a`) on pre tags
+- Side-by-side layout with `display: flex; gap: 20px`
+
+### 5. Benefits
+
+**Layout**:
+- ✅ Prompt displays on **left** side (50% width)
+- ✅ Response displays on **right** side (50% width)
+- ✅ Both columns scroll independently
+- ✅ Both columns have equal height
+
+**Visibility**:
+- ✅ Dark text (`#1a1a1a`) on light backgrounds (`#f8f9fa`)
+- ✅ Headers, buttons, and metadata all visible
+- ✅ Copy buttons functional for both prompt and response
+
+**User Experience**:
+- ✅ Can compare prompt data (left) with AI response (right) side-by-side
+- ✅ Easy to spot hallucinations or data discrepancies
+- ✅ Professional debugging interface for forensic report verification
+
+### 6. Testing
+
+**Verification Steps**:
+1. Navigate to a case with AI reports
+2. Click "🔍 Review AI" button on a completed report
+3. Verify modal displays with:
+   - **Left column**: "📤 Prompt Sent to AI" with scrollable prompt text
+   - **Right column**: "📥 Raw AI Response" with scrollable response text
+   - Both columns side-by-side (not stacked)
+   - Dark text on light gray backgrounds
+4. Verify "📋 Copy" buttons work on both sides
+5. Verify modal closes when clicking X or outside
+
+**Expected Results**:
+- Modal: 95% width, 90% height, white background
+- Prompt (left): 196KB text visible with dark color
+- Response (right): 5KB text visible with dark color
+- Both columns: Equal width, independently scrollable
+
+### 7. Files Changed
+
+1. **app/templates/view_case_enhanced.html** (lines 1501-1527):
+   - Added `flex-direction: row` to parent content container
+   - Added `min-width: 0` to both column containers
+   - Added `min-height: 0` to parent content container and text areas
+   - Added `color: #1a1a1a` to both `<pre>` tags
+   - Restored original v1.10.45 color scheme (white modal, light gray containers)
+
+2. **app/version.json**: Version 1.11.18, added fix entry
+
+3. **app/APP_MAP.md**: Version 1.11.18, added this section
+
+### 8. Lessons Learned
+
+1. **Flexbox Needs Explicit Constraints**: Even though `flex-direction: row` is default, nested flex containers with scrolling require `min-width: 0` and `min-height: 0` to prevent layout collapse.
+
+2. **Don't Over-Engineer Color Systems**: The original v1.10.45 code with hardcoded colors worked perfectly. Attempting to use CSS variables for "dark mode support" broke the layout because the modal was designed for light backgrounds.
+
+3. **Consult Original Working Versions**: When a feature breaks, revert to the last known working version (v1.10.45 in this case) and make minimal changes.
+
+4. **Side-by-Side Layout = Critical for Debugging**: The whole point of this modal is to compare prompt vs. response side-by-side to detect AI hallucinations. Stacked layout defeats the purpose.
 
 ---
 
