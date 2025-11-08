@@ -1169,7 +1169,7 @@ def train_dfir_model_from_opencti(self, limit=50):
         limit: Maximum number of reports to fetch from OpenCTI (default: 50)
     Modular design: delegates to ai_training.py and LoRA training scripts
     """
-    from flask import current_app as app
+    from main import app
     
     with app.app_context():
         from main import db
