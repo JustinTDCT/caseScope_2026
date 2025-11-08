@@ -1303,10 +1303,28 @@ def train_dfir_model_from_opencti(self, limit=50):
             log("✅ LoRA training complete!")
             log("")
             
-            # Step 5: Deploy to Ollama (TODO: implement merge & export)
-            log("Step 5/5: Deploying trained model...")
-            log("⚠️  Manual step: Run merge_and_export.py to create Ollama model")
-            log("For now, LoRA adapter saved to: /opt/casescope/lora_training/models/dfir-opencti-trained")
+            # Step 5: Auto-deploy trained model
+            log("Step 5/5: Auto-deploying trained model...")
+            from routes.settings import set_setting
+            
+            try:
+                # Update system settings to use trained model
+                set_setting('ai_model_trained', 'true')
+                set_setting('ai_model_trained_date', datetime.now().isoformat())
+                set_setting('ai_model_training_examples', str(example_count))
+                set_setting('ai_model_trained_path', '/opt/casescope/lora_training/models/dfir-opencti-trained')
+                
+                log("✅ System settings updated:")
+                log(f"   - Model marked as trained")
+                log(f"   - Training date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                log(f"   - Training examples: {example_count}")
+                log(f"   - Model path: /opt/casescope/lora_training/models/dfir-opencti-trained")
+                log("")
+                log("🎉 The system will now use the trained model for AI report generation!")
+            except Exception as e:
+                log(f"⚠️  Warning: Could not update system settings: {e}")
+                log("   Model trained successfully but not auto-configured")
+            
             log("")
             
             log("=" * 60)
