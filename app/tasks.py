@@ -1161,9 +1161,12 @@ def delete_case_async(self, case_id):
 # ============================================================================
 
 @celery_app.task(bind=True, name='tasks.train_dfir_model_from_opencti')
-def train_dfir_model_from_opencti(self):
+def train_dfir_model_from_opencti(self, limit=50):
     """
     Train DFIR model using OpenCTI threat intelligence
+    
+    Args:
+        limit: Maximum number of reports to fetch from OpenCTI (default: 50)
     Modular design: delegates to ai_training.py and LoRA training scripts
     """
     from flask import current_app as app
@@ -1210,7 +1213,7 @@ def train_dfir_model_from_opencti(self):
             result = generate_training_data_from_opencti(
                 opencti_url=opencti_url,
                 opencti_api_key=opencti_api_key,
-                limit=100,
+                limit=limit,
                 progress_callback=log
             )
             
