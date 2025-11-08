@@ -1,12 +1,13 @@
 """
-AI Model Training Module
-Handles LoRA training using OpenCTI threat intelligence
+AI Training Module
+Generates training data from OpenCTI threat intelligence
 """
 
-import json
 import logging
+import json
+import os
 from datetime import datetime
-from pathlib import Path
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -15,370 +16,362 @@ def fetch_opencti_reports(opencti_url, opencti_api_key, limit=100):
     """
     Fetch threat reports from OpenCTI
     
+    Args:
+        opencti_url: OpenCTI instance URL
+        opencti_api_key: API key for authentication
+        limit: Maximum number of reports to fetch
+    
     Returns:
-        List of reports with IOCs, MITRE techniques, and descriptions
+        list: List of report objects
     """
-    from opencti_integration import get_opencti_client
+    logger.info(f"[AI_TRAIN] Fetching up to {limit} reports from OpenCTI...")
     
     try:
-        logger.info(f"[AI Training] Connecting to OpenCTI: {opencti_url}")
-        client = get_opencti_client(opencti_url, opencti_api_key)
-        
-        if not client:
-            raise Exception("Failed to connect to OpenCTI")
-        
-        logger.info(f"[AI Training] Fetching up to {limit} threat reports...")
-        
-        # Query reports using OpenCTI API
+        # GraphQL query to fetch reports (minimal fields for speed)
         query = """
-            query GetReports($first: Int!) {
-                reports(first: $first, orderBy: published, orderMode: desc) {
-                    edges {
-                        node {
-                            id
-                            name
-                            description
-                            published
-                            report_types
-                            objectMarking {
-                                edges {
-                                    node {
-                                        definition
-                                    }
-                                }
-                            }
-                        }
+        query GetReports($first: Int!) {
+            reports(first: $first) {
+                edges {
+                    node {
+                        id
+                        name
+                        description
                     }
                 }
             }
+        }
         """
         
-        result = client.query(query, {'first': limit})
+        headers = {
+            'Authorization': f'Bearer {opencti_api_key}',
+            'Content-Type': 'application/json'
+        }
         
-        if not result or 'data' not in result:
-            raise Exception("Invalid response from OpenCTI")
+        response = requests.post(
+            f"{opencti_url}/graphql",
+            json={'query': query, 'variables': {'first': limit}},
+            headers=headers,
+            timeout=120  # Increased to 2 minutes for large queries
+        )
+        
+        if response.status_code != 200:
+            logger.error(f"[AI_TRAIN] OpenCTI API error: {response.status_code} - {response.text}")
+            return []
+        
+        data = response.json()
+        
+        if 'errors' in data:
+            logger.error(f"[AI_TRAIN] OpenCTI GraphQL errors: {data['errors']}")
+            return []
         
         reports = []
-        for edge in result['data']['reports']['edges']:
-            node = edge['node']
-            reports.append({
-                'id': node['id'],
-                'name': node['name'],
-                'description': node['description'],
-                'published': node['published'],
-                'report_types': node.get('report_types', [])
-            })
+        for edge in data.get('data', {}).get('reports', {}).get('edges', []):
+            node = edge.get('node', {})
+            # Only include reports with name and description
+            if node.get('name') and node.get('description'):
+                reports.append({
+                    'id': node.get('id'),
+                    'name': node.get('name'),
+                    'description': node.get('description')
+                })
         
-        logger.info(f"[AI Training] Fetched {len(reports)} reports from OpenCTI")
+        logger.info(f"[AI_TRAIN] Retrieved {len(reports)} reports from OpenCTI")
         return reports
         
     except Exception as e:
-        logger.error(f"[AI Training] Error fetching OpenCTI reports: {e}")
-        raise
-
-
-def extract_iocs_from_report(opencti_client, report_id):
-    """Extract IOCs linked to a specific report"""
-    try:
-        # Query for observables linked to this report
-        query = """
-            query GetReportObservables($reportId: String!) {
-                report(id: $reportId) {
-                    observables {
-                        edges {
-                            node {
-                                entity_type
-                                observable_value
-                            }
-                        }
-                    }
-                }
-            }
-        """
-        
-        result = opencti_client.query(query, {'reportId': report_id})
-        
-        iocs = []
-        if result and 'data' in result and result['data'].get('report'):
-            for edge in result['data']['report'].get('observables', {}).get('edges', []):
-                node = edge['node']
-                iocs.append({
-                    'type': node['entity_type'],
-                    'value': node['observable_value']
-                })
-        
-        return iocs
-        
-    except Exception as e:
-        logger.warning(f"[AI Training] Error extracting IOCs from report {report_id}: {e}")
+        logger.error(f"[AI_TRAIN] Error fetching OpenCTI reports: {e}", exc_info=True)
         return []
 
 
-def extract_mitre_from_report(opencti_client, report_id):
-    """Extract MITRE ATT&CK techniques linked to a report"""
-    try:
-        query = """
-            query GetReportAttackPatterns($reportId: String!) {
-                report(id: $reportId) {
-                    attackPatterns {
-                        edges {
-                            node {
-                                name
-                                x_mitre_id
-                                description
-                            }
-                        }
-                    }
-                }
-            }
-        """
-        
-        result = opencti_client.query(query, {'reportId': report_id})
-        
-        techniques = []
-        if result and 'data' in result and result['data'].get('report'):
-            for edge in result['data']['report'].get('attackPatterns', {}).get('edges', []):
-                node = edge['node']
-                techniques.append({
-                    'id': node.get('x_mitre_id', 'Unknown'),
-                    'name': node['name'],
-                    'description': node.get('description', '')
-                })
-        
-        return techniques
-        
-    except Exception as e:
-        logger.warning(f"[AI Training] Error extracting MITRE from report {report_id}: {e}")
-        return []
+def extract_iocs_from_report(report):
+    """
+    Extract IOCs from a report (simplified - would need real IOC extraction)
+    
+    Args:
+        report: Report object
+    
+    Returns:
+        list: List of IOC strings
+    """
+    # Simplified extraction - in production, use proper IOC extraction
+    iocs = []
+    
+    description = report.get('description', '') or ''
+    text = description
+    
+    # Basic pattern matching (very simplified)
+    import re
+    
+    # IPs
+    ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+    iocs.extend(re.findall(ip_pattern, text))
+    
+    # Domains (simplified)
+    domain_pattern = r'\b[a-z0-9][a-z0-9-]*\.[a-z]{2,}\b'
+    iocs.extend(re.findall(domain_pattern, text.lower()))
+    
+    # File hashes (MD5, SHA1, SHA256)
+    hash_pattern = r'\b[a-fA-F0-9]{32,64}\b'
+    iocs.extend(re.findall(hash_pattern, text))
+    
+    return list(set(iocs))[:20]  # Return up to 20 unique IOCs
+
+
+def extract_mitre_from_report(report):
+    """
+    Extract MITRE ATT&CK techniques from a report
+    
+    Args:
+        report: Report object
+    
+    Returns:
+        list: List of MITRE technique IDs
+    """
+    techniques = []
+    
+    description = report.get('description', '') or ''
+    text = description
+    
+    # Extract MITRE technique IDs (T####)
+    import re
+    pattern = r'\bT\d{4}(?:\.\d{3})?\b'
+    techniques = re.findall(pattern, text)
+    
+    return list(set(techniques))
 
 
 def format_training_example(report, iocs, mitre_techniques):
     """
-    Format OpenCTI report data into a training example
+    Format a single training example in JSONL format
+    
+    Args:
+        report: Report object
+        iocs: List of IOCs
+        mitre_techniques: List of MITRE technique IDs
     
     Returns:
-        Dictionary with instruction, input, and output template
+        dict: Training example
     """
-    # Format INPUT (case data)
-    input_text = f"CASE: {report['name']}\n\n"
-    input_text += f"SOURCE: OpenCTI Threat Intelligence\n"
-    input_text += f"DATE: {report.get('published', 'Unknown')}\n\n"
+    # Construct prompt (input)
+    prompt_parts = []
+    prompt_parts.append("CASE INFORMATION:")
+    prompt_parts.append(f"Case Name: {report.get('name', 'Unknown')}")
+    
+    # Use full description (not truncated)
+    description = report.get('description', 'N/A')
+    if description and description != 'N/A':
+        prompt_parts.append(f"Threat Intelligence Summary: {description}")
+    prompt_parts.append("")
     
     if iocs:
-        input_text += "IOCs:\n"
-        for ioc in iocs[:20]:  # Limit to 20 IOCs
-            input_text += f"- {ioc['value']} ({ioc['type']})\n"
-        input_text += "\n"
+        prompt_parts.append("INDICATORS OF COMPROMISE:")
+        for ioc in iocs[:15]:  # Increased from 10 to 15
+            prompt_parts.append(f"- {ioc}")
+        prompt_parts.append("")
     
     if mitre_techniques:
-        input_text += "MITRE ATT&CK Techniques:\n"
-        for tech in mitre_techniques[:15]:  # Limit to 15 techniques
-            input_text += f"- {tech['id']}: {tech['name']}\n"
-        input_text += "\n"
+        prompt_parts.append("OBSERVED TACTICS & TECHNIQUES:")
+        for technique in mitre_techniques[:10]:
+            prompt_parts.append(f"- {technique}")
+        prompt_parts.append("")
     
-    input_text += "DESCRIPTION:\n"
-    input_text += (report.get('description', 'No description available')[:1000] + "\n\n")  # Limit description
+    prompt = "\n".join(prompt_parts)
+    prompt += "\n\nYou are a senior DFIR analyst. Generate a professional incident response report following the DFIR report format with evidence-based timeline, IOC analysis, and MITRE ATT&CK mapping. Use only the data provided."
     
-    input_text += "SYSTEMS:\n"
-    input_text += "[Extract from case or events - to be filled during training]\n\n"
+    # Construct response (expected output) - teach DFIR report structure
+    response_parts = []
+    response_parts.append("# DFIR Investigation Report")
+    response_parts.append(f"\n## Case: {report.get('name', 'Unknown')}\n")
     
-    input_text += "EVENTS:\n"
-    input_text += "[Add specific events with timestamps - to be filled during training]\n"
+    response_parts.append("## Executive Summary")
+    response_parts.append("")
     
-    # FORMAT OUTPUT (industry-standard DFIR report structure)
-    output_template = generate_dfir_report_template(report['name'], iocs, mitre_techniques)
+    # Use full description
+    description = report.get('description', 'NO DATA PRESENT')
+    if description and description != 'NO DATA PRESENT':
+        response_parts.append(description)
+    else:
+        response_parts.append("NO DATA PRESENT")
+    
+    response_parts.append("")
+    response_parts.append("Impact: Based on provided threat intelligence.")
+    response_parts.append("")
+    
+    if iocs:
+        response_parts.append("## Indicators of Compromise (IOCs)")
+        response_parts.append("")
+        response_parts.append("| Indicator | Type | Threat Level | Description |")
+        response_parts.append("|-----------|------|--------------|-------------|")
+        for ioc in iocs[:15]:
+            # Determine IOC type
+            if '.' in ioc and len(ioc.split('.')) == 4:
+                ioc_type = "IP Address"
+            elif len(ioc) == 32:
+                ioc_type = "MD5 Hash"
+            elif len(ioc) == 40:
+                ioc_type = "SHA1 Hash"
+            elif len(ioc) == 64:
+                ioc_type = "SHA256 Hash"
+            else:
+                ioc_type = "Domain/Hostname"
+            
+            response_parts.append(f"| {ioc} | {ioc_type} | High | Observed in threat activity |")
+        response_parts.append("")
+    
+    if mitre_techniques:
+        response_parts.append("## MITRE ATT&CK Mapping")
+        response_parts.append("")
+        for technique in mitre_techniques:
+            response_parts.append(f"- **{technique}** | Evidence: Referenced in threat intelligence")
+        response_parts.append("")
+    elif not mitre_techniques and not iocs:
+        # Even without specific IOCs/MITRE, teach proper structure
+        response_parts.append("## MITRE ATT&CK Mapping")
+        response_parts.append("")
+        response_parts.append("MITRE not determinable from provided data")
+        response_parts.append("")
+    
+    response_parts.append("## What Happened")
+    response_parts.append("")
+    response_parts.append(f"Threat activity identified: {report.get('name', 'Unknown threat')}")
+    response_parts.append("")
+    
+    response_parts.append("## How to Prevent")
+    response_parts.append("")
+    response_parts.append("- Implement NIST SP 800-53 controls (AC-6, IA-2, AU-2/6/12)")
+    response_parts.append("- Deploy EDR/MDR solutions for threat detection")
+    response_parts.append("- Enable MFA for all remote access (NIST SP 800-63B)")
+    response_parts.append("- Maintain updated threat intelligence feeds")
+    response_parts.append("")
+    
+    response_parts.append("***END OF REPORT***")
+    
+    response = "\n".join(response_parts)
     
     return {
-        'instruction': "Generate a DFIR investigation report with timeline, MITRE mapping, executive summary, and remediation recommendations. Use only the evidence provided.",
-        'input': input_text,
-        'output': output_template,
-        'metadata': {
-            'source': 'OpenCTI',
-            'report_id': report['id'],
-            'report_name': report['name'],
-            'ioc_count': len(iocs),
-            'mitre_count': len(mitre_techniques)
-        }
+        'prompt': prompt,
+        'response': response
     }
-
-
-def generate_dfir_report_template(case_name, iocs, mitre_techniques):
-    """Generate industry-standard DFIR report template based on OpenCTI data"""
-    
-    report = f"""# DFIR Investigation Report
-
-## Executive Summary
-
-[Based on the threat intelligence from OpenCTI regarding {case_name}, provide a 3-paragraph executive summary covering: 1) What happened (attack vector, initial access), 2) The sequence of events and attacker progression, 3) Observed impact and affected systems. Use only data present in the case.]
-
-[Paragraph 2: Detail the tactics, techniques, and procedures (TTPs) observed, referencing specific MITRE ATT&CK techniques where applicable. Describe the attacker's objectives and methods.]
-
-[Paragraph 3: Summarize the impact. If impact is unclear from provided data, state "Impact: NO DATA PRESENT".]
-
-## Timeline
-
-[Timestamp or NO DATA PRESENT] — [Action observed]
-System: [System name or NO DATA PRESENT]
-User/Account: [Username or NO DATA PRESENT]
-IOC: [IOC value from list or NO DATA PRESENT]
-Evidence: [Event ID/source + brief quoted field from data]
-MITRE: [TACTIC / T#### Technique Name or "MITRE not determinable from provided data"]
-
-[Continue with additional timeline entries in strict chronological order, earliest first]
-
-## IOCs
-
-| Indicator | Type | Threat Level | Description | First Seen | Systems/Events |
-|-----------|------|--------------|-------------|------------|----------------|
-"""
-    
-    # Add IOCs from OpenCTI
-    for ioc in iocs[:10]:  # Top 10 IOCs
-        report += f"| {ioc['value']} | {ioc['type']} | [Assess based on context] | [Describe role in attack] | [Timestamp or NO DATA PRESENT] | [Systems or NO DATA PRESENT] |\n"
-    
-    report += "\n## MITRE Mapping\n\n"
-    
-    # Add MITRE techniques from OpenCTI
-    for tech in mitre_techniques[:10]:  # Top 10 techniques
-        report += f"**[TACTIC]** — {tech['id']} {tech['name']} | Evidence: [timestamps/records or NO DATA PRESENT]\n\n"
-    
-    report += """## What Happened
-
-[1 paragraph: Plain English description of the attack sequence, based only on provided data]
-
-## Why It Happened
-
-[Identify control gaps only if evidenced in the data. If not evidenced, state "NO DATA PRESENT". Examples: missing MFA, weak credentials, lack of monitoring, insufficient network segmentation]
-
-## How to Prevent
-
-[Provide specific, actionable recommendations aligned with NIST frameworks:]
-
-1. **[Control Name]** (NIST SP 800-53 [Control ID]): [Specific recommendation based on observed gaps]
-
-2. **Multi-Factor Authentication** (NIST SP 800-63B § 4.2): Implement/verify MFA for all administrative accounts and VPN access.
-
-3. **Enhanced Monitoring** (NIST SP 800-53 AU-2, AU-6): Implement/verify logging and alerting for [specific events observed in this attack].
-
-4. **Network Segmentation** (NIST SP 800-53 SC-7): Implement/verify network controls to prevent [specific lateral movement observed].
-
-5. **Incident Response Plan** (NIST SP 800-61): Implement/verify IR procedures for detecting and responding to [attack type].
-
-***END OF REPORT***
-"""
-    
-    return report
-
-
-def save_training_examples(examples, output_file="/opt/casescope/lora_training/training_data/opencti_examples.jsonl"):
-    """Save training examples to JSONL file"""
-    output_path = Path(output_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(output_path, 'w') as f:
-        for example in examples:
-            # Remove metadata before saving (keep only instruction, input, output)
-            training_example = {
-                'instruction': example['instruction'],
-                'input': example['input'],
-                'output': example['output']
-            }
-            f.write(json.dumps(training_example, ensure_ascii=False) + '\n')
-    
-    logger.info(f"[AI Training] Saved {len(examples)} training examples to {output_path}")
-    return str(output_path)
 
 
 def generate_training_data_from_opencti(opencti_url, opencti_api_key, limit=100, progress_callback=None):
     """
-    Main function to generate training data from OpenCTI
+    Generate training data from OpenCTI threat reports
+    Fetches in batches of 10 to avoid overwhelming OpenCTI server
     
     Args:
         opencti_url: OpenCTI instance URL
-        opencti_api_key: OpenCTI API key
-        limit: Maximum number of reports to fetch
+        opencti_api_key: API key
+        limit: Total number of reports to fetch (will be fetched in batches of 10)
         progress_callback: Optional callback function for progress updates
     
     Returns:
-        Dictionary with success status, file path, and statistics
+        dict: {'success': bool, 'file_path': str, 'example_count': int, 'error': str}
     """
     def log(message):
-        logger.info(f"[AI Training] {message}")
+        """Helper to log and call progress callback"""
+        logger.info(f"[AI_TRAIN] {message}")
         if progress_callback:
             progress_callback(message)
     
     try:
-        log("Starting training data generation from OpenCTI")
+        import time
         
-        # Fetch reports
-        log(f"Fetching up to {limit} threat reports from OpenCTI...")
-        reports = fetch_opencti_reports(opencti_url, opencti_api_key, limit)
-        log(f"✅ Fetched {len(reports)} reports")
+        # Fetch reports in batches of 10 to avoid overloading OpenCTI
+        batch_size = 10
+        total_batches = (limit + batch_size - 1) // batch_size  # Ceiling division
+        all_reports = []
         
-        if len(reports) < 10:
-            raise Exception(f"Insufficient reports (need at least 10, got {len(reports)})")
+        log(f"Fetching {limit} threat reports from OpenCTI in batches of {batch_size}...")
+        log("")
         
-        # Get OpenCTI client for detailed queries
-        from opencti_integration import get_opencti_client
-        client = get_opencti_client(opencti_url, opencti_api_key)
+        for batch_num in range(total_batches):
+            batch_limit = min(batch_size, limit - len(all_reports))
+            
+            if batch_limit <= 0:
+                break
+            
+            log(f"📦 Batch {batch_num + 1}/{total_batches}: Fetching {batch_limit} reports...")
+            
+            batch_reports = fetch_opencti_reports(opencti_url, opencti_api_key, batch_limit)
+            
+            if batch_reports:
+                all_reports.extend(batch_reports)
+                log(f"   ✅ Retrieved {len(batch_reports)} reports (total: {len(all_reports)})")
+            else:
+                log(f"   ⚠️  Batch returned 0 reports")
+            
+            # Small delay between batches to let OpenCTI breathe
+            if batch_num < total_batches - 1:
+                log(f"   ⏳ Waiting 3 seconds before next batch...")
+                time.sleep(3)
         
-        # Process each report
-        examples = []
-        log(f"Processing reports and extracting IOCs/MITRE techniques...")
+        log("")
         
-        for idx, report in enumerate(reports, 1):
-            try:
-                log(f"Processing report {idx}/{len(reports)}: {report['name'][:50]}...")
-                
-                # Extract IOCs and MITRE techniques
-                iocs = extract_iocs_from_report(client, report['id'])
-                mitre_techniques = extract_mitre_from_report(client, report['id'])
-                
-                # Format as training example
-                example = format_training_example(report, iocs, mitre_techniques)
-                examples.append(example)
-                
-                if idx % 10 == 0:
-                    log(f"Processed {idx}/{len(reports)} reports...")
-                
-            except Exception as e:
-                log(f"⚠️  Error processing report {idx}: {e}")
+        if not all_reports:
+            return {
+                'success': False,
+                'error': 'No reports retrieved from OpenCTI'
+            }
+        
+        log(f"✅ Total reports retrieved: {len(all_reports)}")
+        log("")
+        log("Extracting IOCs and MITRE techniques...")
+        
+        reports = all_reports
+        
+        training_examples = []
+        
+        for i, report in enumerate(reports):
+            if i % 10 == 0:
+                log(f"Processing report {i+1}/{len(reports)}...")
+            
+            # Extract IOCs
+            iocs = extract_iocs_from_report(report)
+            
+            # Extract MITRE techniques
+            mitre = extract_mitre_from_report(report)
+            
+            # Skip reports with no useful data (must have at least name and description)
+            if not report.get('name') or not report.get('description'):
                 continue
+            
+            # Generate training example even if no IOCs/MITRE found
+            # (the AI can still learn from threat descriptions and report structure)
+            example = format_training_example(report, iocs, mitre)
+            training_examples.append(example)
         
-        log(f"✅ Processed {len(examples)} training examples")
+        log("")
+        log(f"✅ Generated {len(training_examples)} training examples")
+        log("")
         
-        if len(examples) < 10:
-            raise Exception(f"Insufficient training examples (need at least 10, got {len(examples)})")
+        # Save to JSONL file
+        output_dir = "/opt/casescope/lora_training/training_data"
+        os.makedirs(output_dir, exist_ok=True)
         
-        # Save to file
-        log("Saving training examples to JSONL file...")
-        output_file = save_training_examples(examples)
-        log(f"✅ Saved to {output_file}")
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_file = f"{output_dir}/opencti_training_{timestamp}.jsonl"
         
-        # Statistics
-        total_iocs = sum(ex['metadata']['ioc_count'] for ex in examples)
-        total_mitre = sum(ex['metadata']['mitre_count'] for ex in examples)
+        log(f"Saving training data to: {output_file}")
         
-        log(f"Training data generation complete:")
-        log(f"  - {len(examples)} training examples")
-        log(f"  - {total_iocs} total IOCs")
-        log(f"  - {total_mitre} total MITRE techniques")
-        log(f"  - Output: {output_file}")
+        with open(output_file, 'w') as f:
+            for example in training_examples:
+                f.write(json.dumps(example) + '\n')
+        
+        log(f"✅ Training data saved")
         
         return {
             'success': True,
             'file_path': output_file,
-            'example_count': len(examples),
-            'ioc_count': total_iocs,
-            'mitre_count': total_mitre
+            'example_count': len(training_examples)
         }
         
     except Exception as e:
-        error_msg = f"Failed to generate training data: {e}"
+        error_msg = f"Error generating training data: {e}"
         log(f"❌ {error_msg}")
-        logger.error(f"[AI Training] {error_msg}", exc_info=True)
+        logger.error(f"[AI_TRAIN] {error_msg}", exc_info=True)
+        
         return {
             'success': False,
             'error': str(e)
         }
-

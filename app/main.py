@@ -703,6 +703,20 @@ def generate_ai_report(case_id):
             'status': existing_report.status
         }), 409
     
+    # CRITICAL: Check if AI resources are already locked (training or another report)
+    from ai_resource_lock import acquire_ai_lock
+    lock_acquired, lock_message = acquire_ai_lock(
+        operation_type='AI Report Generation',
+        user_id=current_user.id,
+        operation_details=f'Case: {case.name} (ID: {case_id})'
+    )
+    
+    if not lock_acquired:
+        return jsonify({
+            'success': False,
+            'error': lock_message
+        }), 409  # 409 Conflict
+    
     # Calculate estimated duration based on IOC and tagged event counts
     ioc_count = IOC.query.filter_by(case_id=case_id).count()
     tagged_event_count = TimelineTag.query.filter_by(case_id=case_id).count()

@@ -1,9 +1,10 @@
 {
-  "version": "1.11.18",
+  "version": "1.11.19",
   "release_date": "2025-11-07",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "🔒 CRITICAL: AI Resource Locking & Auto-Deployment - Prevents concurrent AI operations (reports + training), shows who/what/when in error messages, automatic settings update after training (v1.11.19)",
     "🐛 BUG FIX: AI Report Review Modal - Fixed side-by-side layout and text visibility (added flex-direction: row, min-width/min-height, hardcoded text color #1a1a1a) (v1.11.18)",
     "🧹 CLEANUP: Settings Page Model List - Removed old model references (Phi-3, DeepSeek-R1, etc.), updated defaults to Llama 3.1 8B, now displays only 4 DFIR-optimized models (v1.11.17)",
     "🔥 MAJOR: DFIR-Optimized AI Model Overhaul - Replaced 13 models (~317 GB) with 4 DFIR-specialized models (~24 GB): Llama 3.1 8B, Mistral 7B, DeepSeek-Coder V2 16B Lite, Qwen 2.5 7B. 293 GB freed, 2-5x faster, 100% GPU inference (v1.11.15)",

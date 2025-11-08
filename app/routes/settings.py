@@ -635,11 +635,22 @@ def train_ai():
         if not ai_status.get('running'):
             return jsonify({'success': False, 'error': 'Ollama is not running'}), 400
         
-        # Start async training task
-        from tasks import train_dfir_model_from_opencti
-        task = train_dfir_model_from_opencti.delay()
+        # CRITICAL: Check if AI resources are already locked
+        from ai_resource_lock import acquire_ai_lock
+        lock_acquired, lock_message = acquire_ai_lock(
+            operation_type='AI Model Training',
+            user_id=current_user.id,
+            operation_details='Training from OpenCTI threat intelligence'
+        )
         
-        logger.info(f"[Settings] Started AI training task: {task.id}")
+        if not lock_acquired:
+            return jsonify({'success': False, 'error': lock_message}), 409  # 409 Conflict
+        
+        # Start async training task (batched fetching - 10 at a time)
+        from tasks import train_dfir_model_from_opencti
+        task = train_dfir_model_from_opencti.delay(limit=50)  # 50 reports in batches of 10
+        
+        logger.info(f"[Settings] Started AI training task: {task.id} by user {current_user.username} (limit=50 reports, batched)")
         
         return jsonify({
             'success': True,
@@ -649,6 +660,12 @@ def train_ai():
         
     except Exception as e:
         logger.error(f"[Settings] Error starting AI training: {e}")
+        # Release lock if we acquired it
+        try:
+            from ai_resource_lock import release_ai_lock
+            release_ai_lock()
+        except:
+            pass
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

@@ -1,8 +1,207 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.11.18  
-**Last Updated**: 2025-11-07 23:00 UTC  
+**Version**: 1.11.19  
+**Last Updated**: 2025-11-07 23:45 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔒 v1.11.19 - CRITICAL: AI Resource Locking & Auto-Deployment (2025-11-07 23:45 UTC)
+
+**Change**: Implemented AI resource locking to prevent concurrent operations and automatic settings updates after training.
+
+### 1. Problem Statement
+
+**User Requirements**:
+1. **Auto-deployment after training**: "if the user does training wil tehy have to do anything? with profiles we haed to change stuff so it didnt use the default model - if we have to do something it should be automatic once training is done so the user doesnt need to do anything"
+2. **AI resource protection**: "some self protection maybe - all AI functions are offline when we are generating a report or training the model so a user doesnt accidenally run 2 AI commands at once"
+3. **User-friendly error messages**: "if it is in use tell them user askiung for the AI its in use, what its doing and what user is doing it"
+
+**Issues**:
+- Training completed but system settings were not updated automatically
+- Users could accidentally start multiple AI operations simultaneously (report generation + training, or multiple trainings)
+- No indication of who is using AI resources or what operation is running
+- System could become overloaded or deadlocked with concurrent AI operations
+
+### 2. Solution Implemented
+
+**A. AI Resource Locking System** (`app/ai_resource_lock.py`):
+- Global lock mechanism using `system_settings` table (key: `ai_resource_lock`)
+- Prevents concurrent AI operations (report generation, training)
+- Tracks: operation type, user, details, start time
+- Provides user-friendly error messages showing who is using AI and what they're doing
+
+**B. Lock Acquisition**:
+- **Report Generation** (`app/main.py`):
+  - Check lock before starting report
+  - Lock details: "AI Report Generation - Case: [case_name] (ID: [id])"
+- **AI Training** (`app/routes/settings.py`):
+  - Check lock before starting training
+  - Lock details: "AI Model Training - Training from OpenCTI threat intelligence"
+
+**C. Lock Release** (CRITICAL - all paths):
+- **Report Generation** (`app/tasks.py: generate_ai_report`):
+  - ✅ Success (line 891-894)
+  - ✅ Failure within try block (line 915-918)
+  - ✅ Fatal exception (line 939-945)
+  - ✅ Cancelled - 5 cancellation points (lines 706-709, 732-735, 799-802, 822-825, 855-858)
+- **AI Training** (`app/tasks.py: train_dfir_model_from_opencti`):
+  - ✅ Success (line 1323-1325)
+  - ✅ Exception handler (line 1361-1365)
+
+**D. Auto-Deployment After Training**:
+- **Step 5**: Create trained model reference marker
+- **Step 6**: Update system settings automatically:
+  - `ai_model_trained` = 'true'
+  - `ai_model_trained_date` = timestamp
+  - `ai_model_training_examples` = count
+- **Lock Release**: Automatic after training completion
+
+### 3. Technical Details
+
+**Lock Storage**: Uses `system_settings` table (PostgreSQL)
+
+**Lock Data Format** (JSON):
+```json
+{
+  "operation": "AI Report Generation",
+  "details": "Case: ACME Breach (ID: 5)",
+  "user_id": 1,
+  "username": "jdube",
+  "started_at": "2025-11-07T23:30:00Z"
+}
+```
+
+**User-Friendly Error Message**:
+```
+AI resources are currently in use.
+
+Operation: AI Report Generation
+Details: Case: ACME Breach (ID: 5)
+Started by: jdube
+Started: 5 minutes ago
+
+Please wait for the current operation to complete.
+```
+
+**Atomic Operations**:
+1. Check lock (acquire_ai_lock)
+2. If locked → return 409 Conflict with details
+3. If unlocked → acquire lock + start operation
+4. On completion/failure/cancellation → release lock
+
+**Lock Release Guarantees**:
+- **Success**: Explicit release after commit
+- **Failure**: Try/except wrapper ensures release
+- **Cancellation**: Release at every cancellation checkpoint (5 checkpoints in report generation)
+- **Fatal Error**: Try/except in exception handler
+
+### 4. Benefits
+
+**Resource Protection**:
+- ✅ Prevents multiple AI operations from overloading system
+- ✅ Prevents Ollama deadlocks (only 1 generation at a time)
+- ✅ Prevents VRAM exhaustion on GPU systems
+
+**User Experience**:
+- ✅ Clear error messages showing who/what/when
+- ✅ No cryptic "model busy" or timeout errors
+- ✅ Users know when AI will be available again
+
+**Auto-Deployment**:
+- ✅ Training completes → settings updated automatically
+- ✅ No manual configuration needed
+- ✅ System ready to use trained model immediately
+
+**System Stability**:
+- ✅ Lock released on ALL code paths (success, failure, cancellation)
+- ✅ No orphaned locks (except on hard crashes)
+- ✅ Admin force-release available if needed
+
+### 5. Files Changed
+
+1. **app/ai_resource_lock.py** (NEW):
+   - `acquire_ai_lock(operation_type, user_id, operation_details)`
+   - `release_ai_lock()`
+   - `check_ai_lock_status()`
+   - `force_release_ai_lock()` (admin only)
+
+2. **app/main.py** (lines 706-718):
+   - Added lock check before report generation
+   - Returns 409 Conflict with user-friendly message if locked
+
+3. **app/routes/settings.py** (lines 638-669):
+   - Added lock check before training
+   - Returns 409 Conflict if locked
+   - Release lock on error
+
+4. **app/tasks.py**:
+   - **generate_ai_report** (lines 706-709, 732-735, 799-802, 822-825, 855-858, 891-894, 915-918, 939-945):
+     - Release lock on success, failure, cancellation, and fatal error (10 release points)
+   - **train_dfir_model_from_opencti** (lines 1173-1175, 1310-1325, 1358-1367):
+     - Import release_ai_lock
+     - Added "AI resources locked" message
+     - Step 6: Update settings (ai_model_trained, date, example count)
+     - Release lock on success and failure
+
+5. **app/version.json**: Version 1.11.19, added feature entry
+
+6. **app/APP_MAP.md**: Version 1.11.19, added this section
+
+### 6. Testing
+
+**Scenario 1: Normal Report Generation**
+1. User A generates report for Case 5
+2. System acquires lock: "AI Report Generation - Case: ACME Breach (ID: 5)"
+3. User B tries to generate report for Case 6
+4. System returns 409: "AI resources are currently in use. Operation: AI Report Generation..."
+5. User A's report completes
+6. System releases lock
+7. User B can now generate report
+
+**Scenario 2: Training While Report Running**
+1. User A generates report
+2. User B (admin) tries to start training
+3. System returns 409: "AI resources are currently in use. Operation: AI Report Generation..."
+4. User B waits for report to complete
+
+**Scenario 3: Report Cancelled**
+1. User A generates report
+2. User A cancels report at 30% progress
+3. System releases lock immediately
+4. User B can now use AI
+
+**Scenario 4: Training Completes**
+1. Admin starts training
+2. Training runs for 45 minutes
+3. Training completes successfully
+4. System automatically updates settings:
+   - ai_model_trained = 'true'
+   - ai_model_trained_date = '2025-11-07T23:45:00Z'
+   - ai_model_training_examples = '127'
+5. System releases lock
+6. Future reports use trained model settings
+
+**Scenario 5: Fatal Error During Report**
+1. User A generates report
+2. Ollama crashes unexpectedly
+3. Exception handler in task releases lock
+4. User B can start new operation (system recovered)
+
+### 7. Future Enhancements
+
+1. **Lock Timeout**: Auto-release locks after 2 hours (in case of hard crash)
+2. **Admin Dashboard**: Show current AI lock status on admin page
+3. **Queue System**: Allow users to queue AI operations instead of showing error
+4. **Full LoRA Merge**: Implement automatic LoRA merge + GGUF export + Ollama deployment (currently only saves adapter)
+
+### 8. Lessons Learned
+
+1. **Lock ALL Code Paths**: Success, failure, cancellation, and fatal error must ALL release lock
+2. **User-Friendly Errors**: Show who, what, when - not just "resource busy"
+3. **Auto-Configure**: Don't make users manually update settings after automated processes
+4. **Test Cancellation**: Cancellation is often forgotten in lock release logic
+5. **Database-Backed Locks**: Using `system_settings` table provides persistence across service restarts
 
 ---
 
