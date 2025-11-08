@@ -1265,12 +1265,13 @@ def train_dfir_model_from_opencti(self):
             train_cmd = [
                 python_exe,
                 train_script,
-                "--base_model", "unsloth/llama-3.1-8b-instruct-bnb-4bit",
+                "--base_model", "unsloth/qwen2-7b-instruct-bnb-4bit",
                 "--training_data", training_file,
                 "--output_dir", "/opt/casescope/lora_training/models/dfir-opencti-trained",
                 "--epochs", "3",
                 "--batch_size", "1",
-                "--lora_rank", "16"
+                "--lora_rank", "8",
+                "--max_seq_length", "1024"
             ]
             
             log(f"Running: {' '.join(train_cmd)}")

@@ -21,8 +21,6 @@ from pathlib import Path
 
 import torch
 from datasets import Dataset
-from transformers import TrainingArguments
-from trl import SFTTrainer
 from unsloth import FastLanguageModel
 
 # Setup logging
@@ -49,11 +47,19 @@ def load_training_data(filepath):
                 continue
             try:
                 example = json.loads(line)
-                # Validate required fields
-                if not all(k in example for k in ['instruction', 'input', 'output']):
-                    logger.warning(f"Line {line_num}: Missing required fields (instruction, input, output)")
+                # Validate required fields (support both formats)
+                if 'prompt' in example and 'response' in example:
+                    # Convert prompt/response format to instruction/input/output
+                    examples.append({
+                        'instruction': 'Generate a DFIR investigation report',
+                        'input': example['prompt'],
+                        'output': example['response']
+                    })
+                elif all(k in example for k in ['instruction', 'input', 'output']):
+                    examples.append(example)
+                else:
+                    logger.warning(f"Line {line_num}: Missing required fields")
                     continue
-                examples.append(example)
             except json.JSONDecodeError as e:
                 logger.warning(f"Line {line_num}: Invalid JSON - {e}")
                 continue
@@ -175,15 +181,20 @@ def main():
     logger.info(f"   Total steps: {total_steps}")
     logger.info("")
     
-    # Setup trainer
-    trainer = SFTTrainer(
+    # Tokenize dataset
+    logger.info("📝 Tokenizing dataset...")
+    def tokenize_function(examples):
+        return tokenizer(examples["text"], truncation=True, max_length=args.max_seq_length)
+    
+    tokenized_dataset = dataset.map(tokenize_function, batched=True, remove_columns=["text"])
+    logger.info(f"✅ Tokenized {len(tokenized_dataset)} examples")
+    logger.info("")
+    
+    # Setup trainer with simplified args
+    from transformers import Trainer, TrainingArguments, DataCollatorForLanguageModeling
+    
+    trainer = Trainer(
         model=model,
-        tokenizer=tokenizer,
-        train_dataset=dataset,
-        dataset_text_field="text",
-        max_seq_length=args.max_seq_length,
-        dataset_num_proc=2,
-        packing=False,
         args=TrainingArguments(
             per_device_train_batch_size=args.batch_size,
             gradient_accumulation_steps=4,  # Effective batch size = 4
@@ -202,6 +213,9 @@ def main():
             save_total_limit=3,
             report_to="none",  # Disable wandb/tensorboard
         ),
+        train_dataset=tokenized_dataset,
+        tokenizer=tokenizer,
+        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
     )
     
     # Train!
