@@ -1534,6 +1534,9 @@ function showLoginsOK() {
                     <table>
                         <thead>
                             <tr>
+                                <th style="width: 50px;">
+                                    <input type="checkbox" id="selectAllLoginsOK" onclick="toggleSelectAllLoginsOK()" title="Select All">
+                                </th>
                                 <th style="width: 60px;">#</th>
                                 <th>Username</th>
                                 <th>Computer</th>
@@ -1548,6 +1551,9 @@ function showLoginsOK() {
             data.logins.forEach((login, index) => {
                 html += `
                     <tr>
+                        <td>
+                            <input type="checkbox" class="login-checkbox-ok" value="${escapeHtml(login.username)}" onchange="updateBulkButtonLoginsOK()">
+                        </td>
                         <td>${index + 1}</td>
                         <td><strong>${escapeHtml(login.username)}</strong>${getKnownUserBadges(login)}</td>
                         <td>${escapeHtml(login.computer)}</td>
@@ -1568,6 +1574,12 @@ function showLoginsOK() {
                         </tbody>
                     </table>
                 </div>
+                
+                <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
+                    <button id="bulkAddLoginsOK" onclick="bulkAddLoginsOK()" class="btn" style="background: var(--color-primary); color: white; padding: 8px 16px;" disabled>
+                        📌 Add Selected as IOCs (<span id="countLoginsOK">0</span>)
+                    </button>
+                </div>
             `;
             
             modalBody.innerHTML = html;
@@ -1576,6 +1588,60 @@ function showLoginsOK() {
             console.error('[LOGINS_OK] Error fetching data:', error);
             modalBody.innerHTML = `<div class="alert alert-error">❌ Network error: ${error.message}</div>`;
         });
+}
+
+function toggleSelectAllLoginsOK() {
+    const selectAll = document.getElementById('selectAllLoginsOK');
+    const checkboxes = document.querySelectorAll('.login-checkbox-ok');
+    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+    updateBulkButtonLoginsOK();
+}
+
+function updateBulkButtonLoginsOK() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-ok:checked');
+    const count = checkboxes.length;
+    document.getElementById('countLoginsOK').textContent = count;
+    document.getElementById('bulkAddLoginsOK').disabled = count === 0;
+}
+
+function bulkAddLoginsOK() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-ok:checked');
+    const usernames = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (usernames.length === 0) {
+        alert('Please select at least one username');
+        return;
+    }
+    
+    if (!confirm(`Add ${usernames.length} username(s) as IOCs with MEDIUM threat level?`)) {
+        return;
+    }
+    
+    fetch(`/case/${CASE_ID}/search/bulk_add_iocs`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            usernames: usernames,
+            threat_level: 'medium',
+            source: 'Successful Logins (Event ID 4624)'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = `✓ Added ${data.added} IOC(s)`;
+            if (data.skipped > 0) {
+                message += `\n⚠ Skipped ${data.skipped} duplicate(s)`;
+            }
+            alert(message);
+            closeLoginsOKModal();
+        } else {
+            alert('✗ ' + (data.error || 'Failed to add IOCs'));
+        }
+    })
+    .catch(err => {
+        alert('✗ Error: ' + err.message);
+    });
 }
 
 function closeLoginsOKModal() {
@@ -1695,6 +1761,9 @@ function showLoginsFailed() {
                     <table>
                         <thead>
                             <tr>
+                                <th style="width: 50px;">
+                                    <input type="checkbox" id="selectAllLoginsFailed" onclick="toggleSelectAllLoginsFailed()" title="Select All">
+                                </th>
                                 <th style="width: 60px;">#</th>
                                 <th>Username</th>
                                 <th>Computer</th>
@@ -1708,6 +1777,9 @@ function showLoginsFailed() {
             data.logins.forEach((login, index) => {
                 html += `
                     <tr>
+                        <td>
+                            <input type="checkbox" class="login-checkbox-failed" value="${escapeHtml(login.username)}" onchange="updateBulkButtonLoginsFailed()">
+                        </td>
                         <td>${index + 1}</td>
                         <td><strong style="color: var(--color-error);">${escapeHtml(login.username)}</strong>${getKnownUserBadges(login)}</td>
                         <td>${escapeHtml(login.computer)}</td>
@@ -1727,6 +1799,12 @@ function showLoginsFailed() {
                         </tbody>
                     </table>
                 </div>
+                
+                <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
+                    <button id="bulkAddLoginsFailed" onclick="bulkAddLoginsFailed()" class="btn" style="background: var(--color-error); color: white; padding: 8px 16px;" disabled>
+                        📌 Add Selected as IOCs (<span id="countLoginsFailed">0</span>)
+                    </button>
+                </div>
             `;
             
             modalBody.innerHTML = html;
@@ -1735,6 +1813,60 @@ function showLoginsFailed() {
             console.error('[LOGINS_FAILED] Error fetching data:', error);
             modalBody.innerHTML = `<div class="alert alert-error">❌ Network error: ${error.message}</div>`;
         });
+}
+
+function toggleSelectAllLoginsFailed() {
+    const selectAll = document.getElementById('selectAllLoginsFailed');
+    const checkboxes = document.querySelectorAll('.login-checkbox-failed');
+    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+    updateBulkButtonLoginsFailed();
+}
+
+function updateBulkButtonLoginsFailed() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-failed:checked');
+    const count = checkboxes.length;
+    document.getElementById('countLoginsFailed').textContent = count;
+    document.getElementById('bulkAddLoginsFailed').disabled = count === 0;
+}
+
+function bulkAddLoginsFailed() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-failed:checked');
+    const usernames = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (usernames.length === 0) {
+        alert('Please select at least one username');
+        return;
+    }
+    
+    if (!confirm(`Add ${usernames.length} username(s) as IOCs with HIGH threat level?`)) {
+        return;
+    }
+    
+    fetch(`/case/${CASE_ID}/search/bulk_add_iocs`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            usernames: usernames,
+            threat_level: 'high',
+            source: 'Failed Logins (Event ID 4625)'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = `✓ Added ${data.added} IOC(s)`;
+            if (data.skipped > 0) {
+                message += `\n⚠ Skipped ${data.skipped} duplicate(s)`;
+            }
+            alert(message);
+            closeLoginsFailedModal();
+        } else {
+            alert('✗ ' + (data.error || 'Failed to add IOCs'));
+        }
+    })
+    .catch(err => {
+        alert('✗ Error: ' + err.message);
+    });
 }
 
 function closeLoginsFailedModal() {
@@ -1853,6 +1985,9 @@ function showRDPConnections() {
                     <table>
                         <thead>
                             <tr>
+                                <th style="width: 50px;">
+                                    <input type="checkbox" id="selectAllRDP" onclick="toggleSelectAllRDP()" title="Select All">
+                                </th>
                                 <th style="width: 60px;">#</th>
                                 <th>Username</th>
                                 <th>Computer</th>
@@ -1866,6 +2001,9 @@ function showRDPConnections() {
             data.logins.forEach((login, index) => {
                 html += `
                     <tr>
+                        <td>
+                            <input type="checkbox" class="login-checkbox-rdp" value="${escapeHtml(login.username)}" onchange="updateBulkButtonRDP()">
+                        </td>
                         <td>${index + 1}</td>
                         <td><strong style="color: var(--color-success);">${escapeHtml(login.username)}</strong>${getKnownUserBadges(login)}</td>
                         <td>${escapeHtml(login.computer)}</td>
@@ -1885,6 +2023,12 @@ function showRDPConnections() {
                         </tbody>
                     </table>
                 </div>
+                
+                <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
+                    <button id="bulkAddRDP" onclick="bulkAddRDP()" class="btn" style="background: var(--color-success); color: white; padding: 8px 16px;" disabled>
+                        📌 Add Selected as IOCs (<span id="countRDP">0</span>)
+                    </button>
+                </div>
             `;
             
             modalBody.innerHTML = html;
@@ -1893,6 +2037,60 @@ function showRDPConnections() {
             console.error('[RDP_CONNECTIONS] Error fetching data:', error);
             modalBody.innerHTML = `<div class="alert alert-error">❌ Network error: ${error.message}</div>`;
         });
+}
+
+function toggleSelectAllRDP() {
+    const selectAll = document.getElementById('selectAllRDP');
+    const checkboxes = document.querySelectorAll('.login-checkbox-rdp');
+    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+    updateBulkButtonRDP();
+}
+
+function updateBulkButtonRDP() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-rdp:checked');
+    const count = checkboxes.length;
+    document.getElementById('countRDP').textContent = count;
+    document.getElementById('bulkAddRDP').disabled = count === 0;
+}
+
+function bulkAddRDP() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-rdp:checked');
+    const usernames = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (usernames.length === 0) {
+        alert('Please select at least one username');
+        return;
+    }
+    
+    if (!confirm(`Add ${usernames.length} username(s) as IOCs with MEDIUM threat level?`)) {
+        return;
+    }
+    
+    fetch(`/case/${CASE_ID}/search/bulk_add_iocs`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            usernames: usernames,
+            threat_level: 'medium',
+            source: 'RDP Connections (Event ID 1149)'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = `✓ Added ${data.added} IOC(s)`;
+            if (data.skipped > 0) {
+                message += `\n⚠ Skipped ${data.skipped} duplicate(s)`;
+            }
+            alert(message);
+            closeRDPConnectionsModal();
+        } else {
+            alert('✗ ' + (data.error || 'Failed to add IOCs'));
+        }
+    })
+    .catch(err => {
+        alert('✗ Error: ' + err.message);
+    });
 }
 
 function closeRDPConnectionsModal() {
@@ -2011,6 +2209,9 @@ function showConsoleLogins() {
                     <table>
                         <thead>
                             <tr>
+                                <th style="width: 50px;">
+                                    <input type="checkbox" id="selectAllConsole" onclick="toggleSelectAllConsole()" title="Select All">
+                                </th>
                                 <th style="width: 60px;">#</th>
                                 <th>Username</th>
                                 <th>Computer</th>
@@ -2024,6 +2225,9 @@ function showConsoleLogins() {
             data.logins.forEach((login, index) => {
                 html += `
                     <tr>
+                        <td>
+                            <input type="checkbox" class="login-checkbox-console" value="${escapeHtml(login.username)}" onchange="updateBulkButtonConsole()">
+                        </td>
                         <td>${index + 1}</td>
                         <td><strong style="color: var(--color-warning);">${escapeHtml(login.username)}</strong>${getKnownUserBadges(login)}</td>
                         <td>${escapeHtml(login.computer)}</td>
@@ -2043,6 +2247,12 @@ function showConsoleLogins() {
                         </tbody>
                     </table>
                 </div>
+                
+                <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
+                    <button id="bulkAddConsole" onclick="bulkAddConsole()" class="btn" style="background: var(--color-warning); color: white; padding: 8px 16px;" disabled>
+                        📌 Add Selected as IOCs (<span id="countConsole">0</span>)
+                    </button>
+                </div>
             `;
             
             modalBody.innerHTML = html;
@@ -2051,6 +2261,60 @@ function showConsoleLogins() {
             console.error('[CONSOLE_LOGINS] Error fetching data:', error);
             modalBody.innerHTML = `<div class="alert alert-error">❌ Network error: ${error.message}</div>`;
         });
+}
+
+function toggleSelectAllConsole() {
+    const selectAll = document.getElementById('selectAllConsole');
+    const checkboxes = document.querySelectorAll('.login-checkbox-console');
+    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+    updateBulkButtonConsole();
+}
+
+function updateBulkButtonConsole() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-console:checked');
+    const count = checkboxes.length;
+    document.getElementById('countConsole').textContent = count;
+    document.getElementById('bulkAddConsole').disabled = count === 0;
+}
+
+function bulkAddConsole() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-console:checked');
+    const usernames = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (usernames.length === 0) {
+        alert('Please select at least one username');
+        return;
+    }
+    
+    if (!confirm(`Add ${usernames.length} username(s) as IOCs with MEDIUM threat level?`)) {
+        return;
+    }
+    
+    fetch(`/case/${CASE_ID}/search/bulk_add_iocs`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            usernames: usernames,
+            threat_level: 'medium',
+            source: 'Console Logins (Event ID 4624, LogonType 2)'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = `✓ Added ${data.added} IOC(s)`;
+            if (data.skipped > 0) {
+                message += `\n⚠ Skipped ${data.skipped} duplicate(s)`;
+            }
+            alert(message);
+            closeConsoleLoginsModal();
+        } else {
+            alert('✗ ' + (data.error || 'Failed to add IOCs'));
+        }
+    })
+    .catch(err => {
+        alert('✗ Error: ' + err.message);
+    });
 }
 
 function closeConsoleLoginsModal() {
@@ -2255,6 +2519,9 @@ function fetchVPNAuths(firewallIp, firewallName) {
                     <table>
                         <thead>
                             <tr>
+                                <th style="width: 50px;">
+                                    <input type="checkbox" id="selectAllVPNAuth" onclick="toggleSelectAllVPNAuth()" title="Select All">
+                                </th>
                                 <th style="width: 60px;">#</th>
                                 <th>Username</th>
                                 <th>Workstation Name</th>
@@ -2269,6 +2536,9 @@ function fetchVPNAuths(firewallIp, firewallName) {
                     <tr onclick="showEventDetail('${auth.event_id}', '${escapeHtml(auth.event_index)}')" 
                         style="cursor: pointer;" 
                         title="Click to view full event details">
+                        <td onclick="event.stopPropagation()">
+                            <input type="checkbox" class="login-checkbox-vpn-auth" value="${escapeHtml(auth.username)}" onchange="updateBulkButtonVPNAuth()">
+                        </td>
                         <td>${index + 1}</td>
                         <td><strong>${escapeHtml(auth.username)}</strong>${getKnownUserBadges(auth)}</td>
                         <td>${escapeHtml(auth.workstation_name)}</td>
@@ -2281,6 +2551,12 @@ function fetchVPNAuths(firewallIp, firewallName) {
                         </tbody>
                     </table>
                 </div>
+                
+                <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
+                    <button id="bulkAddVPNAuth" onclick="bulkAddVPNAuth()" class="btn" style="background: var(--color-primary); color: white; padding: 8px 16px;" disabled>
+                        📌 Add Selected as IOCs (<span id="countVPNAuth">0</span>)
+                    </button>
+                </div>
             `;
             
             modalBody.innerHTML = html;
@@ -2289,6 +2565,60 @@ function fetchVPNAuths(firewallIp, firewallName) {
             console.error('[VPN_AUTHS] Fetch error:', error);
             modalBody.innerHTML = `<div class="alert alert-error">❌ Network error: ${error.message}</div>`;
         });
+}
+
+function toggleSelectAllVPNAuth() {
+    const selectAll = document.getElementById('selectAllVPNAuth');
+    const checkboxes = document.querySelectorAll('.login-checkbox-vpn-auth');
+    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+    updateBulkButtonVPNAuth();
+}
+
+function updateBulkButtonVPNAuth() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-vpn-auth:checked');
+    const count = checkboxes.length;
+    document.getElementById('countVPNAuth').textContent = count;
+    document.getElementById('bulkAddVPNAuth').disabled = count === 0;
+}
+
+function bulkAddVPNAuth() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-vpn-auth:checked');
+    const usernames = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (usernames.length === 0) {
+        alert('Please select at least one username');
+        return;
+    }
+    
+    if (!confirm(`Add ${usernames.length} username(s) as IOCs with MEDIUM threat level?`)) {
+        return;
+    }
+    
+    fetch(`/case/${CASE_ID}/search/bulk_add_iocs`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            usernames: usernames,
+            threat_level: 'medium',
+            source: 'VPN Authentications (Event ID 4624)'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = `✓ Added ${data.added} IOC(s)`;
+            if (data.skipped > 0) {
+                message += `\n⚠ Skipped ${data.skipped} duplicate(s)`;
+            }
+            alert(message);
+            closeVPNAuthsModal();
+        } else {
+            alert('✗ ' + (data.error || 'Failed to add IOCs'));
+        }
+    })
+    .catch(err => {
+        alert('✗ Error: ' + err.message);
+    });
 }
 
 function closeVPNAuthsModal() {
@@ -2464,6 +2794,9 @@ function fetchFailedVPNAttempts(firewallIp, firewallName) {
                     <table>
                         <thead>
                             <tr>
+                                <th style="width: 50px;">
+                                    <input type="checkbox" id="selectAllFailedVPN" onclick="toggleSelectAllFailedVPN()" title="Select All">
+                                </th>
                                 <th style="width: 60px;">#</th>
                                 <th>Username</th>
                                 <th>Workstation Name</th>
@@ -2478,6 +2811,9 @@ function fetchFailedVPNAttempts(firewallIp, firewallName) {
                     <tr onclick="showEventDetail('${attempt.event_id}', '${escapeHtml(attempt.event_index)}')" 
                         style="cursor: pointer;" 
                         title="Click to view full event details">
+                        <td onclick="event.stopPropagation()">
+                            <input type="checkbox" class="login-checkbox-failed-vpn" value="${escapeHtml(attempt.username)}" onchange="updateBulkButtonFailedVPN()">
+                        </td>
                         <td>${index + 1}</td>
                         <td><strong style="color: var(--color-error);">${escapeHtml(attempt.username)}</strong>${getKnownUserBadges(attempt)}</td>
                         <td>${escapeHtml(attempt.workstation_name)}</td>
@@ -2490,6 +2826,12 @@ function fetchFailedVPNAttempts(firewallIp, firewallName) {
                         </tbody>
                     </table>
                 </div>
+                
+                <div style="margin-top: var(--spacing-md); padding: var(--spacing-md); border-top: 1px solid var(--color-border); text-align: center;">
+                    <button id="bulkAddFailedVPN" onclick="bulkAddFailedVPN()" class="btn" style="background: var(--color-error); color: white; padding: 8px 16px;" disabled>
+                        📌 Add Selected as IOCs (<span id="countFailedVPN">0</span>)
+                    </button>
+                </div>
             `;
             
             modalBody.innerHTML = html;
@@ -2498,6 +2840,60 @@ function fetchFailedVPNAttempts(firewallIp, firewallName) {
             console.error('[FAILED_VPN] Fetch error:', error);
             modalBody.innerHTML = `<div class="alert alert-error">❌ Network error: ${error.message}</div>`;
         });
+}
+
+function toggleSelectAllFailedVPN() {
+    const selectAll = document.getElementById('selectAllFailedVPN');
+    const checkboxes = document.querySelectorAll('.login-checkbox-failed-vpn');
+    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+    updateBulkButtonFailedVPN();
+}
+
+function updateBulkButtonFailedVPN() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-failed-vpn:checked');
+    const count = checkboxes.length;
+    document.getElementById('countFailedVPN').textContent = count;
+    document.getElementById('bulkAddFailedVPN').disabled = count === 0;
+}
+
+function bulkAddFailedVPN() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-failed-vpn:checked');
+    const usernames = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (usernames.length === 0) {
+        alert('Please select at least one username');
+        return;
+    }
+    
+    if (!confirm(`Add ${usernames.length} username(s) as IOCs with HIGH threat level?`)) {
+        return;
+    }
+    
+    fetch(`/case/${CASE_ID}/search/bulk_add_iocs`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            usernames: usernames,
+            threat_level: 'high',
+            source: 'Failed VPN Attempts (Event ID 4625)'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = `✓ Added ${data.added} IOC(s)`;
+            if (data.skipped > 0) {
+                message += `\n⚠ Skipped ${data.skipped} duplicate(s)`;
+            }
+            alert(message);
+            closeFailedVPNModal();
+        } else {
+            alert('✗ ' + (data.error || 'Failed to add IOCs'));
+        }
+    })
+    .catch(err => {
+        alert('✗ Error: ' + err.message);
+    });
 }
 
 function closeFailedVPNModal() {

@@ -2226,6 +2226,78 @@ def add_field_as_ioc(case_id):
     })
 
 
+@app.route('/case/<int:case_id>/search/bulk_add_iocs', methods=['POST'])
+@login_required
+def bulk_add_iocs(case_id):
+    """Bulk add usernames as IOCs from login analysis"""
+    # Permission check: Read-only users cannot add IOCs
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot add IOCs'}), 403
+    
+    from models import IOC
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    data = request.json
+    usernames = data.get('usernames', [])
+    threat_level = data.get('threat_level', 'medium')
+    source = data.get('source', 'Login Analysis')
+    
+    if not usernames or not isinstance(usernames, list):
+        return jsonify({'error': 'Usernames array required'}), 400
+    
+    if len(usernames) == 0:
+        return jsonify({'error': 'No usernames provided'}), 400
+    
+    added_count = 0
+    skipped_count = 0
+    skipped_usernames = []
+    
+    for username in usernames:
+        username = str(username).strip()
+        if not username:
+            continue
+        
+        # Check if IOC already exists
+        existing = db.session.query(IOC).filter_by(
+            case_id=case_id,
+            ioc_value=username,
+            ioc_type='username'
+        ).first()
+        
+        if existing:
+            skipped_count += 1
+            skipped_usernames.append(username)
+            continue
+        
+        # Create IOC
+        ioc = IOC(
+            case_id=case_id,
+            ioc_value=username,
+            ioc_type='username',
+            threat_level=threat_level,
+            description=f'Bulk added from {source}',
+            created_by=current_user.id,
+            is_active=True
+        )
+        db.session.add(ioc)
+        added_count += 1
+    
+    db.session.commit()
+    
+    logger.info(f"[IOC_BULK] User {current_user.id} bulk added {added_count} IOCs, skipped {skipped_count} duplicates")
+    
+    return jsonify({
+        'success': True,
+        'added': added_count,
+        'skipped': skipped_count,
+        'skipped_usernames': skipped_usernames,
+        'total': len(usernames)
+    })
+
+
 @app.route('/case/<int:case_id>/search/logins-ok', methods=['GET'])
 @login_required
 def show_logins_ok(case_id):
