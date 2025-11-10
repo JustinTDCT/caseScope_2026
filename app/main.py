@@ -1726,11 +1726,18 @@ def export_search_results(case_id):
         flash(f'Export error: {str(e)}', 'error')
         return redirect(url_for('search_events', case_id=case_id))
     
-    # Extract fields
-    events = [extract_event_fields(result['_source']) for result in results]
+    # Pass FULL _source data to CSV (not just extracted fields)
+    # This ensures EventData (TargetUserName, ShareName, etc.) is included
+    full_events = []
+    for result in results:
+        event_data = result['_source'].copy()
+        # Add metadata
+        event_data['_id'] = result.get('_id')
+        event_data['_index'] = result.get('_index')
+        full_events.append(event_data)
     
-    # Generate CSV
-    csv_content = generate_events_csv(events)
+    # Generate CSV with full event data
+    csv_content = generate_events_csv(full_events)
     
     # Create response with CSV
     response = make_response(csv_content)

@@ -1,8 +1,186 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.7  
-**Last Updated**: 2025-11-10 22:15 UTC  
+**Version**: 1.12.8  
+**Last Updated**: 2025-11-10 23:05 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.12.8 - CRITICAL FIX: CSV Export Now Includes FULL Event Payload (2025-11-10 23:05 UTC)
+
+**Change**: Fixed CSV export to include complete OpenSearch `_source` data with all EventData fields.
+
+### 1. Problem (Reported by User)
+
+**Symptom**: Exported CSVs contained Event IDs (4624, 4625, 6272, 6273, 5140) but "Raw Data" column was missing critical forensic fields:
+- ❌ `Event.EventData.TargetUserName` (username for 4624)
+- ❌ `Event.EventData.AccountName` (account name)
+- ❌ `Event.EventData.SubjectUserName` (subject username for 6272)
+- ❌ `Event.EventData.IpAddress` (source IP)
+- ❌ `Event.EventData.ShareName` (share path for 5140)
+- ❌ `Event.EventData.ObjectName` (file/folder path)
+- ❌ `Event.EventData.LogonType` (logon type)
+- ❌ ALL other EventData fields
+
+**Root Cause**: Export route was using `extract_event_fields()` which only extracts **normalized display fields** (event_id, timestamp, description, computer_name) for the search results table, NOT the full event structure from OpenSearch.
+
+**User Impact**: 
+```python
+users_count: 0  # Could not extract usernames
+shares_count: 0  # Could not extract share paths
+```
+**Forensic analysis impossible** without EventData fields.
+
+### 2. Before vs After
+
+**BEFORE (v1.12.7)** - Raw Data column contained:
+```json
+{
+  "event_id": "4624",
+  "timestamp": "2025-11-10 12:34:56",
+  "description": "An account was successfully logged on",
+  "computer_name": "SERVER01",
+  "source_file": "Security.evtx"
+}
+```
+☠️ **Missing all EventData fields** - forensic extraction impossible
+
+**AFTER (v1.12.8)** - Raw Data column now contains:
+```json
+{
+  "normalized_event_id": "4624",
+  "normalized_timestamp": "2025-11-10T12:34:56.000Z",
+  "normalized_computer": "SERVER01",
+  "source_file": "Security.evtx",
+  "Event": {
+    "System": {
+      "EventID": 4624,
+      "Computer": "SERVER01",
+      "TimeCreated": {...}
+    },
+    "EventData": {
+      "TargetUserName": "scanner",
+      "AccountName": "administrator",
+      "SubjectUserName": "SYSTEM",
+      "IpAddress": "10.0.0.4",
+      "LogonType": "3",
+      "WorkstationName": "ATTACKER-PC",
+      "ShareName": "\\\\SERVER01\\IPC$",
+      "ObjectName": "\\Device\\HarddiskVolume2\\Share\\sensitive.doc"
+    }
+  },
+  "_id": "abc123",
+  "_index": "case_123_evtx_20251110"
+}
+```
+✅ **COMPLETE event structure** - all forensic fields present
+
+### 3. Technical Solution
+
+**Updated Export Route** (`main.py` lines 1729-1740):
+```python
+# Pass FULL _source data to CSV (not just extracted fields)
+# This ensures EventData (TargetUserName, ShareName, etc.) is included
+full_events = []
+for result in results:
+    event_data = result['_source'].copy()
+    # Add metadata
+    event_data['_id'] = result.get('_id')
+    event_data['_index'] = result.get('_index')
+    full_events.append(event_data)
+
+# Generate CSV with full event data
+csv_content = generate_events_csv(full_events)
+```
+
+**Updated CSV Generator** (`export_utils.py` lines 13-58):
+```python
+def generate_events_csv(events: List[Dict[str, Any]]) -> str:
+    """
+    The Raw Data column contains the COMPLETE OpenSearch _source including:
+    - Event.EventData.TargetUserName
+    - Event.EventData.IpAddress
+    - Event.EventData.ShareName
+    - Event.EventData.ObjectName
+    - All other EventData fields for forensic analysis
+    """
+    # Extract normalized fields for display columns
+    event_id = event.get('normalized_event_id', 'N/A')
+    timestamp = event.get('normalized_timestamp', '')
+    computer_name = event.get('normalized_computer', 'N/A')
+    
+    # Convert ENTIRE event to JSON for raw data column
+    raw_data = json.dumps(event, default=str)
+```
+
+### 4. CSV Structure
+
+**Columns**:
+1. **Event ID** - `normalized_event_id` (4624, 4625, 6272, 6273, 5140, etc.)
+2. **Date/Time** - `normalized_timestamp` (ISO 8601 format)
+3. **Computer Name** - `normalized_computer` (hostname)
+4. **Source File** - Original log file name (Security.evtx, etc.)
+5. **Raw Data** - **FULL OpenSearch `_source` as JSON** (includes ALL EventData fields)
+
+### 5. Forensic Data Extraction (Python Example)
+
+```python
+import pandas as pd
+import json
+
+# Load CSV
+df = pd.read_csv('case_123_events_export.csv')
+
+# Extract usernames from 4624 events
+for idx, row in df[df['Event ID'] == '4624'].iterrows():
+    event = json.loads(row['Raw Data'])
+    
+    # Access EventData fields
+    username = event['Event']['EventData']['TargetUserName']
+    ip_address = event['Event']['EventData']['IpAddress']
+    logon_type = event['Event']['EventData']['LogonType']
+    
+    print(f"User {username} logged in from {ip_address} (Type {logon_type})")
+
+# Extract share paths from 5140 events
+for idx, row in df[df['Event ID'] == '5140'].iterrows():
+    event = json.loads(row['Raw Data'])
+    
+    share_name = event['Event']['EventData']['ShareName']
+    object_name = event['Event']['EventData']['ObjectName']
+    
+    print(f"Share access: {share_name} -> {object_name}")
+```
+
+### 6. User Impact
+
+**Before**:
+- ❌ No usernames extractable from 4624/4625
+- ❌ No share paths extractable from 5140
+- ❌ No forensic analysis possible
+- ⚠️ CSV appeared valid but was forensically useless
+
+**After**:
+- ✅ All EventData fields present in Raw Data column
+- ✅ Usernames extractable (TargetUserName, AccountName, SubjectUserName)
+- ✅ Share paths extractable (ShareName, ObjectName)
+- ✅ IP addresses extractable (IpAddress, ClientIPAddress, NASIPv4Address)
+- ✅ Logon types extractable (LogonType)
+- ✅ Full forensic timeline reconstruction possible
+- ✅ Python/Pandas analysis now works
+
+### 7. Files Modified
+
+- **`app/main.py`**: Export route now passes full `_source` instead of extracted fields
+- **`app/export_utils.py`**: Updated CSV generator to preserve complete event structure
+
+### 8. Backward Compatibility
+
+⚠️ **CSV structure changed** (column headers updated):
+- **Old**: Date/Time, Description, Computer Name, File Name, Raw Data
+- **New**: Event ID, Date/Time, Computer Name, Source File, Raw Data
+
+✅ **Raw Data column now contains FULL event structure** (breaking change for better forensics)
 
 ---
 

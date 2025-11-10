@@ -1,9 +1,10 @@
 {
-  "version": "1.12.7",
+  "version": "1.12.8",
   "release_date": "2025-11-10",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "🐛 CRITICAL FIX: CSV Export Now Includes FULL Event Payload - Fixed CSV export to include complete OpenSearch _source data with ALL EventData fields (TargetUserName, ShareName, ObjectName, IpAddress, LogonType, etc.). Previous version only exported normalized display fields, making forensic extraction impossible (users_count: 0, shares_count: 0). Raw Data column now contains ENTIRE event structure including Event.EventData. CSV columns updated: Event ID, Date/Time, Computer Name, Source File, Raw Data (FULL JSON). Python/Pandas forensic analysis now works. Breaking change for better forensics (v1.12.8)",
     "🚀 FEATURE: Unlimited CSV Export via OpenSearch Scroll API - Removed 10,000 event limit from CSV exports. Implemented execute_search_scroll() using OpenSearch Scroll API to stream results in 2000-event batches. Truly unlimited export (tested with 500k+ events), efficient memory usage, preserves sort order, automatic cleanup. Export time: ~2-5 minutes for 500k events. Progress visible in app.log with detailed batch logging. All search filters respected (date range, IOC/SIGMA, file types). Backward compatible, search page unchanged (v1.12.7)",
     "🔧 FIX: NPS Event Field Mapping for VPN Analysis - Fixed NPS events (6272/6273) not appearing in VPN modals. NPS events use NASIPv4Address (not IpAddress), SubjectUserName (not TargetUserName), ClientName (not WorkstationName). Updated both VPN functions to check all 3 IP fields (IpAddress, ClientIPAddress, NASIPv4Address) and extract username/device from NPS-specific fields. Complete VPN audit trail now includes Windows endpoint-level (4624/4625) AND NPS access decisions (6272/6273) (v1.12.6)",
     "🔧 FIX: Add ClientIPAddress Field for NPS VPN Events - Added ClientIPAddress field matching for NPS events 6272/6273. NPS events store client IP in Event.EventData.ClientIPAddress, not IpAddress like Windows logon events. Updated IP field query to check both IpAddress (Windows) and ClientIPAddress (NPS) fields (v1.12.5)",
