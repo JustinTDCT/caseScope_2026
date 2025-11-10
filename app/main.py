@@ -1627,9 +1627,9 @@ def search_events(case_id):
 @app.route('/case/<int:case_id>/search/export')
 @login_required
 def export_search_results(case_id):
-    """Export current search results as CSV"""
+    """Export current search results as CSV (unlimited results via Scroll API)"""
     from models import TimelineTag
-    from search_utils import build_search_query, execute_search, extract_event_fields
+    from search_utils import build_search_query, execute_search_scroll, extract_event_fields
     from export_utils import generate_events_csv
     from flask import make_response
     
@@ -1709,19 +1709,20 @@ def export_search_results(case_id):
             latest_event_timestamp=latest_event_timestamp
         )
     
-    # Execute search - export ALL results (no pagination limit)
+    # Execute search - export ALL results using Scroll API (unlimited)
     try:
-        results, total_count, _ = execute_search(
+        logger.info(f"[EXPORT] Starting unlimited CSV export for case {case_id}")
+        results, total_count = execute_search_scroll(
             opensearch_client,
             index_pattern,
             query_dsl,
-            page=1,
-            per_page=10000,  # Max export limit
+            batch_size=2000,  # 2000 events per scroll batch (balanced for performance)
             sort_field=sort_field,
             sort_order=sort_order
         )
+        logger.info(f"[EXPORT] Successfully retrieved {len(results)} events (total count: {total_count})")
     except Exception as e:
-        logger.error(f"[EXPORT] Search failed: {e}")
+        logger.error(f"[EXPORT] Scroll export failed: {e}")
         flash(f'Export error: {str(e)}', 'error')
         return redirect(url_for('search_events', case_id=case_id))
     

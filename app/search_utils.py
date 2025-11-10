@@ -359,6 +359,165 @@ def execute_search(
         return [], 0, {}
 
 
+def execute_search_scroll(
+    opensearch_client,
+    index_name: str,
+    query_dsl: Dict[str, Any],
+    batch_size: int = 1000,
+    sort_field: Optional[str] = None,
+    sort_order: str = "desc",
+    max_results: Optional[int] = None
+) -> Tuple[List[Dict], int]:
+    """
+    Execute OpenSearch query using Scroll API for unlimited results
+    
+    This function bypasses the max_result_window limitation (default 10,000) by using
+    the Scroll API, which is designed for efficiently retrieving large result sets.
+    
+    Args:
+        opensearch_client: OpenSearch client instance
+        index_name: Index or index pattern to search
+        query_dsl: Query DSL dictionary from build_search_query()
+        batch_size: Number of results per scroll batch (default 1000)
+        sort_field: Field to sort by
+        sort_order: 'asc' or 'desc'
+        max_results: Optional maximum number of results to return (for testing)
+    
+    Returns:
+        Tuple of (results_list, total_count)
+    
+    Example:
+        results, total = execute_search_scroll(
+            client, 
+            "case_123_*", 
+            query_dsl,
+            batch_size=2000
+        )
+        # Returns ALL matching results, not limited to 10k
+    """
+    scroll_timeout = '5m'  # Keep scroll context alive for 5 minutes
+    all_results = []
+    scroll_id = None
+    
+    try:
+        # Initial search with scroll parameter
+        search_body = {
+            **query_dsl,
+            "size": batch_size,
+            "track_total_hits": True
+        }
+        
+        # Add sorting (same logic as execute_search)
+        if sort_field:
+            sort_config = {
+                sort_field: {
+                    "order": sort_order,
+                    "unmapped_type": "long"
+                }
+            }
+            
+            # Add .keyword for text fields
+            sortable_fields = [
+                "System.TimeCreated.@attributes.SystemTime",
+                "System.EventID",
+                "System.EventRecordID",
+                "normalized_timestamp",
+                "normalized_event_id",
+                "normalized_computer"
+            ]
+            
+            if not sort_field.endswith(".keyword") and sort_field not in sortable_fields:
+                sort_field_keyword = f"{sort_field}.keyword"
+                sort_config = {
+                    sort_field_keyword: {
+                        "order": sort_order,
+                        "unmapped_type": "keyword"
+                    }
+                }
+            
+            search_body["sort"] = [sort_config]
+        else:
+            # Default sort by timestamp
+            search_body["sort"] = [
+                {
+                    "System.TimeCreated.@attributes.SystemTime": {
+                        "order": "desc",
+                        "unmapped_type": "date"
+                    }
+                }
+            ]
+        
+        logger.info(f"[SCROLL_EXPORT] Starting scroll export from {index_name}")
+        
+        # Initial scroll request
+        response = opensearch_client.search(
+            index=index_name,
+            body=search_body,
+            scroll=scroll_timeout
+        )
+        
+        # Get total count
+        total_info = response['hits']['total']
+        if isinstance(total_info, dict):
+            total_count = total_info['value']
+            relation = total_info.get('relation', 'eq')
+            if relation == 'gte':
+                logger.warning(f"[SCROLL_EXPORT] Total count is approximate (>= {total_count})")
+        else:
+            total_count = int(total_info)
+        
+        logger.info(f"[SCROLL_EXPORT] Total documents to export: {total_count}")
+        
+        # Get scroll_id for subsequent requests
+        scroll_id = response['_scroll_id']
+        
+        # Collect results from first batch
+        hits = response['hits']['hits']
+        all_results.extend(hits)
+        
+        batch_num = 1
+        logger.info(f"[SCROLL_EXPORT] Batch {batch_num}: Retrieved {len(hits)} results (total: {len(all_results)})")
+        
+        # Continue scrolling until no more results
+        while len(hits) > 0:
+            # Check max_results limit if specified
+            if max_results and len(all_results) >= max_results:
+                logger.info(f"[SCROLL_EXPORT] Reached max_results limit: {max_results}")
+                all_results = all_results[:max_results]
+                break
+            
+            # Scroll to next batch
+            response = opensearch_client.scroll(
+                scroll_id=scroll_id,
+                scroll=scroll_timeout
+            )
+            
+            scroll_id = response['_scroll_id']
+            hits = response['hits']['hits']
+            
+            if len(hits) > 0:
+                all_results.extend(hits)
+                batch_num += 1
+                logger.info(f"[SCROLL_EXPORT] Batch {batch_num}: Retrieved {len(hits)} results (total: {len(all_results)})")
+        
+        logger.info(f"[SCROLL_EXPORT] Export complete: {len(all_results)} total results in {batch_num} batches")
+        
+        return all_results, total_count
+        
+    except Exception as e:
+        logger.error(f"[SCROLL_EXPORT] Error during scroll export: {e}")
+        raise
+        
+    finally:
+        # Always clear scroll context to free resources
+        if scroll_id:
+            try:
+                opensearch_client.clear_scroll(scroll_id=scroll_id)
+                logger.info(f"[SCROLL_EXPORT] Cleared scroll context")
+            except Exception as e:
+                logger.warning(f"[SCROLL_EXPORT] Failed to clear scroll context: {e}")
+
+
 def extract_event_fields(event_source: Dict[str, Any]) -> Dict[str, Any]:
     """
     Extract and normalize key fields from event for display
