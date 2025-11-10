@@ -635,7 +635,7 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                             custom_date_end: Optional[datetime] = None,
                             latest_event_timestamp: Optional[datetime] = None) -> Dict:
     """
-    Query OpenSearch for VPN authentications (Event ID 4624 with specific firewall IP)
+    Query OpenSearch for VPN authentications (Event ID 4624 or 6272 with specific firewall IP)
     Returns ALL events (NO deduplication) - every authentication attempt
     
     Args:
@@ -677,19 +677,24 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                 }
             }
         
-        # Build OpenSearch query for Event ID 4624 with firewall IP filter
-        event_id = '4624'
-        event_id_int = 4624
+        # Build OpenSearch query for Event ID 4624 or 6272 with firewall IP filter
         must_conditions = [
-            # Event ID 4624
+            # Event ID 4624 (Windows successful logon) OR 6272 (NPS granted access)
             {
                 "bool": {
                     "should": [
-                        {"term": {"normalized_event_id": event_id}},
-                        {"term": {"System.EventID": event_id_int}},
-                        {"term": {"System.EventID.#text": event_id}},
-                        {"term": {"Event.System.EventID": event_id_int}},
-                        {"term": {"Event.System.EventID.#text": event_id}}
+                        # Event ID 4624
+                        {"term": {"normalized_event_id": "4624"}},
+                        {"term": {"System.EventID": 4624}},
+                        {"term": {"System.EventID.#text": "4624"}},
+                        {"term": {"Event.System.EventID": 4624}},
+                        {"term": {"Event.System.EventID.#text": "4624"}},
+                        # Event ID 6272
+                        {"term": {"normalized_event_id": "6272"}},
+                        {"term": {"System.EventID": 6272}},
+                        {"term": {"System.EventID.#text": "6272"}},
+                        {"term": {"Event.System.EventID": 6272}},
+                        {"term": {"Event.System.EventID.#text": "6272"}}
                     ],
                     "minimum_should_match": 1
                 }
@@ -817,7 +822,7 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                             custom_date_end: Optional[datetime] = None,
                             latest_event_timestamp: Optional[datetime] = None) -> Dict:
     """
-    Query OpenSearch for failed VPN attempts (Event ID 4625 with specific firewall IP)
+    Query OpenSearch for failed VPN attempts (Event ID 4625 or 6273 with specific firewall IP)
     Returns ALL events (NO deduplication) - every failed authentication attempt
     
     Args:
@@ -859,19 +864,24 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                 }
             }
         
-        # Build OpenSearch query for Event ID 4625 with firewall IP filter
-        event_id = '4625'
-        event_id_int = 4625
+        # Build OpenSearch query for Event ID 4625 or 6273 with firewall IP filter
         must_conditions = [
-            # Event ID 4625 (failed logon)
+            # Event ID 4625 (Windows failed logon) OR 6273 (NPS denied access)
             {
                 "bool": {
                     "should": [
-                        {"term": {"normalized_event_id": event_id}},
-                        {"term": {"System.EventID": event_id_int}},
-                        {"term": {"System.EventID.#text": event_id}},
-                        {"term": {"Event.System.EventID": event_id_int}},
-                        {"term": {"Event.System.EventID.#text": event_id}}
+                        # Event ID 4625
+                        {"term": {"normalized_event_id": "4625"}},
+                        {"term": {"System.EventID": 4625}},
+                        {"term": {"System.EventID.#text": "4625"}},
+                        {"term": {"Event.System.EventID": 4625}},
+                        {"term": {"Event.System.EventID.#text": "4625"}},
+                        # Event ID 6273
+                        {"term": {"normalized_event_id": "6273"}},
+                        {"term": {"System.EventID": 6273}},
+                        {"term": {"System.EventID.#text": "6273"}},
+                        {"term": {"Event.System.EventID": 6273}},
+                        {"term": {"Event.System.EventID.#text": "6273"}}
                     ],
                     "minimum_should_match": 1
                 }
