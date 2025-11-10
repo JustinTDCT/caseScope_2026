@@ -699,13 +699,17 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                     "minimum_should_match": 1
                 }
             },
-            # IP Address matches firewall
+            # IP Address matches firewall (4624/4625 use IpAddress, 6272/6273 use ClientIPAddress)
             {
                 "bool": {
                     "should": [
+                        # Windows Event 4624 IP field
                         {"term": {"Event.EventData.IpAddress.keyword": firewall_ip}},
                         {"term": {"EventData.IpAddress.keyword": firewall_ip}},
-                        {"term": {"IpAddress.keyword": firewall_ip}}
+                        {"term": {"IpAddress.keyword": firewall_ip}},
+                        # NPS Event 6272 IP field
+                        {"term": {"Event.EventData.ClientIPAddress.keyword": firewall_ip}},
+                        {"term": {"EventData.ClientIPAddress.keyword": firewall_ip}}
                     ],
                     "minimum_should_match": 1
                 }
@@ -723,9 +727,11 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                 "Event.EventData.TargetUserName",
                 "Event.EventData.WorkstationName",
                 "Event.EventData.IpAddress",
+                "Event.EventData.ClientIPAddress",
                 "EventData.TargetUserName",
                 "EventData.WorkstationName",
-                "EventData.IpAddress"
+                "EventData.IpAddress",
+                "EventData.ClientIPAddress"
             ],
             "query": {
                 "bool": {
@@ -735,7 +741,7 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
             "sort": [{"normalized_timestamp": {"order": "desc"}}]
         }
         
-        logger.info(f"[VPN_AUTHS] Searching for Event ID 4624 with IP {firewall_ip} in case {case_id}")
+        logger.info(f"[VPN_AUTHS] Searching for Event ID 4624 or 6272 with IP {firewall_ip} in case {case_id}")
         result = opensearch_client.search(index=index_pattern, body=query)
         
         total_events = result['hits']['total']['value']
@@ -886,13 +892,17 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                     "minimum_should_match": 1
                 }
             },
-            # IP Address matches firewall
+            # IP Address matches firewall (4624/4625 use IpAddress, 6272/6273 use ClientIPAddress)
             {
                 "bool": {
                     "should": [
+                        # Windows Event 4625 IP field
                         {"term": {"Event.EventData.IpAddress.keyword": firewall_ip}},
                         {"term": {"EventData.IpAddress.keyword": firewall_ip}},
-                        {"term": {"IpAddress.keyword": firewall_ip}}
+                        {"term": {"IpAddress.keyword": firewall_ip}},
+                        # NPS Event 6273 IP field
+                        {"term": {"Event.EventData.ClientIPAddress.keyword": firewall_ip}},
+                        {"term": {"EventData.ClientIPAddress.keyword": firewall_ip}}
                     ],
                     "minimum_should_match": 1
                 }
@@ -910,9 +920,11 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                 "Event.EventData.TargetUserName",
                 "Event.EventData.WorkstationName",
                 "Event.EventData.IpAddress",
+                "Event.EventData.ClientIPAddress",
                 "EventData.TargetUserName",
                 "EventData.WorkstationName",
-                "EventData.IpAddress"
+                "EventData.IpAddress",
+                "EventData.ClientIPAddress"
             ],
             "query": {
                 "bool": {
@@ -922,7 +934,7 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
             "sort": [{"normalized_timestamp": {"order": "desc"}}]
         }
         
-        logger.info(f"[FAILED_VPN] Searching for Event ID 4625 with IP {firewall_ip} in case {case_id}")
+        logger.info(f"[FAILED_VPN] Searching for Event ID 4625 or 6273 with IP {firewall_ip} in case {case_id}")
         result = opensearch_client.search(index=index_pattern, body=query)
         
         total_events = result['hits']['total']['value']

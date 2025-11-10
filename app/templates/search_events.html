@@ -652,7 +652,7 @@
 <div id="vpnAuthsModal" class="modal-overlay" style="display: none;">
     <div class="modal-container" style="max-width: 1200px;">
         <div class="modal-header">
-            <h2 class="modal-title">🔒 VPN Authentications (Event ID 4624)</h2>
+            <h2 class="modal-title">🔒 VPN Authentications (Event ID 4624, 6272)</h2>
             <button onclick="closeVPNAuthsModal()" class="modal-close">✕</button>
         </div>
         <div class="modal-body" id="vpnAuthsBody" style="max-height: 80vh; overflow-y: auto;">
@@ -681,7 +681,7 @@
 <div id="failedVPNModal" class="modal-overlay" style="display: none;">
     <div class="modal-container" style="max-width: 1200px;">
         <div class="modal-header">
-            <h2 class="modal-title">🚫 Failed VPN Attempts (Event ID 4625)</h2>
+            <h2 class="modal-title">🚫 Failed VPN Attempts (Event ID 4625, 6273)</h2>
             <button onclick="closeFailedVPNModal()" class="modal-close">✕</button>
         </div>
         <div class="modal-body" id="failedVPNBody" style="max-height: 80vh; overflow-y: auto;">
@@ -2506,7 +2506,7 @@ function fetchVPNAuths(firewallIp, firewallName) {
                     <div style="text-align: center; padding: var(--spacing-2xl);">
                         <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">🔍</div>
                         <h3>No VPN authentications found</h3>
-                        <p class="text-muted">No Event ID 4624 with IpAddress=${escapeHtml(firewallIp)} were found in the selected date range.</p>
+                        <p class="text-muted">No Event ID 4624 or 6272 with IpAddress=${escapeHtml(firewallIp)} were found in the selected date range.</p>
                         <p class="text-muted" style="margin-top: var(--spacing-md);">Firewall: ${escapeHtml(firewallName)} (${escapeHtml(firewallIp)})</p>
                     </div>
                 `;
@@ -2614,7 +2614,7 @@ function bulkAddVPNAuth() {
         body: JSON.stringify({
             usernames: usernames,
             threat_level: 'medium',
-            source: 'VPN Authentications (Event ID 4624)'
+            source: 'VPN Authentications (Event ID 4624, 6272)'
         })
     })
     .then(response => response.json())
@@ -2781,7 +2781,7 @@ function fetchFailedVPNAttempts(firewallIp, firewallName) {
                     <div style="text-align: center; padding: var(--spacing-2xl);">
                         <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">✅</div>
                         <h3>No failed VPN attempts found</h3>
-                        <p class="text-muted">No Event ID 4625 with IpAddress=${escapeHtml(firewallIp)} were found in the selected date range.</p>
+                        <p class="text-muted">No Event ID 4625 or 6273 with IpAddress=${escapeHtml(firewallIp)} were found in the selected date range.</p>
                         <p class="text-muted" style="margin-top: var(--spacing-md);">Firewall: ${escapeHtml(firewallName)} (${escapeHtml(firewallIp)})</p>
                     </div>
                 `;
@@ -2889,7 +2889,7 @@ function bulkAddFailedVPN() {
         body: JSON.stringify({
             usernames: usernames,
             threat_level: 'high',
-            source: 'Failed VPN Attempts (Event ID 4625)'
+            source: 'Failed VPN Attempts (Event ID 4625, 6273)'
         })
     })
     .then(response => response.json())
