@@ -1,8 +1,163 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.11.21  
-**Last Updated**: 2025-11-09 12:08 UTC  
+**Version**: 1.12.0  
+**Last Updated**: 2025-11-10 19:15 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.12.0 - NEW FEATURE: Known Users Management (2025-11-10 19:15 UTC)
+
+**Change**: Complete database-driven system for tracking legitimate users in the environment (not CaseScope application users), enabling account compromise identification and event validation.
+
+### 1. Problem Statement
+
+**Business Need**:
+- DFIR investigations require knowing which accounts are legitimate vs. suspicious
+- Need to track which accounts are already compromised
+- Analysts need quick reference during event analysis to validate usernames
+- Bulk import needed for environments with many existing users (domain/local accounts)
+
+**User Impact Without This Feature**:
+- No centralized list of known good/bad accounts
+- Cannot quickly identify if a username in events is legitimate or suspicious
+- No tracking of compromised accounts for ongoing investigations
+- Manual documentation scattered across notes/spreadsheets
+
+### 2. Solution Implemented
+
+**A. Database-Driven User Management**:
+- **New Table**: `known_user` table for persistent user tracking
+- **Independent of CaseScope Users**: These are environment accounts (domain/local), not app users
+- **Fields**:
+  - `username` (unique, indexed for fast lookup)
+  - `user_type` ('domain', 'local', or '-' for unknown)
+  - `compromised` (boolean flag)
+  - `added_method` ('manual' or 'csv')
+  - `added_by` (CaseScope user who added it)
+  - `created_at` (timestamp)
+
+**B. Full CRUD Operations**:
+- **List**: Paginated, searchable table (50 users per page)
+- **Add**: Manual entry via modal (username, type, compromised flag)
+- **Edit**: Update type and compromised status
+- **Delete**: Admin-only, soft delete with confirmation
+- **CSV Upload**: Bulk import with BOM handling and case-insensitive parsing
+- **CSV Export**: Download entire list for backup/sharing
+
+**C. Statistics Dashboard**:
+- **Total Users**: Count of all known users
+- **Domain Users**: Count of domain accounts
+- **Local Users**: Count of local accounts
+- **Compromised Users**: Count of flagged accounts
+
+**D. CSV Import Features**:
+- **Case-Insensitive Headers**: Accepts "Username" or "username", "Type" or "type"
+- **BOM Handling**: Automatically strips UTF-8 BOM characters (Windows Excel compatibility)
+- **Duplicate Detection**: Skips existing usernames, reports count
+- **Validation**: Type must be domain/local (defaults to "-"), compromised is true/false
+- **Error Reporting**: Shows row-level errors with detailed messages
+
+### 3. Technical Details
+
+**A. Database Schema** (`models.py`):
+```python
+class KnownUser(db.Model):
+    __tablename__ = 'known_user'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    user_type = db.Column(db.String(20), nullable=False, default='-')  # 'domain', 'local', or '-'
+    compromised = db.Column(db.Boolean, default=False, nullable=False)
+    
+    # Tracking metadata
+    added_method = db.Column(db.String(20), nullable=False)  # 'manual' or 'csv'
+    added_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    creator = db.relationship('User', foreign_keys=[added_by], backref='known_users_added')
+```
+
+**B. Routes Blueprint** (`routes/known_users.py`):
+- **`GET /known_users`**: List page with stats, table, search, pagination
+- **`POST /known_users/add`**: Add single user manually
+- **`POST /known_users/<id>/update`**: Update user details
+- **`POST /known_users/<id>/delete`**: Delete user (admin only)
+- **`POST /known_users/upload_csv`**: Bulk import from CSV
+- **`GET /known_users/export_csv`**: Download all users as CSV
+
+**C. CSV Parsing Logic** (`routes/known_users.py:upload_csv`):
+```python
+# Build case-insensitive header mapping
+header_map = {h.lower().strip(): h for h in csv_reader.fieldnames}
+
+# Validate required headers
+if 'username' not in header_map:
+    return error with actual columns found
+
+# Extract data using mapping
+username_col = header_map.get('username')
+username = row.get(username_col, '').strip()
+```
+
+**D. UI Template** (`templates/known_users.html`):
+- **Stats Grid**: 4 tiles showing user counts
+- **Search Bar**: Real-time search by username
+- **Table**: Username | Type | Add Method | Added By | Compromised | Date
+- **Modals**: Add User, Edit User, Upload CSV (with format guide)
+- **Pagination**: Links to navigate pages
+- **Export Button**: Download CSV
+
+**E. Navigation Integration** (`templates/base.html`):
+- Added "Known Users" link in sidebar (item 6C)
+- Positioned between "Systems Management" and "Search Events"
+- Global feature (not case-specific)
+
+### 4. User Workflows
+
+**A. Initial Setup (Bulk Import)**:
+1. Prepare CSV: `Username,Type,Compromised`
+2. Click "Upload CSV" button
+3. Select CSV file (handles BOM, case variations)
+4. Review import results (added/skipped counts)
+5. View populated table with stats
+
+**B. Manual User Addition**:
+1. Click "Add User" button
+2. Enter username (e.g., "jdoe" or "DOMAIN\jdoe")
+3. Select type (domain/local/unknown)
+4. Check "Compromised" if needed
+5. Submit to add to database
+
+**C. During Investigation**:
+1. Navigate to "Known Users" from sidebar
+2. Search for username seen in events
+3. Check if compromised flag is set
+4. Edit to mark as compromised if needed
+5. Export updated list for reporting
+
+### 5. Files Modified
+
+**New Files**:
+- `app/models.py` → Added `KnownUser` model
+- `app/routes/known_users.py` → Full CRUD routes
+- `app/templates/known_users.html` → UI with stats, table, modals
+- `app/add_known_users_table.py` → Database migration script
+
+**Modified Files**:
+- `app/main.py` → Registered `known_users_bp` blueprint
+- `app/templates/base.html` → Added sidebar navigation link
+
+### 6. Benefits
+
+✅ **Centralized User Tracking**: Single source of truth for environment accounts  
+✅ **Quick Validation**: Search during event analysis to verify legitimacy  
+✅ **Compromise Tracking**: Flag and track compromised accounts  
+✅ **Bulk Import**: CSV upload for large user lists  
+✅ **Audit Trail**: Tracks who added each user and when  
+✅ **Export Capability**: Download for reporting or backup  
+✅ **Independent System**: Separate from CaseScope user management  
 
 ---
 

@@ -81,6 +81,13 @@
                     <span>Systems Management</span>
                 </a>
                 
+                <!-- 6C. Known Users - Global (not case-specific) -->
+                <a href="{{ url_for('known_users.list_known_users') }}" 
+                   class="sidebar-nav-item {% if request.endpoint and request.endpoint.startswith('known_users.') %}active{% endif %}">
+                    <span class="sidebar-nav-icon">👥</span>
+                    <span>Known Users</span>
+                </a>
+                
                 <!-- 7. Search Events - if no case active goes to Case Selection -->
                 <a href="{% if current_case %}{{ url_for('search_events', case_id=current_case.id) }}{% else %}{{ url_for('case_selection') }}{% endif %}" 
                    class="sidebar-nav-item {% if request.endpoint == 'search_events' %}active{% endif %}">

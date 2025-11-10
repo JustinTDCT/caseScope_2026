@@ -201,14 +201,19 @@ def upload_csv():
         return jsonify({'success': False, 'error': 'File must be a CSV'}), 400
     
     try:
-        # Read CSV file
-        stream = io.StringIO(file.stream.read().decode("UTF-8"), newline=None)
+        # Read CSV file (utf-8-sig handles BOM characters)
+        stream = io.StringIO(file.stream.read().decode("utf-8-sig"), newline=None)
         csv_reader = csv.DictReader(stream)
         
-        # Validate headers (case-insensitive)
-        headers = [h.lower().strip() for h in csv_reader.fieldnames]
-        if 'username' not in headers:
-            return jsonify({'success': False, 'error': 'CSV must have "Username" column'}), 400
+        # Build case-insensitive header mapping
+        if not csv_reader.fieldnames:
+            return jsonify({'success': False, 'error': 'CSV file is empty or invalid'}), 400
+        
+        header_map = {h.lower().strip(): h for h in csv_reader.fieldnames}
+        
+        # Validate required headers
+        if 'username' not in header_map:
+            return jsonify({'success': False, 'error': f'CSV must have "Username" column. Found columns: {", ".join(csv_reader.fieldnames)}'}), 400
         
         added_count = 0
         skipped_count = 0
@@ -216,10 +221,14 @@ def upload_csv():
         
         for row_num, row in enumerate(csv_reader, start=2):  # start=2 because row 1 is headers
             try:
-                # Extract data (case-insensitive)
-                username = row.get('Username', row.get('username', '')).strip()
-                user_type = row.get('Type', row.get('type', '-')).strip().lower()
-                compromised_str = row.get('Compromised', row.get('compromised', 'false')).strip().lower()
+                # Extract data using case-insensitive mapping
+                username_col = header_map.get('username')
+                type_col = header_map.get('type')
+                compromised_col = header_map.get('compromised')
+                
+                username = row.get(username_col, '').strip() if username_col else ''
+                user_type = row.get(type_col, '-').strip().lower() if type_col else '-'
+                compromised_str = row.get(compromised_col, 'false').strip().lower() if compromised_col else 'false'
                 
                 if not username:
                     skipped_count += 1

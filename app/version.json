@@ -1,9 +1,10 @@
 {
-  "version": "1.11.19",
-  "release_date": "2025-11-07",
+  "version": "1.12.0",
+  "release_date": "2025-11-10",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "🎉 NEW FEATURE: Known Users Management - Track legitimate users in the environment (not CaseScope app users). Database-driven system with full CRUD: Add manually or bulk upload via CSV (Username,Type,Compromised). Type: domain/local/-. Features: Paginated searchable table (50/page), stats dashboard (Total/Domain/Local/Compromised), CSV export, BOM/case-insensitive parsing, duplicate detection, admin-only delete. Perfect for identifying account compromises, validating event usernames, and tracking incident scope. Independent from CaseScope user management (v1.12.0)",
     "🔒 CRITICAL: AI Resource Locking & Auto-Deployment - Prevents concurrent AI operations (reports + training), shows who/what/when in error messages, automatic settings update after training (v1.11.19)",
     "🐛 BUG FIX: AI Report Review Modal - Fixed side-by-side layout and text visibility (added flex-direction: row, min-width/min-height, hardcoded text color #1a1a1a) (v1.11.18)",
     "🧹 CLEANUP: Settings Page Model List - Removed old model references (Phi-3, DeepSeek-R1, etc.), updated defaults to Llama 3.1 8B, now displays only 4 DFIR-optimized models (v1.11.17)",
