@@ -572,12 +572,12 @@
 
 <!-- Logins OK Modal -->
 <div id="loginsOKModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 900px;">
+    <div class="modal-container" style="max-width: 1200px;">
         <div class="modal-header">
             <h2 class="modal-title">🔐 Successful Logins (Event ID 4624)</h2>
             <button onclick="closeLoginsOKModal()" class="modal-close">✕</button>
         </div>
-        <div class="modal-body" id="loginsOKBody" style="max-height: 70vh; overflow-y: auto;">
+        <div class="modal-body" id="loginsOKBody" style="max-height: 80vh; overflow-y: auto;">
             <div style="text-align: center; padding: var(--spacing-xl);">
                 <div class="spinner"></div>
                 <p class="text-muted">Loading login data...</p>
@@ -588,12 +588,12 @@
 
 <!-- Failed Logins Modal -->
 <div id="loginsFailedModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 900px;">
+    <div class="modal-container" style="max-width: 1200px;">
         <div class="modal-header">
             <h2 class="modal-title">🚫 Failed Logins (Event ID 4625)</h2>
             <button onclick="closeLoginsFailedModal()" class="modal-close">✕</button>
         </div>
-        <div class="modal-body" id="loginsFailedBody" style="max-height: 70vh; overflow-y: auto;">
+        <div class="modal-body" id="loginsFailedBody" style="max-height: 80vh; overflow-y: auto;">
             <div style="text-align: center; padding: var(--spacing-xl);">
                 <div class="spinner"></div>
                 <p class="text-muted">Loading failed login data...</p>
@@ -604,12 +604,12 @@
 
 <!-- RDP Connections Modal -->
 <div id="rdpConnectionsModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 900px;">
+    <div class="modal-container" style="max-width: 1200px;">
         <div class="modal-header">
             <h2 class="modal-title">🖥️ RDP Connections (Event ID 1149)</h2>
             <button onclick="closeRDPConnectionsModal()" class="modal-close">✕</button>
         </div>
-        <div class="modal-body" id="rdpConnectionsBody" style="max-height: 70vh; overflow-y: auto;">
+        <div class="modal-body" id="rdpConnectionsBody" style="max-height: 80vh; overflow-y: auto;">
             <div style="text-align: center; padding: var(--spacing-xl);">
                 <div class="spinner"></div>
                 <p class="text-muted">Loading RDP connection data...</p>
@@ -620,12 +620,12 @@
 
 <!-- Console Logins Modal -->
 <div id="consoleLoginsModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 900px;">
+    <div class="modal-container" style="max-width: 1200px;">
         <div class="modal-header">
             <h2 class="modal-title">💻 Console Logins (Event ID 4624, LogonType 2)</h2>
             <button onclick="closeConsoleLoginsModal()" class="modal-close">✕</button>
         </div>
-        <div class="modal-body" id="consoleLoginsBody" style="max-height: 70vh; overflow-y: auto;">
+        <div class="modal-body" id="consoleLoginsBody" style="max-height: 80vh; overflow-y: auto;">
             <div style="text-align: center; padding: var(--spacing-xl);">
                 <div class="spinner"></div>
                 <p class="text-muted">Loading console login data...</p>
@@ -636,12 +636,12 @@
 
 <!-- VPN Authentications Modal -->
 <div id="vpnAuthsModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 1000px;">
+    <div class="modal-container" style="max-width: 1200px;">
         <div class="modal-header">
             <h2 class="modal-title">🔒 VPN Authentications (Event ID 4624)</h2>
             <button onclick="closeVPNAuthsModal()" class="modal-close">✕</button>
         </div>
-        <div class="modal-body" id="vpnAuthsBody" style="max-height: 70vh; overflow-y: auto;">
+        <div class="modal-body" id="vpnAuthsBody" style="max-height: 80vh; overflow-y: auto;">
             <div style="text-align: center; padding: var(--spacing-xl);">
                 <div class="spinner"></div>
                 <p class="text-muted">Loading VPN authentication data...</p>
@@ -665,12 +665,12 @@
 
 <!-- Failed VPN Attempts Modal -->
 <div id="failedVPNModal" class="modal-overlay" style="display: none;">
-    <div class="modal-container" style="max-width: 1000px;">
+    <div class="modal-container" style="max-width: 1200px;">
         <div class="modal-header">
             <h2 class="modal-title">🚫 Failed VPN Attempts (Event ID 4625)</h2>
             <button onclick="closeFailedVPNModal()" class="modal-close">✕</button>
         </div>
-        <div class="modal-body" id="failedVPNBody" style="max-height: 70vh; overflow-y: auto;">
+        <div class="modal-body" id="failedVPNBody" style="max-height: 80vh; overflow-y: auto;">
             <div style="text-align: center; padding: var(--spacing-xl);">
                 <div class="spinner"></div>
                 <p class="text-muted">Loading failed VPN attempt data...</p>
@@ -1415,6 +1415,40 @@ function escapeHtml(text) {
     return String(text).replace(/[&<>"']/g, m => map[m]);
 }
 
+// Generate Known User and IOC status badges
+function getKnownUserBadges(record) {
+    let badges = '';
+    
+    // IOC badge - show first if username is an IOC
+    if (record.is_ioc) {
+        const threatColor = {
+            'critical': '#8B0000',  // Dark red
+            'high': 'var(--color-error)',
+            'medium': '#FF8C00',  // Dark orange
+            'low': '#DAA520'  // Goldenrod
+        }[record.ioc_threat_level] || 'var(--color-error)';
+        
+        const threatLabel = record.ioc_threat_level ? record.ioc_threat_level.toUpperCase() : 'MEDIUM';
+        badges += ` <span style="display: inline-block; background: ${threatColor}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px;">📌 IOC (${threatLabel})</span>`;
+    }
+    
+    // Compromised user - highest priority for Known Users
+    if (record.is_compromised) {
+        badges += ' <span style="display: inline-block; background: var(--color-error); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px;">🚨 COMPROMISED</span>';
+    }
+    // Unknown user - not in Known Users database
+    else if (!record.is_known_user) {
+        badges += ' <span style="display: inline-block; background: var(--color-warning); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px;">❓ UNKNOWN</span>';
+    }
+    // Known user with type indicator
+    else if (record.user_type) {
+        const typeLabel = record.user_type === 'domain' ? '🏢 Domain' : record.user_type === 'local' ? '💻 Local' : '✓ Known';
+        badges += ` <span style="display: inline-block; background: var(--color-success); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px;">${typeLabel}</span>`;
+    }
+    
+    return badges;
+}
+
 // Close modals on escape
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
@@ -1515,7 +1549,7 @@ function showLoginsOK() {
                 html += `
                     <tr>
                         <td>${index + 1}</td>
-                        <td><strong>${escapeHtml(login.username)}</strong></td>
+                        <td><strong>${escapeHtml(login.username)}</strong>${getKnownUserBadges(login)}</td>
                         <td>${escapeHtml(login.computer)}</td>
                         <td><span class="text-muted" style="font-size: 0.875rem;">${escapeHtml(login.logon_type_description || 'Unknown')}</span></td>
                         <td><span class="text-muted">${escapeHtml(login.first_seen)}</span></td>
@@ -1675,7 +1709,7 @@ function showLoginsFailed() {
                 html += `
                     <tr>
                         <td>${index + 1}</td>
-                        <td><strong style="color: var(--color-error);">${escapeHtml(login.username)}</strong></td>
+                        <td><strong style="color: var(--color-error);">${escapeHtml(login.username)}</strong>${getKnownUserBadges(login)}</td>
                         <td>${escapeHtml(login.computer)}</td>
                         <td><span class="text-muted">${escapeHtml(login.first_seen)}</span></td>
                         <td>
@@ -1833,7 +1867,7 @@ function showRDPConnections() {
                 html += `
                     <tr>
                         <td>${index + 1}</td>
-                        <td><strong style="color: var(--color-success);">${escapeHtml(login.username)}</strong></td>
+                        <td><strong style="color: var(--color-success);">${escapeHtml(login.username)}</strong>${getKnownUserBadges(login)}</td>
                         <td>${escapeHtml(login.computer)}</td>
                         <td><span class="text-muted">${escapeHtml(login.first_seen)}</span></td>
                         <td>
@@ -1991,7 +2025,7 @@ function showConsoleLogins() {
                 html += `
                     <tr>
                         <td>${index + 1}</td>
-                        <td><strong style="color: var(--color-warning);">${escapeHtml(login.username)}</strong></td>
+                        <td><strong style="color: var(--color-warning);">${escapeHtml(login.username)}</strong>${getKnownUserBadges(login)}</td>
                         <td>${escapeHtml(login.computer)}</td>
                         <td><span class="text-muted">${escapeHtml(login.first_seen)}</span></td>
                         <td>
@@ -2236,7 +2270,7 @@ function fetchVPNAuths(firewallIp, firewallName) {
                         style="cursor: pointer;" 
                         title="Click to view full event details">
                         <td>${index + 1}</td>
-                        <td><strong>${escapeHtml(auth.username)}</strong></td>
+                        <td><strong>${escapeHtml(auth.username)}</strong>${getKnownUserBadges(auth)}</td>
                         <td>${escapeHtml(auth.workstation_name)}</td>
                         <td><span class="text-muted">${escapeHtml(auth.timestamp)}</span></td>
                     </tr>
@@ -2445,7 +2479,7 @@ function fetchFailedVPNAttempts(firewallIp, firewallName) {
                         style="cursor: pointer;" 
                         title="Click to view full event details">
                         <td>${index + 1}</td>
-                        <td><strong style="color: var(--color-error);">${escapeHtml(attempt.username)}</strong></td>
+                        <td><strong style="color: var(--color-error);">${escapeHtml(attempt.username)}</strong>${getKnownUserBadges(attempt)}</td>
                         <td>${escapeHtml(attempt.workstation_name)}</td>
                         <td><span class="text-muted">${escapeHtml(attempt.timestamp)}</span></td>
                     </tr>

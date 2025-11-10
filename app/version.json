@@ -1,9 +1,10 @@
 {
-  "version": "1.12.0",
+  "version": "1.12.1",
   "release_date": "2025-11-10",
   "name": "CaseScope 2026",
   "build": "stable",
   "features": [
+    "🔗 INTEGRATION: Known User Cross-Reference in Login Analysis - All 6 login analysis features (Show Logins OK, Failed Logins, RDP, Console, VPN Auth, Failed VPN) now cross-check usernames against Known Users database. Visual badges: 🚨 COMPROMISED (red), ❓ UNKNOWN (orange), 🏢 Domain/💻 Local/✓ Known (green). Modular backend (known_user_utils.py) enriches records with is_known_user/is_compromised/user_type flags. Analysts instantly identify suspicious accounts without manual cross-checking. Perfect for threat hunting, incident response, and account compromise detection (v1.12.1)",
     "🎉 NEW FEATURE: Known Users Management - Track legitimate users in the environment (not CaseScope app users). Database-driven system with full CRUD: Add manually or bulk upload via CSV (Username,Type,Compromised). Type: domain/local/-. Features: Paginated searchable table (50/page), stats dashboard (Total/Domain/Local/Compromised), CSV export, BOM/case-insensitive parsing, duplicate detection, admin-only delete. Perfect for identifying account compromises, validating event usernames, and tracking incident scope. Independent from CaseScope user management (v1.12.0)",
     "🔒 CRITICAL: AI Resource Locking & Auto-Deployment - Prevents concurrent AI operations (reports + training), shows who/what/when in error messages, automatic settings update after training (v1.11.19)",
     "🐛 BUG FIX: AI Report Review Modal - Fixed side-by-side layout and text visibility (added flex-direction: row, min-width/min-height, hardcoded text color #1a1a1a) (v1.11.18)",

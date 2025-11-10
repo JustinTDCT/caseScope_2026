@@ -172,11 +172,15 @@ def get_logins_by_event_id(opensearch_client, case_id: int, event_id: str,
         
         logger.info(f"[LOGIN_ANALYSIS] Found {len(distinct_logins)} distinct username/computer combinations")
         
+        # Enrich with Known User and IOC data
+        from known_user_utils import enrich_login_records
+        enriched_logins = enrich_login_records(distinct_logins, case_id)
+        
         return {
             'success': True,
-            'logins': distinct_logins,
+            'logins': enriched_logins,
             'total_events': total_events,
-            'distinct_count': len(distinct_logins)
+            'distinct_count': len(enriched_logins)
         }
         
     except Exception as e:
@@ -355,11 +359,15 @@ def get_console_logins(opensearch_client, case_id: int, date_range: str = 'all',
         
         logger.info(f"[CONSOLE_LOGINS] Found {len(distinct_logins)} distinct console login username/computer combinations")
         
+        # Enrich with Known User and IOC data
+        from known_user_utils import enrich_login_records
+        enriched_logins = enrich_login_records(distinct_logins, case_id)
+        
         return {
             'success': True,
-            'logins': distinct_logins,
+            'logins': enriched_logins,
             'total_events': total_events,
-            'distinct_count': len(distinct_logins)
+            'distinct_count': len(enriched_logins)
         }
         
     except Exception as e:
@@ -496,11 +504,15 @@ def get_rdp_connections(opensearch_client, case_id: int, date_range: str = 'all'
         
         logger.info(f"[RDP_ANALYSIS] Found {len(distinct_connections)} distinct RDP username/computer combinations")
         
+        # Enrich with Known User and IOC data
+        from known_user_utils import enrich_login_records
+        enriched_connections = enrich_login_records(distinct_connections, case_id)
+        
         return {
             'success': True,
-            'logins': distinct_connections,
+            'logins': enriched_connections,
             'total_events': total_events,
-            'distinct_count': len(distinct_connections)
+            'distinct_count': len(enriched_connections)
         }
         
     except Exception as e:
@@ -763,9 +775,13 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
         
         logger.info(f"[VPN_AUTHS] Returning {len(authentications)} VPN authentication events")
         
+        # Enrich with Known User and IOC data
+        from known_user_utils import enrich_login_records
+        enriched_auths = enrich_login_records(authentications, case_id)
+        
         return {
             'success': True,
-            'authentications': authentications
+            'authentications': enriched_auths
         }
     
     except Exception as e:
@@ -941,9 +957,13 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
         
         logger.info(f"[FAILED_VPN] Returning {len(attempts)} failed VPN attempt events")
         
+        # Enrich with Known User and IOC data
+        from known_user_utils import enrich_login_records
+        enriched_attempts = enrich_login_records(attempts, case_id)
+        
         return {
             'success': True,
-            'attempts': attempts
+            'attempts': enriched_attempts
         }
     
     except Exception as e:
