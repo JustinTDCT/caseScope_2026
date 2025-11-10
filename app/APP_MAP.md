@@ -1,8 +1,418 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.1  
-**Last Updated**: 2025-11-10 19:32 UTC  
+**Version**: 1.12.3  
+**Last Updated**: 2025-11-10 20:48 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.12.3 - BUG FIX: Custom Columns in Search Events Now Display Data (2025-11-10 20:48 UTC)
+
+**Change**: Fixed critical bug where custom columns added via "Add Column" button in Event Details modal would appear empty with table columns shifting incorrectly.
+
+### 1. Problem Statement
+
+**User Report**:
+> "In the search results, when I click to view an event then click to have the column be added, you can see the column is added but nothing is populated and columns to the right shift left - there should be data and the columns should not shift."
+
+**Symptoms**:
+- User clicks field in Event Details modal and selects "➕ Add Column"
+- Page reloads with new column header in results table
+- New column cells are **completely empty** (no data)
+- Existing columns **shift left** incorrectly (table becomes malformed)
+- Example: Adding `Event.EventData.SubjectUserName` shows header but no usernames
+
+**Root Cause**:
+- Template (`search_events.html` lines 331-355) only handled **predefined columns**: `event_id`, `timestamp`, `description`, `computer_name`, `source_file`
+- Custom columns had `<th>` header added (line 301) but no corresponding `<td>` cell in tbody
+- Created **malformed HTML table** where header count ≠ cell count per row
+- Browser attempted to auto-correct by shifting columns left to match
+
+### 2. Solution Implemented
+
+**Backend Changes** (`app/main.py`):
+
+1. **Store Raw Source Data**:
+```python
+# Line 1471: Store raw _source in event dict
+fields['_source'] = result['_source']  # Store raw source for custom column access
+```
+
+2. **Helper Function for Nested Field Extraction**:
+```python
+# Lines 30-59: Extract nested field values using dot notation
+def get_nested_field(source_dict, field_path):
+    """
+    Extract a nested field value from a dictionary using dot notation
+    Example: get_nested_field(event, 'Event.EventData.SubjectUserName')
+    """
+    if not field_path or not source_dict:
+        return None
+    
+    keys = field_path.split('.')
+    value = source_dict
+    
+    for key in keys:
+        if isinstance(value, dict):
+            value = value.get(key)
+            if value is None:
+                return None
+        else:
+            return None
+    
+    # Handle dict values (like {'#text': 'value'})
+    if isinstance(value, dict):
+        if '#text' in value:
+            return value['#text']
+        elif 'text' in value:
+            return value['text']
+        # For other dicts, return string representation
+        return str(value)
+    
+    return value
+```
+
+3. **Register Jinja Filter**:
+```python
+# Line 63: Make helper accessible in templates
+app.jinja_env.filters['get_nested'] = get_nested_field
+```
+
+**Frontend Changes** (`app/templates/search_events.html`):
+
+4. **Add Custom Column Rendering** (lines 354-368):
+```jinja2
+{% else %}
+{# Custom column - extract from raw source #}
+<td>
+    {% set custom_value = event._source|get_nested(col) %}
+    {% if custom_value %}
+        {% if custom_value|length > 100 %}
+            <span title="{{ custom_value }}">{{ custom_value[:100] }}...</span>
+        {% else %}
+            {{ custom_value }}
+        {% endif %}
+    {% else %}
+        <span class="text-muted">—</span>
+    {% endif %}
+</td>
+{% endif %}
+```
+
+### 3. How It Works
+
+**Dot Notation Field Paths**:
+- `Event.EventData.SubjectUserName` → splits into `['Event', 'EventData', 'SubjectUserName']`
+- Function traverses nested dict structure step-by-step
+- Returns final value or `None` if path doesn't exist
+
+**Handles EVTX XML-to-JSON**:
+```python
+# Example EVTX field structure:
+{
+  "Event": {
+    "EventData": {
+      "SubjectUserName": {
+        "#text": "john.doe"
+      }
+    }
+  }
+}
+
+# get_nested_field() extracts "#text" value automatically
+```
+
+**Missing Values**:
+- If field doesn't exist → displays "—" (em dash)
+- If field is `null` or empty → displays "—"
+- Prevents table malformation by **always outputting `<td>`**
+
+**Long Values**:
+- Values > 100 chars truncated: `{{ custom_value[:100] }}...`
+- Full value available via hover tooltip: `<span title="{{ custom_value }}">`
+
+### 4. Examples of Custom Columns
+
+**Windows EVTX**:
+- `Event.EventData.SubjectUserName` → Username who initiated action
+- `Event.EventData.TargetUserName` → Target username of action
+- `Event.EventData.IpAddress` → Source IP address
+- `Event.EventData.WorkstationName` → Computer name
+- `Event.EventData.ProcessName` → Full path of executable
+- `System.Channel` → Event log channel (Security, System, etc.)
+
+**EDR Data**:
+- `process.name` → Process executable name
+- `process.command_line` → Full command line
+- `file.path` → File path
+- `network.destination.ip` → Destination IP
+
+**Custom JSON**:
+- Any nested field using dot notation
+- Supports unlimited nesting depth
+
+### 5. User Experience
+
+**Before** (Broken):
+1. Click "➕ Add Column" for `Event.EventData.SubjectUserName`
+2. Page reloads
+3. Table shows header "Event.EventData.SubjectUserName"
+4. All rows have **empty cell** for that column
+5. Other columns **shift left** incorrectly
+
+**After** (Fixed):
+1. Click "➕ Add Column" for `Event.EventData.SubjectUserName`
+2. Page reloads
+3. Table shows header "Event.EventData.SubjectUserName"
+4. All rows display **actual usernames** from events
+5. Columns **remain properly aligned**
+6. Missing values show "—" instead of empty cell
+
+### 6. Files Modified
+
+1. **`app/main.py`**:
+   - Lines 30-59: Added `get_nested_field()` helper function
+   - Line 63: Registered Jinja filter `get_nested`
+   - Line 1471: Store `_source` in event dict
+
+2. **`app/templates/search_events.html`**:
+   - Lines 354-368: Added `{% else %}` case for custom columns
+   - Uses `get_nested` filter to extract field values from raw source
+
+### 7. Technical Details
+
+**Why Raw Source is Required**:
+- `extract_event_fields()` in `search_utils.py` only extracts **predefined normalized fields**
+- Custom columns can be **any nested field path** chosen by user
+- Cannot predict all possible field paths in advance
+- Must access raw OpenSearch `_source` document
+
+**Table Rendering Logic**:
+```jinja2
+{% for col in columns %}
+    {% if col == 'event_id' %}
+        <!-- Predefined column -->
+    {% elif col == 'timestamp' %}
+        <!-- Predefined column -->
+    {% else %}
+        <!-- Custom column - NEW! -->
+        {% set custom_value = event._source|get_nested(col) %}
+    {% endif %}
+{% endfor %}
+```
+
+**Key Principle**:
+- **ALWAYS output `<td>` for every column in header**
+- Never skip a cell, even if value is missing
+- Prevents table malformation and column shifting
+
+### 8. Testing
+
+**Test Case 1**: Add `Event.EventData.SubjectUserName`
+- ✅ Header displays
+- ✅ Usernames populate in all rows
+- ✅ Missing values show "—"
+- ✅ No column shifting
+
+**Test Case 2**: Add deeply nested field `Event.EventData.Data.@attributes.Name`
+- ✅ Handles multiple nesting levels
+- ✅ Extracts value if exists
+- ✅ Shows "—" if path invalid
+
+**Test Case 3**: Add field with long values
+- ✅ Truncates to 100 chars
+- ✅ Hover shows full value
+- ✅ Doesn't break table layout
+
+### 9. Version Tracking
+
+- **v1.10.32**: Original "Add Column" feature implemented
+- **v1.12.3**: Fixed custom column data population and table alignment
+
+---
+
+## 🔗 v1.12.2 - FEATURE: Bulk IOC Creation from Login Analysis (2025-11-10 20:35 UTC)
+
+**Change**: All 6 login analysis modals now support bulk IOC creation via checkboxes and bulk action button.
+
+### 1. Features
+
+**Selection Mechanism**:
+- Checkbox column added to all 6 login analysis modal tables
+- "Select All" checkbox in table header for quick selection
+- Individual checkbox per username row
+
+**Bulk Action Button**:
+- Button displays at bottom of modal: "📌 Add Selected as IOCs (X)"
+- Real-time count updates as checkboxes are toggled
+- Button disabled when count = 0
+
+**Threat Level Assignment**:
+- **HIGH**: Failed Logins, Failed VPN Attempts (suspicious behavior)
+- **MEDIUM**: Successful Logins, RDP, Console, VPN Auth (default)
+
+**Duplicate Handling**:
+- Backend checks for existing username IOCs before creation
+- Summary displayed after submission: "✓ Added X IOC(s), ⚠ Skipped Y duplicate(s)"
+- Prevents duplicate IOC entries
+
+### 2. User Workflow
+
+1. Click any login analysis button (Show Logins OK, Failed Logins, etc.)
+2. Modal displays with checkbox column
+3. Select desired usernames via individual checkboxes or "Select All"
+4. Click "📌 Add Selected as IOCs (X)" button
+5. Confirm threat level in dialog
+6. View success summary with added/skipped counts
+7. Modal closes, IOCs immediately available in IOC management
+
+### 3. Implementation Details
+
+**Backend** (`app/main.py` lines 3757-3815):
+```python
+@app.route('/case/<int:case_id>/search/bulk_add_iocs', methods=['POST'])
+@login_required
+def bulk_add_iocs(case_id):
+    """Bulk add usernames as IOCs from login analysis"""
+    # Permission check: Read-only users cannot add IOCs
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot add IOCs'}), 403
+    
+    from models import IOC
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'error': 'Case not found'}), 404
+    
+    data = request.json
+    usernames = data.get('usernames', [])
+    threat_level = data.get('threat_level', 'medium')
+    source = data.get('source', 'Login Analysis')
+    
+    added_count = 0
+    skipped_count = 0
+    skipped_usernames = []
+    
+    for username in usernames:
+        username = str(username).strip()
+        if not username:
+            continue
+        
+        # Check if IOC already exists
+        existing = db.session.query(IOC).filter_by(
+            case_id=case_id,
+            ioc_value=username,
+            ioc_type='username'
+        ).first()
+        
+        if existing:
+            skipped_count += 1
+            skipped_usernames.append(username)
+            continue
+        
+        # Create IOC
+        ioc = IOC(
+            case_id=case_id,
+            ioc_value=username,
+            ioc_type='username',
+            threat_level=threat_level,
+            description=f'Bulk added from {source}',
+            created_by=current_user.id,
+            is_active=True
+        )
+        db.session.add(ioc)
+        added_count += 1
+    
+    db.session.commit()
+    
+    logger.info(f"[IOC_BULK] User {current_user.id} bulk added {added_count} IOCs, skipped {skipped_count} duplicates")
+    
+    return jsonify({
+        'success': True,
+        'added': added_count,
+        'skipped': skipped_count,
+        'skipped_usernames': skipped_usernames,
+        'total': len(usernames)
+    })
+```
+
+**Frontend** (`app/templates/search_events.html`):
+- 6 modal-specific JavaScript functions:
+  - `toggleSelectAllLoginsOK()`, `updateBulkButtonLoginsOK()`, `bulkAddLoginsOK()`
+  - `toggleSelectAllLoginsFailed()`, `updateBulkButtonLoginsFailed()`, `bulkAddLoginsFailed()`
+  - `toggleSelectAllRDP()`, `updateBulkButtonRDP()`, `bulkAddRDP()`
+  - `toggleSelectAllConsole()`, `updateBulkButtonConsole()`, `bulkAddConsole()`
+  - `toggleSelectAllVPN()`, `updateBulkButtonVPN()`, `bulkAddVPN()`
+  - `toggleSelectAllVPNFailed()`, `updateBulkButtonVPNFailed()`, `bulkAddVPNFailed()`
+
+**Example JavaScript** (Logins OK):
+```javascript
+function toggleSelectAllLoginsOK() {
+    const selectAll = document.getElementById('selectAllLoginsOK');
+    const checkboxes = document.querySelectorAll('.login-checkbox-ok');
+    checkboxes.forEach(cb => cb.checked = selectAll.checked);
+    updateBulkButtonLoginsOK();
+}
+
+function updateBulkButtonLoginsOK() {
+    const count = document.querySelectorAll('.login-checkbox-ok:checked').length;
+    const btn = document.getElementById('bulkAddBtnLoginsOK');
+    btn.disabled = count === 0;
+    btn.textContent = `📌 Add Selected as IOCs (${count})`;
+}
+
+function bulkAddLoginsOK() {
+    const checkboxes = document.querySelectorAll('.login-checkbox-ok:checked');
+    const usernames = Array.from(checkboxes).map(cb => cb.value);
+    
+    if (usernames.length === 0) {
+        alert('Please select at least one username');
+        return;
+    }
+    
+    if (!confirm(`Add ${usernames.length} username(s) as IOCs with MEDIUM threat level?`)) {
+        return;
+    }
+    
+    fetch(`/case/${CASE_ID}/search/bulk_add_iocs`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            usernames: usernames,
+            threat_level: 'medium',
+            source: 'Successful Logins (Event ID 4624)'
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = `✓ Added ${data.added} IOC(s)`;
+            if (data.skipped > 0) {
+                message += `\n⚠ Skipped ${data.skipped} duplicate(s)`;
+            }
+            alert(message);
+            closeLoginsOKModal();
+        } else {
+            alert('✗ ' + (data.error || 'Failed to add IOCs'));
+        }
+    })
+    .catch(err => {
+        alert('✗ Error: ' + err.message);
+    });
+}
+```
+
+### 4. Files Modified
+
+1. **`app/main.py`**: Added `/case/<int:case_id>/search/bulk_add_iocs` endpoint (lines 3757-3815)
+2. **`app/templates/search_events.html`**: 
+   - Added checkbox columns to all 6 modal tables
+   - Added bulk action buttons with real-time count
+   - Implemented 18 JavaScript functions (3 per modal)
+
+### 5. Version Tracking
+
+- **v1.12.2**: Bulk IOC creation from login analysis
 
 ---
 
