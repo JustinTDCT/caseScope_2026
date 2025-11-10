@@ -699,7 +699,7 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                     "minimum_should_match": 1
                 }
             },
-            # IP Address matches firewall (4624/4625 use IpAddress, 6272/6273 use ClientIPAddress)
+            # IP Address matches firewall (4624/4625 use IpAddress, 6272/6273 use ClientIPAddress or NASIPv4Address)
             {
                 "bool": {
                     "should": [
@@ -707,9 +707,11 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                         {"term": {"Event.EventData.IpAddress.keyword": firewall_ip}},
                         {"term": {"EventData.IpAddress.keyword": firewall_ip}},
                         {"term": {"IpAddress.keyword": firewall_ip}},
-                        # NPS Event 6272 IP field
+                        # NPS Event 6272 IP fields
                         {"term": {"Event.EventData.ClientIPAddress.keyword": firewall_ip}},
-                        {"term": {"EventData.ClientIPAddress.keyword": firewall_ip}}
+                        {"term": {"EventData.ClientIPAddress.keyword": firewall_ip}},
+                        {"term": {"Event.EventData.NASIPv4Address.keyword": firewall_ip}},
+                        {"term": {"EventData.NASIPv4Address.keyword": firewall_ip}}
                     ],
                     "minimum_should_match": 1
                 }
@@ -725,13 +727,19 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                 "normalized_timestamp",
                 "normalized_event_id",
                 "Event.EventData.TargetUserName",
+                "Event.EventData.SubjectUserName",
                 "Event.EventData.WorkstationName",
+                "Event.EventData.ClientName",
                 "Event.EventData.IpAddress",
                 "Event.EventData.ClientIPAddress",
+                "Event.EventData.NASIPv4Address",
                 "EventData.TargetUserName",
+                "EventData.SubjectUserName",
                 "EventData.WorkstationName",
+                "EventData.ClientName",
                 "EventData.IpAddress",
-                "EventData.ClientIPAddress"
+                "EventData.ClientIPAddress",
+                "EventData.NASIPv4Address"
             ],
             "query": {
                 "bool": {
@@ -753,19 +761,19 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
         for hit in result['hits']['hits']:
             source = hit['_source']
             
-            # Extract username from Event.EventData.TargetUserName
+            # Extract username (TargetUserName for 4624, SubjectUserName for 6272)
             username = None
-            if 'Event' in source and 'EventData' in source['Event'] and 'TargetUserName' in source['Event']['EventData']:
-                username = source['Event']['EventData']['TargetUserName']
-            elif 'EventData' in source and 'TargetUserName' in source['EventData']:
-                username = source['EventData']['TargetUserName']
+            if 'Event' in source and 'EventData' in source['Event']:
+                username = source['Event']['EventData'].get('TargetUserName') or source['Event']['EventData'].get('SubjectUserName')
+            elif 'EventData' in source:
+                username = source['EventData'].get('TargetUserName') or source['EventData'].get('SubjectUserName')
             
-            # Extract workstation name from Event.EventData.WorkstationName
+            # Extract workstation name (WorkstationName for 4624, ClientName for 6272)
             workstation_name = None
-            if 'Event' in source and 'EventData' in source['Event'] and 'WorkstationName' in source['Event']['EventData']:
-                workstation_name = source['Event']['EventData']['WorkstationName']
-            elif 'EventData' in source and 'WorkstationName' in source['EventData']:
-                workstation_name = source['EventData']['WorkstationName']
+            if 'Event' in source and 'EventData' in source['Event']:
+                workstation_name = source['Event']['EventData'].get('WorkstationName') or source['Event']['EventData'].get('ClientName')
+            elif 'EventData' in source:
+                workstation_name = source['EventData'].get('WorkstationName') or source['EventData'].get('ClientName')
             
             # Get timestamp
             timestamp = source.get('normalized_timestamp', 'N/A')
@@ -892,7 +900,7 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                     "minimum_should_match": 1
                 }
             },
-            # IP Address matches firewall (4624/4625 use IpAddress, 6272/6273 use ClientIPAddress)
+            # IP Address matches firewall (4624/4625 use IpAddress, 6272/6273 use ClientIPAddress or NASIPv4Address)
             {
                 "bool": {
                     "should": [
@@ -900,9 +908,11 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                         {"term": {"Event.EventData.IpAddress.keyword": firewall_ip}},
                         {"term": {"EventData.IpAddress.keyword": firewall_ip}},
                         {"term": {"IpAddress.keyword": firewall_ip}},
-                        # NPS Event 6273 IP field
+                        # NPS Event 6273 IP fields
                         {"term": {"Event.EventData.ClientIPAddress.keyword": firewall_ip}},
-                        {"term": {"EventData.ClientIPAddress.keyword": firewall_ip}}
+                        {"term": {"EventData.ClientIPAddress.keyword": firewall_ip}},
+                        {"term": {"Event.EventData.NASIPv4Address.keyword": firewall_ip}},
+                        {"term": {"EventData.NASIPv4Address.keyword": firewall_ip}}
                     ],
                     "minimum_should_match": 1
                 }
@@ -918,13 +928,19 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                 "normalized_timestamp",
                 "normalized_event_id",
                 "Event.EventData.TargetUserName",
+                "Event.EventData.SubjectUserName",
                 "Event.EventData.WorkstationName",
+                "Event.EventData.ClientName",
                 "Event.EventData.IpAddress",
                 "Event.EventData.ClientIPAddress",
+                "Event.EventData.NASIPv4Address",
                 "EventData.TargetUserName",
+                "EventData.SubjectUserName",
                 "EventData.WorkstationName",
+                "EventData.ClientName",
                 "EventData.IpAddress",
-                "EventData.ClientIPAddress"
+                "EventData.ClientIPAddress",
+                "EventData.NASIPv4Address"
             ],
             "query": {
                 "bool": {
@@ -946,19 +962,19 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
         for hit in result['hits']['hits']:
             source = hit['_source']
             
-            # Extract username from Event.EventData.TargetUserName
+            # Extract username (TargetUserName for 4625, SubjectUserName for 6273)
             username = None
-            if 'Event' in source and 'EventData' in source['Event'] and 'TargetUserName' in source['Event']['EventData']:
-                username = source['Event']['EventData']['TargetUserName']
-            elif 'EventData' in source and 'TargetUserName' in source['EventData']:
-                username = source['EventData']['TargetUserName']
+            if 'Event' in source and 'EventData' in source['Event']:
+                username = source['Event']['EventData'].get('TargetUserName') or source['Event']['EventData'].get('SubjectUserName')
+            elif 'EventData' in source:
+                username = source['EventData'].get('TargetUserName') or source['EventData'].get('SubjectUserName')
             
-            # Extract workstation name from Event.EventData.WorkstationName
+            # Extract workstation name (WorkstationName for 4625, ClientName for 6273)
             workstation_name = None
-            if 'Event' in source and 'EventData' in source['Event'] and 'WorkstationName' in source['Event']['EventData']:
-                workstation_name = source['Event']['EventData']['WorkstationName']
-            elif 'EventData' in source and 'WorkstationName' in source['EventData']:
-                workstation_name = source['EventData']['WorkstationName']
+            if 'Event' in source and 'EventData' in source['Event']:
+                workstation_name = source['Event']['EventData'].get('WorkstationName') or source['Event']['EventData'].get('ClientName')
+            elif 'EventData' in source:
+                workstation_name = source['EventData'].get('WorkstationName') or source['EventData'].get('ClientName')
             
             # Get timestamp
             timestamp = source.get('normalized_timestamp', 'N/A')
