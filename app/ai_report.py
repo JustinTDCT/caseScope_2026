@@ -29,6 +29,7 @@ MODEL_INFO = {
         'speed_estimate': '~25-35 tok/s GPU (100% on-device), ~10-15 tok/s CPU',
         'time_estimate': '3-5 minutes (GPU), 10-15 minutes (CPU)',
         'recommended': True,
+        'trainable': False,  # Llama 3.1 not supported in current Unsloth version
         'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
@@ -43,6 +44,7 @@ MODEL_INFO = {
         'speed_estimate': '~25-35 tok/s GPU (100% on-device), ~10-15 tok/s CPU',
         'time_estimate': '3-5 minutes (GPU), 10-15 minutes (CPU)',
         'recommended': True,
+        'trainable': True,  # Mistral 7B fully supported by Unsloth
         'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 8, 'temperature': 0.3, 'num_gpu_layers': -1}
     },
@@ -57,6 +59,7 @@ MODEL_INFO = {
         'speed_estimate': '~15-25 tok/s GPU (85% on-device, 15% CPU offload), ~8-12 tok/s CPU',
         'time_estimate': '5-8 minutes (GPU), 12-18 minutes (CPU)',
         'recommended': True,
+        'trainable': False,  # DeepSeek models not yet supported by Unsloth
         'cpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3},
         'gpu_optimal': {'num_ctx': 16384, 'num_thread': 16, 'temperature': 0.3, 'num_gpu_layers': -1}  # 16 threads for CPU offloading
     },
@@ -211,9 +214,10 @@ def check_ollama_status():
 
 def generate_case_report_prompt(case, iocs, tagged_events, systems=None):
     """
-    Build the prompt for AI report generation using DFIR-optimized HARD RESET structure (v1.11.16)
+    Build the prompt for AI report generation using simplified ChatGPT-style structure (v1.11.27)
+    Enhanced with MITRE knowledge block and system-level instructions (v1.11.32)
     
-    Enhanced with strict evidence requirements, MITRE mapping, and NIST control guidance.
+    Simplified, concise prompt matching ChatGPT's approach with collapsed timelines and clear structure.
     
     Args:
         case: Case object
@@ -222,158 +226,161 @@ def generate_case_report_prompt(case, iocs, tagged_events, systems=None):
         systems: List of System objects (optional, for improved context)
         
     Returns:
-        str: Formatted DFIR-optimized prompt with strict data boundaries, evidence requirements,
-             timeline formatting, IOC tables, MITRE mapping, and NIST control recommendations
+        str: Formatted DFIR prompt with collapsed timeline, IOC table, MITRE mapping, and recommendations
     """
     
     if systems is None:
         systems = []
     
-    # Build the prompt with HARD RESET CONTEXT structure (DFIR-Optimized v1.11.16)
-    prompt = f"""HARD RESET CONTEXT.
+    # Build the prompt with EXTRACTION-FIRST workflow (v1.11.36) - Forces EXTRACT → VALIDATE → RENDER
+    prompt = f"""You are a DFIR / Threat-Intel reporting engine.
 
-YOU MUST FOLLOW THESE RULES — NO EXCEPTIONS:
+═══════════════════════════════════════════════════════════════════════════════
+MANDATORY CONTRACT
+═══════════════════════════════════════════════════════════════════════════════
 
-DATA SCOPE
+Return a complete Markdown report in exactly this order and with these section titles:
 
-ONLY use the data between <<<DATA>>> and <<<END DATA>>>.
+1) Executive Summary
+2) Timeline (UTC)
+3) Indicators of Compromise (IOCs)
+4) Event-to-MITRE Map
+5) What / Why / How to Stop
 
-If a detail is not present inside that block, write exactly: "NO DATA PRESENT".
+═══════════════════════════════════════════════════════════════════════════════
+WORKFLOW (follow step-by-step):
+═══════════════════════════════════════════════════════════════════════════════
 
-FACT DISCIPLINE
+A) EXTRACT → Build a structured extraction from the input. Do not summarize yet.
+   - Pull EVERY event with timestamp, host, event name/ID, account, and any detail fields.
+   - Collapse repeated events (e.g., 4625) per host into ranges with counts.
+   - Harvest ALL IOCs: IPs, hostnames, usernames, file paths, processes, commands, URLs/domains, hashes.
+   - Collect ATT&CK techniques (prefer IDs like T1059.001). If unmapped, leave blank.
 
-Do NOT invent, assume, or generalize.
+B) VALIDATE → Check you have at least:
+   - ≥1 timeline line per distinct host or event group
+   - An IOC table row for each distinct observable found
+   - ATT&CK IDs formatted as `T\\d{{4}}(\\.\\d{{3}})?`
+   If any check fails, FIX the extraction and re-run VALIDATE. Do not skip.
 
-Do NOT pull in outside knowledge, tools, or threat intel beyond MITRE ATT&CK names/IDs.
+C) RENDER → Only after VALIDATE passes, render the final report with the exact five sections.
 
-If a MITRE technique cannot be determined from the provided evidence, write: "MITRE not determinable from provided data".
+═══════════════════════════════════════════════════════════════════════════════
+RENDERING RULES
+═══════════════════════════════════════════════════════════════════════════════
 
-OUTPUT SECTIONS — produce ALL before stopping:
+Timeline format: "<start> to <end> — <Event name> on <host> (<count> events) [Key users: ...]"
 
-A. Executive Summary (3 paragraphs, plain English)
+IOC table columns (exact): | Type | Value/Name | Notes | Source |
 
-B. Timeline (every incident-relevant event in strict chronological order, earliest first)
+Event-to-MITRE: list each event type seen → ATT&CK IDs.
 
-C. IOCs (table including every IOC from data)
+Never invent data. If unknown, write "Not observed."
 
-D. MITRE Mapping (consolidated list of techniques/tactics referenced in the timeline)
+Use UTC. Be concise and factual.
 
-E. What Happened / Why / How to Prevent (three brief sections; see rules below)
+═══════════════════════════════════════════════════════════════════════════════
+MITRE QUICK MAP (use when relevant; do not force):
+═══════════════════════════════════════════════════════════════════════════════
 
-TIMELINE CONSTRAINTS
+- Event 4625 (failed logon) → T1110 (Brute Force) / attempt toward T1078
+- Event 4624 (suspicious success) → T1078 Valid Accounts
+- RDP / rdpclip.exe → T1021.001 Remote Services: RDP
+- PowerShell / powershell.exe → T1059.001 PowerShell
+- cmd.exe / command prompt → T1059.003 Windows Command Shell
+- Network shares / Event 5140 / enumeration → T1135 Network Share Discovery / T1087.002 Account Discovery
+- nltest /domain_trusts → T1482 Domain Trust Discovery
+- net.exe (user/group commands) → T1087.002 / T1069.002 Permission Groups Discovery
+- Advanced IP Scanner, network scans → T1046 Network Service Scanning / T1018 Remote System Discovery
+- VPN / external remote services → T1133 External Remote Services
+- NOTEPAD.EXE opening enumeration files → T1005 Data from Local System / T1074.001 Local Data Staging
+- Suspicious file execution from %TEMP% → T1204.002 User Execution: Malicious File
 
-Use timestamps exactly as provided (assume UTC; do not convert).
+═══════════════════════════════════════════════════════════════════════════════
+CONSTRAINTS
+═══════════════════════════════════════════════════════════════════════════════
 
-If a timestamp is missing or ambiguous, show "Timestamp: NO DATA PRESENT" and place the item after all entries with real timestamps.
+- Collapse repeated events per host into time ranges with counts.
+- Extract IOCs even if repeated in different events (dedupe rows by value, keep best Notes/Source).
+- Do not omit sections. If no data, include section with "Not observed."
 
-Each timeline entry MUST include an "Evidence" line pointing to the exact supporting item(s): event record ID and/or event text snippet, IOC name/value, and system/host.
-
-Use the term "destination systems" (not "target systems").
-
-IPs listed are SSLVPN assigned IPs (not public internet IPs), per data.
-
-FORMAT FOR EACH TIMELINE ENTRY (exactly):
-
-[TIMESTAMP or NO DATA PRESENT] — ACTION (concise)
-
-System: <hostname and/or IP from data or NO DATA PRESENT>
-
-User/Account: <from data or NO DATA PRESENT>
-
-IOC: <matched IOC value(s) or NO DATA PRESENT>
-
-Evidence: <EventID/EventRecordID or unique reference + brief quoted field(s) from data>
-
-MITRE: <TACTIC / TECHNIQUE ID + NAME or "MITRE not determinable from provided data">
-
-EXECUTIVE SUMMARY (3 paragraphs)
-
-Plain English.
-
-Explain what happened, the sequence at a high level, and the observed impact — only from data.
-
-If impact is unclear: write "Impact: NO DATA PRESENT".
-
-IOCs TABLE
-
-Include all indicators exactly as listed (no enrichment).
-
-Columns: Indicator | Type | Threat Level | Description | First Seen (if present) | Systems/Events Referencing (if identifiable)
-
-If any field is missing, write "NO DATA PRESENT" in that cell.
-
-MITRE MAPPING (Section D)
-
-Provide a consolidated list of only the techniques you used in the timeline.
-
-Format: TACTIC — T#### Name | Evidence references (timestamps/records)
-
-If none determinable: output a single line "MITRE not determinable from provided data".
-
-WHAT / WHY / HOW TO PREVENT (Section E)
-
-What happened: 1 short paragraph, plain English, data-only.
-
-Why it happened: Identify control gaps only if evidenced (e.g., missing MFA, weak/compromised credentials, lack of monitoring). If not evidenced, write "NO DATA PRESENT".
-
-How to prevent: Give specific, actionable recommendations aligned to NIST guidance without asserting they were absent unless evidenced. Use phrasing such as "Implement/verify" rather than "lacked."
-
-Reference examples (choose relevant ones only):
-
-NIST SP 800-63B (MFA/2FA, memorized secret policies)
-
-NIST SP 800-53 (AC-6, IA-2, AU-2/6/12, IR-4/5)
-
-NIST SP 800-61 (IR process)
-
-Mention controls like strong password policies, MFA for VPN/RDP, privileged access management, centralized logging/EDR/MDR, and network segmentation only if they logically address issues seen in the data.
-
-MINIMUM LENGTH
-
-Minimum output length = 1200 words.
-
-LANGUAGE & CLARITY
-
-Use precise, professional Markdown.
-
-No filler, no marketing language, no hypotheticals beyond what's in data.
-
-CONTINUATION & ENDING
-
-If output approaches token limit, CONTINUE WRITING until all sections (A–E) are complete.
-
-When finished, output exactly: ***END OF REPORT***
-
-SELF-CHECK BEFORE FINALIZING
-
-Remove any statement not directly supported by data; replace with "NO DATA PRESENT".
-
-Confirm every timeline line has Evidence and MITRE (or the explicit not-determinable phrase).
-
----
-
+═══════════════════════════════════════════════════════════════════════════════
 <<<DATA>>>
+═══════════════════════════════════════════════════════════════════════════════
+
+TASK: Analyze the data below and produce the report per the CONTRACT.
 
 CASE INFORMATION:
 Case Name: {case.name}
 Company: {case.company or 'N/A'}
 Investigation Date: {case.created_at.strftime('%Y-%m-%d') if case.created_at else 'N/A'}
 
+INPUT.KNOWN_IOCS:
 """
     
-    # Add IOCs in simple CSV-like format
+    # Add IOCs with enhanced context: events, descriptions, and usage analysis (v1.11.36)
     if iocs:
-        prompt += f"INDICATORS OF COMPROMISE ({len(iocs)} total):\n"
-        for ioc in iocs:
-            prompt += f"- IOC: {ioc.ioc_value} | Type: {ioc.ioc_type or 'unknown'}"
-            if ioc.threat_level:
-                prompt += f" | Threat Level: {ioc.threat_level}"
-            if ioc.description:
-                prompt += f" | Description: {ioc.description}"
+        prompt += f"({len(iocs)} total observables)\n\n"
+        
+        # DEBUG: Log first event structure to help diagnose issues
+        if tagged_events and len(tagged_events) > 0:
+            logger.info(f"[AI REPORT DEBUG] First event structure: {json.dumps(tagged_events[0], indent=2)[:500]}")
+        
+        for ioc_obj in iocs:
+            ioc_value = ioc_obj.ioc_value
+            ioc_type = ioc_obj.ioc_type or 'unknown'
+            
+            prompt += f"IOC: {ioc_value}\n"
+            prompt += f"  Type: {ioc_type}\n"
+            
+            if ioc_obj.threat_level:
+                prompt += f"  Threat Level: {ioc_obj.threat_level}\n"
+            
+            # Add description (explains what this IOC was used for)
+            if ioc_obj.description:
+                prompt += f"  Purpose/Description: {ioc_obj.description}\n"
+            
+            # Find events that contain this IOC
+            # Strategy: Normalize backslashes to forward slashes for reliable matching
+            matching_events = []
+            for idx, event in enumerate(tagged_events, 1):
+                source = event.get('_source', {})
+                
+                # Convert entire source to JSON string and normalize backslashes
+                import json as json_lib
+                event_json = json_lib.dumps(source).lower()
+                # Normalize: Replace all backslashes (single or double) with forward slashes
+                event_json_normalized = event_json.replace('\\\\', '/').replace('\\', '/')
+                
+                # Also normalize the IOC for comparison
+                ioc_normalized = ioc_value.lower().replace('\\', '/')
+                
+                # Match IOC (case-insensitive, backslash-agnostic)
+                if ioc_normalized in event_json_normalized:
+                    # Extract metadata using the same logic as search_utils.py (handles all event structures)
+                    from search_utils import extract_event_fields
+                    fields = extract_event_fields(source)
+                    
+                    timestamp = fields.get('timestamp', 'Unknown')
+                    computer_name = fields.get('computer_name', 'N/A')  # FIXED: use 'computer_name' not 'computer'
+                    event_id = fields.get('event_id', 'N/A')
+                    description = fields.get('description', '')
+                    desc_preview = description[:80] + '...' if len(description) > 80 else description
+                    
+                    matching_events.append(f"Event {idx} (Time: {timestamp}, System: {computer_name}, EventID: {event_id}, Desc: {desc_preview})")
+            
+            if matching_events:
+                prompt += f"  Events Containing This IOC ({len(matching_events)} total):\n"
+                for event_ref in matching_events[:10]:  # Limit to first 10 to avoid prompt bloat
+                    prompt += f"    - {event_ref}\n"
+            else:
+                prompt += f"  Events Containing This IOC: None found in tagged events\n"
+            
             prompt += "\n"
+        
         prompt += "\n"
     else:
-        prompt += "INDICATORS OF COMPROMISE: None defined\n\n"
+        prompt += "None defined\n\n"
     
     # Add systems in simple format (for AI context)
     if systems:
@@ -397,41 +404,46 @@ Investigation Date: {case.created_at.strftime('%Y-%m-%d') if case.created_at els
     
     # Add tagged events in simple format (CSV-like)
     if tagged_events:
-        prompt += f"TAGGED EVENTS ({len(tagged_events)} events):\n\n"
+        prompt += f"\nINPUT.EVENTS ({len(tagged_events)} events, CSV/JSON normalized):\n\n"
+        
+        from search_utils import extract_event_fields
         
         for i, event in enumerate(tagged_events, 1):
             source = event.get('_source', {})
             
-            # Get core fields
-            timestamp = source.get('timestamp', source.get('@timestamp', 'Unknown'))
-            event_id = source.get('event_id', source.get('EventID', 'N/A'))
-            computer = source.get('computer_name', source.get('computer', source.get('Computer', 'N/A')))
-            description = source.get('description', 'No description')
+            # Extract fields using the same logic as search results (handles EVTX/JSON/EDR structures)
+            fields = extract_event_fields(source)
             
             prompt += f"Event {i}:\n"
-            prompt += f"  Timestamp: {timestamp}\n"
-            prompt += f"  Event ID: {event_id}\n"
-            prompt += f"  Computer: {computer}\n"
-            prompt += f"  Description: {description}\n"
+            prompt += f"  Timestamp: {fields.get('timestamp', 'Unknown')}\n"
+            prompt += f"  Event ID: {fields.get('event_id', 'N/A')}\n"
+            prompt += f"  Computer: {fields.get('computer_name', 'N/A')}\n"  # FIXED: use 'computer_name' not 'computer'
+            prompt += f"  Description: {fields.get('description', 'No description')}\n"
             
-            # Add ALL other fields (don't filter - give AI all data)
+            # Add ALL other fields from source (don't filter - give AI all data)
             exclude_fields = {'timestamp', '@timestamp', 'event_id', 'EventID', 'computer_name', 'computer', 
                             'Computer', 'description', 'source_type', 'source_file', 'has_sigma', 'has_ioc',
-                            '@version', '_index', '_type', '_score', 'tags'}
+                            '@version', '_index', '_type', '_score', 'tags', 'opensearch_key', 'normalized_timestamp',
+                            'normalized_computer', 'normalized_event_id', 'ioc_count', 'is_hidden', 'hidden_by', 
+                            'hidden_at', 'source_file_type'}
             
             for key, value in source.items():
                 if key not in exclude_fields and value and str(value).strip():
-                    prompt += f"  {key}: {value}\n"
+                    # For nested dicts, show as JSON
+                    if isinstance(value, dict):
+                        prompt += f"  {key}: {json.dumps(value)}\n"
+                    else:
+                        prompt += f"  {key}: {value}\n"
             
             prompt += "\n"
     else:
-        prompt += "TAGGED EVENTS: None available\n\n"
+        prompt += "\nINPUT.EVENTS: None available\n\n"
     
     # Close the data section
     prompt += """
 <<<END DATA>>>
 
-Generate a professional DFIR investigation report with ALL sections (A through E) listed in the rules above. Use Markdown formatting. Be thorough and detailed. Minimum 1200 words. Begin now.
+Generate a professional DFIR incident report following the 5-section structure above. Use Markdown formatting. Make it clear and suitable for both executives and technical readers.
 """
     
     return prompt

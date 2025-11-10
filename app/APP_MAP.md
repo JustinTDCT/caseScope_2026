@@ -1,8 +1,427 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.11.19  
-**Last Updated**: 2025-11-07 23:45 UTC  
+**Version**: 1.11.21  
+**Last Updated**: 2025-11-09 12:08 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.11.21 - MAJOR: Persistent AI Training Progress (2025-11-09 12:08 UTC)
+
+**Change**: Complete overhaul of AI training progress tracking to support persistence across page reloads, accurate elapsed time, and mitigation of orphaned process issues.
+
+### 1. Problem Statement
+
+**Issues with Previous System**:
+- Training progress stored only in Celery/Redis (ephemeral, expires after task completion)
+- No way to resume monitoring after closing the training modal
+- Elapsed timer started from modal open time, not actual training start time
+- Orphaned processes (subprocess continues but Celery task fails) left no visibility into progress
+- If page was refreshed during training, no way to find or resume monitoring the active training
+
+**User Impact**:
+- User closes training modal → cannot return to see progress
+- Training takes 60+ minutes → user has no idea how far along it is after closing window
+- If Celery task crashes but training continues → progress stuck, no updates
+- Elapsed time incorrect if user reopens modal later
+
+### 2. Solution Implemented
+
+**A. Database-Driven Session Tracking**:
+- **New Table**: `ai_training_session` table for persistent progress storage
+- **Fields**:
+  - `task_id` (Celery task ID, unique index)
+  - `model_name`, `user_id`, `status` (pending/running/completed/failed)
+  - `progress` (0-100), `current_step` (e.g., "Step 3/5: Training LoRA adapter")
+  - `log` (full training log text), `error_message`
+  - `started_at` (actual training start time), `completed_at`
+  - `report_count` (number of reports used)
+
+**B. Real-Time Progress Updates**:
+- Training task creates `AITrainingSession` record at start
+- `log()` function now updates both:
+  1. Celery task state (for backward compatibility)
+  2. Database session record (for persistence)
+- Progress/step calculated from log content and stored in DB
+- Session marked `completed` or `failed` at end
+
+**C. Automatic Progress Restoration**:
+- **Page Load Check**: `/settings/get_active_training` endpoint checks for active sessions
+- **Auto-Resume**: If active training found, automatically opens modal and resumes monitoring
+- **Accurate Elapsed Time**: Uses actual `started_at` from database, not modal open time
+- **JavaScript Integration**: `showAITrainingProgress(taskId, actualStartTime, isResuming=true)`
+
+**D. Persistent Status API**:
+- `/settings/train_ai_status/<task_id>` endpoint enhanced:
+  - **Primary Source**: Database `AITrainingSession` record
+  - **Fallback**: Celery task metadata (for legacy compatibility)
+  - Returns: `status`, `progress`, `current_step`, `log`, `started_at`, `completed_at`, `error`
+
+### 3. Technical Details
+
+**A. Database Schema** (`models.py`):
+```python
+class AITrainingSession(db.Model):
+    __tablename__ = 'ai_training_session'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    model_name = db.Column(db.String(100), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending', index=True)
+    progress = db.Column(db.Integer, default=0)
+    current_step = db.Column(db.String(200))
+    log = db.Column(db.Text)
+    error_message = db.Column(db.Text)
+    report_count = db.Column(db.Integer)
+    started_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    user = db.relationship('User', backref='training_sessions')
+```
+
+**B. Training Task Updates** (`tasks.py`):
+```python
+# Create session at start
+session = AITrainingSession(
+    task_id=self.request.id,
+    model_name=model_name,
+    user_id=1,
+    status='pending',
+    progress=0,
+    current_step='Initializing...',
+    report_count=limit,
+    log=''
+)
+db.session.add(session)
+db.session.commit()
+
+# Enhanced log() function updates both Celery and DB
+def log(message):
+    # ... (Celery update) ...
+    
+    # Update database session
+    session.log = '\n'.join(log_buffer)
+    session.status = 'running'
+    session.progress = calculated_progress  # Based on log content
+    session.current_step = calculated_step
+    db.session.commit()
+
+# Mark complete/failed at end
+session.status = 'completed'  # or 'failed'
+session.completed_at = datetime.now()
+db.session.commit()
+```
+
+**C. New Endpoints** (`routes/settings.py`):
+```python
+@settings_bp.route('/get_active_training', methods=['GET'])
+def get_active_training():
+    """Check if there's an active training session"""
+    active_session = AITrainingSession.query.filter(
+        AITrainingSession.status.in_(['pending', 'running'])
+    ).order_by(AITrainingSession.started_at.desc()).first()
+    
+    if active_session:
+        elapsed_seconds = (datetime.now() - active_session.started_at).total_seconds()
+        return jsonify({
+            'active': True,
+            'task_id': active_session.task_id,
+            'started_at': active_session.started_at.isoformat(),
+            'elapsed_seconds': int(elapsed_seconds),
+            # ...
+        })
+    else:
+        return jsonify({'active': False})
+
+@settings_bp.route('/train_ai_status/<task_id>', methods=['GET'])
+def train_ai_status(task_id):
+    """Get status - prefers DB over Celery"""
+    session = AITrainingSession.query.filter_by(task_id=task_id).first()
+    if session:
+        return jsonify({
+            'status': session.status,
+            'progress': session.progress,
+            'current_step': session.current_step,
+            'log': session.log,
+            'started_at': session.started_at.isoformat(),
+            # ...
+        })
+    else:
+        # Fallback to Celery task metadata
+        # ...
+```
+
+**D. UI Enhancements** (`templates/settings.html`):
+```javascript
+// Check for active training on page load
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/settings/get_active_training')
+        .then(response => response.json())
+        .then(data => {
+            if (data.active) {
+                showAITrainingProgress(data.task_id, data.started_at, true);
+            }
+        });
+});
+
+// Updated function signature
+function showAITrainingProgress(taskId, actualStartTime = null, isResuming = false) {
+    const startTime = actualStartTime ? new Date(actualStartTime).getTime() : Date.now();
+    // ... (elapsed timer uses startTime) ...
+}
+
+// Poll function uses database progress/step
+function pollAITrainingStatus(taskId) {
+    fetch(`/settings/train_ai_status/${taskId}`)
+        .then(response => response.json())
+        .then(data => {
+            // Use data.progress and data.current_step from database
+            progressBar.style.width = `${data.progress}%`;
+            currentStep.textContent = data.current_step;
+            // ...
+        });
+}
+```
+
+### 4. Files Modified
+
+| File | Changes | Lines |
+|------|---------|-------|
+| `app/models.py` | Added `AITrainingSession` model | +24 |
+| `app/tasks.py` | Create/update session in training task, enhanced `log()` function | ~100 |
+| `app/routes/settings.py` | Added `/get_active_training` endpoint, updated `/train_ai_status` to use DB | +80 |
+| `app/templates/settings.html` | Page load check, auto-resume, accurate elapsed time, DB-driven progress | +50 |
+| `app/version.json` | Updated to v1.11.21 | +1 |
+| `app/APP_MAP.md` | Documented new feature | +150 |
+
+### 5. Benefits
+
+**User Experience**:
+- ✅ Close training window → progress persists → reopen anytime
+- ✅ Page refresh → automatically resumes monitoring if training active
+- ✅ Accurate elapsed time (from actual start, not modal open)
+- ✅ Full training history available in database
+
+**Reliability**:
+- ✅ Orphaned processes mitigated → last known progress/logs still visible
+- ✅ Celery/Redis failure → progress still accessible from database
+- ✅ Multi-device monitoring → check progress from any browser
+
+**Developer**:
+- ✅ Training history retained for debugging
+- ✅ User training activity auditable
+- ✅ Foundation for future enhancements (kill/cancel button, email notifications)
+
+### 6. Known Limitations
+
+**Orphaned Process Mitigation (Not Full Fix)**:
+- If Celery task crashes but subprocess (`2_train_lora.py`) continues:
+  - Progress will freeze at last logged state
+  - Subprocess PID not tracked, cannot be monitored directly
+  - Training may complete but auto-deployment won't trigger
+- **Mitigation**: Database retains last known progress/logs
+- **Full Fix**: Would require subprocess PID tracking, heartbeat mechanism, or process supervisor
+
+### 7. Testing Notes
+
+- Tested: Active training restoration after page reload ✅
+- Tested: Accurate elapsed time calculation ✅
+- Tested: Progress persistence across window close/reopen ✅
+- Tested: Completed training session marked as complete ✅
+- Tested: Failed training session marked as failed ✅
+
+---
+
+## 🎓 v1.11.20 - MAJOR: AI Model Training System Overhaul (2025-11-08 16:55 UTC)
+
+**Change**: Complete redesign of AI model management system with database-driven model tracking, per-model training status, trainable flags, and enhanced user experience.
+
+### 1. Problem Statement
+
+**User Requirements**:
+1. **Trainable/Non-Trainable Tagging**: "add a tag to each model 'Trainable/Not Trainable'. If a user has a model selected that is NOT trainable warn them and do not train"
+2. **Configurable Training Data**: "if it is trainable in the popup ask them how many reports to train on, 50-500"
+3. **Per-Model Training Tracking**: "They enter a number and the current selected model is trained on that many reports and the model selection is updated so that is the model they pick (IE, if on Qwen they train it now the trained one is selected)"
+4. **Clear Trained Models**: "Add a button to 'Clear Trained Models' which resets models to their defaults and changes the selector so if they pick a model they get the default one not the trained one"
+5. **Database-Driven Configuration**: "my thinking is to have the description, everything be in the database; it would reduce page code i would think and changes would be to the database not the page code"
+
+**Issues with Previous System**:
+- Model metadata hardcoded in `MODEL_INFO` dictionary in `ai_report.py`
+- No distinction between trainable and non-trainable models
+- Fixed training data count (50 reports), not configurable
+- Training status stored separately in `system_settings` table
+- No per-model tracking of training status
+- No ability to clear trained models and revert to defaults
+
+### 2. Solution Implemented
+
+**A. Database-Driven Model Management**:
+- **New Table**: `ai_model` table with comprehensive metadata
+- **Centralized Storage**: All model info (speed, quality, size, descriptions, etc.) in database
+- **Training Tracking**: `trainable`, `trained`, `trained_date`, `training_examples`, `trained_model_path` fields
+- **Dynamic UI**: Settings page queries database, no hardcoded model lists
+
+**B. Enhanced Training UI**:
+- **Trainability Check**: JavaScript validates selected model is trainable before training
+- **Report Count Prompt**: User enters 50-500 (default 100) for training data size
+- **Time Estimates**: Dynamic time estimates based on report count
+- **Visual Badges**: 
+  - 🎓 TRAINABLE (blue) - Model supports LoRA training
+  - ⚡ TRAINED (orange) - Model has been trained, shows date and example count
+  
+**C. Clear Trained Models Feature**:
+- **Reset Button**: Clears all trained models in one operation
+- **Database Update**: Sets `trained=false` for all models
+- **File Cleanup**: Deletes LoRA adapter directories
+- **Confirmation Dialog**: Warns user action is irreversible
+
+**D. Model Compatibility**:
+- **Trainable Models** (2):
+  - `dfir-mistral:latest` - Mistral 7B (base: `unsloth/mistral-7b-instruct-v0.3-bnb-4bit`)
+  - `dfir-qwen:latest` - Qwen 2.5 7B (base: `unsloth/qwen2-7b-instruct-bnb-4bit`)
+- **Not Trainable** (2):
+  - `dfir-llama:latest` - Llama 3.1 8B (Unsloth 2024.10.4 doesn't support Llama 3.1)
+  - `dfir-deepseek:latest` - DeepSeek-Coder 16B (DeepSeek not yet supported by Unsloth)
+
+### 3. Technical Details
+
+**New Database Model** (`app/models.py` lines 360-384):
+```python
+class AIModel(db.Model):
+    __tablename__ = 'ai_model'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    model_name = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    display_name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    speed = db.Column(db.String(50))  # 'Fast', 'Moderate'
+    quality = db.Column(db.String(50))  # 'Excellent'
+    size = db.Column(db.String(50))  # '4.9 GB'
+    speed_estimate = db.Column(db.String(200))
+    time_estimate = db.Column(db.String(200))
+    recommended = db.Column(db.Boolean, default=False)
+    trainable = db.Column(db.Boolean, default=False)  # NEW
+    trained = db.Column(db.Boolean, default=False)  # NEW
+    trained_date = db.Column(db.DateTime)  # NEW
+    training_examples = db.Column(db.Integer)  # NEW
+    trained_model_path = db.Column(db.String(500))  # NEW
+    base_model = db.Column(db.String(100))  # NEW - for Unsloth training
+    installed = db.Column(db.Boolean, default=False)
+    cpu_optimal = db.Column(db.JSON)
+    gpu_optimal = db.Column(db.JSON)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+```
+
+**Key Changes**:
+
+1. **app/models.py**: Added `AIModel` database model
+2. **app/seed_ai_models.py**: Seeding script to populate database with 4 DFIR models
+3. **app/routes/settings.py**: 
+   - Lines 72-124: Query `AIModel` table instead of `MODEL_INFO`
+   - Lines 631-714: Updated `train_ai` endpoint to accept `model_name` and `report_count`, validate trainability
+   - Lines 751-812: New `clear_trained_models` endpoint
+4. **app/templates/settings.html**:
+   - Lines 475-476: Added `data-trainable` and `data-trained` attributes to model cards
+   - Lines 487-492: Display TRAINABLE and TRAINED badges
+   - Lines 497-502: Show training date and example count for trained models
+   - Lines 356-362: Added "Clear Trained Models" button
+   - Lines 1091-1197: Updated `startAITraining()` to validate trainability and prompt for report count
+   - Lines 1199-1247: New `clearTrainedModels()` function
+5. **app/tasks.py**:
+   - Line 1164: Updated function signature to accept `model_name` parameter
+   - Lines 1206-1227: Get model from database, validate trainability, extract `base_model`
+   - Lines 1286-1297: Use `model.base_model` for training, dynamic output directory
+   - Lines 1329-1347: Update `AIModel` table after successful training (instead of `system_settings`)
+
+### 4. User Workflows
+
+**Scenario 1: Training a Trainable Model (Qwen)**:
+1. User selects `dfir-qwen:latest` in settings
+2. Clicks "Train AI on OpenCTI Threat Intel"
+3. JavaScript checks model card: `data-trainable="true"` ✅
+4. Prompt appears: "How many OpenCTI reports? (50-500)"
+5. User enters `200`
+6. Confirmation shows: "Training Data: 200 OpenCTI reports, Time: 100-133 minutes"
+7. User confirms
+8. Training task starts with `model_name='dfir-qwen:latest'`, `report_count=200`
+9. After training: `AIModel` row updated: `trained=true`, `trained_date=now()`, `training_examples=200`, `trained_model_path='/opt/casescope/lora_training/models/dfir-qwen-latest-trained'`
+10. Model card shows: ⚡ TRAINED badge and training details
+
+**Scenario 2: Training a Non-Trainable Model (Llama 3.1)**:
+1. User selects `dfir-llama:latest`
+2. Clicks "Train AI on OpenCTI Threat Intel"
+3. JavaScript checks: `data-trainable="false"` ❌
+4. Alert: "❌ TRAINING NOT AVAILABLE\n\nThe selected model 'dfir-llama:latest' cannot be trained with the current system.\n\n✅ Trainable Models:\n• dfir-mistral:latest\n• dfir-qwen:latest"
+5. Training does not start
+
+**Scenario 3: Clearing Trained Models**:
+1. User has trained `dfir-qwen:latest` and `dfir-mistral:latest`
+2. Clicks "Clear Trained Models"
+3. Confirmation: "⚠️ CLEAR ALL TRAINED MODELS\n\nThis will reset all models to their default (untrained) state and delete LoRA adapter files. This action CANNOT be undone!"
+4. User confirms
+5. Backend: `UPDATE ai_model SET trained=false, trained_date=null, training_examples=null, trained_model_path=null WHERE trained=true`
+6. Backend: Deletes `/opt/casescope/lora_training/models/dfir-qwen-latest-trained/` and `/opt/casescope/lora_training/models/dfir-mistral-latest-trained/`
+7. Page reloads, model cards no longer show TRAINED badges
+
+### 5. Benefits
+
+**For Users**:
+- ✅ **Clear Model Status**: Know which models can be trained (TRAINABLE badge)
+- ✅ **Training History**: See when each model was trained and with how many reports
+- ✅ **Flexible Training**: Choose 50-500 reports based on needs (quick vs comprehensive)
+- ✅ **Easy Reset**: One-click to clear all trained models and start fresh
+- ✅ **No Confusion**: System prevents training non-trainable models with clear error messages
+
+**For Developers/Admins**:
+- ✅ **Database-Driven**: Add/modify models via database, no code changes
+- ✅ **Less Template Code**: UI loops through DB records, no hardcoded lists
+- ✅ **Per-Model Tracking**: Each model has independent training status
+- ✅ **Clean Architecture**: Model metadata and training state in same place
+- ✅ **Future-Proof**: Easy to add new models or update existing ones
+
+### 6. Files Modified
+
+| File | Changes | Lines |
+|------|---------|-------|
+| `models.py` | Added `AIModel` database model | 360-384 |
+| `seed_ai_models.py` | NEW FILE: Database seeding script | 1-119 |
+| `routes/settings.py` | Query database instead of MODEL_INFO, updated train_ai endpoint, added clear_trained_models endpoint | 72-124, 631-714, 751-812 |
+| `templates/settings.html` | Added trainable/trained badges, data attributes, Clear button, updated JavaScript | 475-502, 356-362, 1091-1247 |
+| `tasks.py` | Accept model_name parameter, validate trainability, update AIModel table after training | 1164, 1206-1227, 1286-1297, 1329-1347 |
+| `version.json` | Updated to v1.11.20 | 2-3, 7 |
+| `APP_MAP.md` | Added v1.11.20 documentation | This section |
+
+### 7. Testing
+
+**Database Verification**:
+```bash
+cd /opt/casescope/app && python seed_ai_models.py
+# Output: ✅ 4 models seeded successfully
+# Total models: 4, Trainable: 2, Trained: 0, Not trainable: 2
+```
+
+**Model Status**:
+- `dfir-llama:latest`: ❌ Not trainable (Llama 3.1 unsupported)
+- `dfir-mistral:latest`: ✅ Trainable (Mistral 7B)
+- `dfir-deepseek:latest`: ❌ Not trainable (DeepSeek unsupported)
+- `dfir-qwen:latest`: ✅ Trainable (Qwen 2.5 7B)
+
+### 8. Compatibility Notes
+
+**Unsloth Version**: 2024.10.4 (current, no upgrade performed due to user request to "roll back this is a rabbit hole")
+
+**Supported for Training**:
+- ✅ Mistral 7B v0.3 (`unsloth/mistral-7b-instruct-v0.3-bnb-4bit`)
+- ✅ Qwen 2/2.5 7B (`unsloth/qwen2-7b-instruct-bnb-4bit`)
+- ✅ Gemma 7B/9B (if added to database)
+
+**Not Supported**:
+- ❌ Llama 3.1 8B (requires Unsloth 2024.11+, needs PyTorch 2.5+, not compatible with Pascal P4)
+- ❌ DeepSeek models (not yet in Unsloth)
 
 ---
 

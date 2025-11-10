@@ -348,12 +348,22 @@
                         <button type="button" 
                                 id="trainAIButton"
                                 onclick="startAITraining()" 
-                                style="padding: var(--spacing-sm) var(--spacing-md); background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; gap: var(--spacing-xs); font-weight: 600; width: 100%; justify-content: center;">
+                                style="padding: var(--spacing-sm) var(--spacing-md); background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; gap: var(--spacing-xs); font-weight: 600; width: 100%; justify-content: center; margin-bottom: var(--spacing-sm);">
                             <span>🎓</span>
                             <span>Train AI on OpenCTI Threat Intel</span>
                         </button>
+                        
+                        <button type="button" 
+                                id="clearTrainedButton"
+                                onclick="clearTrainedModels()" 
+                                style="padding: var(--spacing-sm) var(--spacing-md); background: #868e96; color: white; border: none; border-radius: var(--border-radius); cursor: pointer; font-size: 0.875rem; display: flex; align-items: center; gap: var(--spacing-xs); font-weight: 600; width: 100%; justify-content: center;">
+                            <span>🗑️</span>
+                            <span>Clear Trained Models</span>
+                        </button>
+                        
                         <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.75rem; text-align: center;">
-                            Pulls 100+ threat reports from OpenCTI, generates training data, and trains LoRA adapter
+                            Train: Pulls threat reports from OpenCTI and trains LoRA adapter (50-500 reports)<br>
+                            Clear: Resets all models to their default (untrained) state
                         </p>
                     </div>
                     {% endif %}
@@ -471,7 +481,10 @@
                                    {% if ai_model_name == model.name %}checked{% endif %}
                                    {% if not model.installed %}title="This model needs to be downloaded first"{% endif %}
                                    style="display: none;">
-                            <div class="model-card" style="border: 2px solid {% if ai_model_name == model.name %}var(--color-primary){% elif not model.installed %}#666{% else %}var(--color-border){% endif %}; padding: var(--spacing-md); border-radius: var(--border-radius); background: {% if ai_model_name == model.name %}var(--color-primary-bg){% elif not model.installed %}#1a1a1a{% else %}var(--color-background){% endif %}; transition: all 0.2s ease; {% if not model.installed %}opacity: 0.7;{% endif %}">
+                            <div class="model-card" 
+                                 data-trainable="{{ model.trainable|lower }}"
+                                 data-trained="{{ model.trained|lower }}"
+                                 style="border: 2px solid {% if ai_model_name == model.name %}var(--color-primary){% elif not model.installed %}#666{% else %}var(--color-border){% endif %}; padding: var(--spacing-md); border-radius: var(--border-radius); background: {% if ai_model_name == model.name %}var(--color-primary-bg){% elif not model.installed %}#1a1a1a{% else %}var(--color-background){% endif %}; transition: all 0.2s ease; {% if not model.installed %}opacity: 0.7;{% endif %}">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--spacing-xs);">
                                     <div style="flex: 1;">
                                         <h4 style="margin: 0; font-size: 1rem; color: var(--color-text);">
@@ -484,10 +497,22 @@
                                             {% else %}
                                             <span style="background: #51cf66; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">✓ INSTALLED</span>
                                             {% endif %}
+                                            {% if model.trainable %}
+                                            <span style="background: #339af0; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">🎓 TRAINABLE</span>
+                                            {% endif %}
+                                            {% if model.trained %}
+                                            <span style="background: #f59f00; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; margin-left: var(--spacing-xs);">⚡ TRAINED</span>
+                                            {% endif %}
                                         </h4>
                                         <p style="margin: var(--spacing-xs) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
                                             {{ model.description }}
                                         </p>
+                                        {% if model.trained %}
+                                        <p style="margin: var(--spacing-xs) 0 0 0; color: #f59f00; font-size: 0.8rem;">
+                                            ⚡ <strong>Trained:</strong> {{ model.trained_date.strftime('%Y-%m-%d %H:%M') if model.trained_date else 'Unknown' }} 
+                                            ({{ model.training_examples }} reports)
+                                        </p>
+                                        {% endif %}
                                         {% if not model.installed %}
                                         <p style="margin: var(--spacing-xs) 0 0 0; color: #ffa94d; font-size: 0.8rem; font-family: monospace;">
                                             📥 Download: <code style="background: #2a2a2a; padding: 2px 6px; border-radius: 3px;">ollama pull {{ model.name }}</code>
@@ -602,6 +627,21 @@ input[type="radio"]:checked + .model-card {
 </div>
 
 <script>
+// Check for active training on page load and restore progress monitoring
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('/settings/get_active_training')
+        .then(response => response.json())
+        .then(data => {
+            if (data.active) {
+                console.log('Found active training session, resuming monitoring...');
+                showAITrainingProgress(data.task_id, data.started_at, true);
+            }
+        })
+        .catch(error => {
+            console.error('Error checking for active training:', error);
+        });
+});
+
 function testIrisConnection() {
     const url = document.getElementById('dfir_iris_url').value.trim();
     const apiKey = document.getElementById('dfir_iris_api_key').value.trim();
@@ -1077,15 +1117,49 @@ function closeGPUSetupModal() {
 
 // AI Training Functions
 function startAITraining() {
+    // Get currently selected model
+    const selectedModelInput = document.querySelector('input[name="ai_model_name"]:checked');
+    if (!selectedModelInput) {
+        alert('❌ No AI model selected. Please select a model first.');
+        return;
+    }
+    
+    const selectedModelName = selectedModelInput.value;
+    
+    // Check if model is trainable (get from model card data attribute)
+    const modelCard = selectedModelInput.closest('label').querySelector('.model-card');
+    const isTrainable = modelCard.dataset.trainable === 'true';
+    
+    if (!isTrainable) {
+        alert(`❌ TRAINING NOT AVAILABLE\n\nThe selected model "${selectedModelName}" cannot be trained with the current system.\n\n✅ Trainable Models:\n• dfir-mistral:latest\n• dfir-qwen:latest\n\nPlease select a trainable model to proceed.`);
+        return;
+    }
+    
+    // Ask for number of reports to train on
+    const reportCount = prompt(`🎓 AI MODEL TRAINING CONFIGURATION\n\nHow many OpenCTI threat reports should be used for training?\n\nEnter a number between 50 and 500:\n\n💡 Recommendations:\n• 50-100: Quick training (30-45 min)\n• 100-200: Balanced training (45-90 min)\n• 200-500: Comprehensive training (90-180 min)\n\nNote: More reports = better model quality but longer training time.`, '100');
+    
+    if (!reportCount) {
+        return;  // User cancelled
+    }
+    
+    const numReports = parseInt(reportCount);
+    if (isNaN(numReports) || numReports < 50 || numReports > 500) {
+        alert('❌ Invalid input. Please enter a number between 50 and 500.');
+        return;
+    }
+    
     // Enhanced confirmation with prominent warning
-    const confirmMessage = `⚠️  AI MODEL TRAINING - READ CAREFULLY ⚠️
+    const confirmMessage = `⚠️  CONFIRM AI MODEL TRAINING ⚠️
+
+Model: ${selectedModelName}
+Training Data: ${numReports} OpenCTI threat reports
 
 This process will:
-✓ Pull 100+ threat reports from OpenCTI
+✓ Pull ${numReports} threat reports from OpenCTI
 ✓ Generate training examples automatically
 ✓ Train a custom LoRA adapter
 
-⏰ TIME REQUIRED: 30-60 minutes (GPU) or 2-4 hours (CPU)
+⏰ TIME REQUIRED: ${Math.ceil(numReports / 2)} - ${Math.ceil(numReports / 1.5)} minutes (GPU)
 💻 SYSTEM IMPACT: High GPU/CPU usage during training
 📊 You can monitor progress in real-time
 
@@ -1111,7 +1185,11 @@ Do you want to start training now?`;
     // Start training
     fetch('/settings/train_ai', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'}
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            model_name: selectedModelName,
+            report_count: numReports
+        })
     })
     .then(response => response.json())
     .then(data => {
@@ -1133,9 +1211,63 @@ Do you want to start training now?`;
     });
 }
 
-function showAITrainingProgress(taskId) {
-    // Store start time for elapsed time calculation
-    const startTime = Date.now();
+function clearTrainedModels() {
+    // Confirmation dialog
+    const confirmMessage = `⚠️  CLEAR ALL TRAINED MODELS ⚠️
+
+This will:
+✓ Reset all models to their default (untrained) state
+✓ Remove training metadata (dates, example counts)
+✓ Delete LoRA adapter files from disk
+
+❌ This action CANNOT be undone!
+
+Models will revert to their base versions. You will need to re-train them if you want custom models again.
+
+Do you want to proceed?`;
+
+    if (!confirm(confirmMessage)) {
+        return;
+    }
+    
+    // Disable button
+    const btn = document.getElementById('clearTrainedButton');
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.innerHTML = '<span>⏳</span><span>Clearing...</span>';
+    
+    // Send request
+    fetch('/settings/clear_trained_models', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Trained Models Cleared!\n\n${data.message}\n\nPage will reload to show updated model status.`);
+            window.location.reload();
+        } else {
+            alert('❌ Failed to clear models: ' + data.error);
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.innerHTML = '<span>🗑️</span><span>Clear Trained Models</span>';
+        }
+    })
+    .catch(error => {
+        alert('❌ Error clearing models: ' + error);
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.innerHTML = '<span>🗑️</span><span>Clear Trained Models</span>';
+    });
+}
+
+function showAITrainingProgress(taskId, actualStartTime = null, isResuming = false) {
+    // Use actual training start time (from database) or current time
+    const startTime = actualStartTime ? new Date(actualStartTime).getTime() : Date.now();
+    
+    if (isResuming) {
+        console.log(`Resuming training monitoring (started ${Math.floor((Date.now() - startTime) / 1000 / 60)} minutes ago)`);
+    }
     
     // Create modal
     const modal = document.createElement('div');
@@ -1241,61 +1373,24 @@ function pollAITrainingStatus(taskId) {
                         }
                     }).join('');
                     log.scrollTop = log.scrollHeight;
-                    
-                    // Calculate progress based on log content
-                    let progress = 0;
-                    let step = 'Initializing';
-                    
-                    if (data.log.includes('Step 1/5')) {
-                        progress = 5;
-                        step = 'Step 1/5: Retrieving OpenCTI configuration';
-                    }
-                    if (data.log.includes('Step 2/5')) {
-                        progress = 20;
-                        step = 'Step 2/5: Generating training data from OpenCTI';
-                    }
-                    if (data.log.includes('Generated') && data.log.includes('training examples')) {
-                        progress = 35;
-                    }
-                    if (data.log.includes('Step 3/5')) {
-                        progress = 40;
-                        step = 'Step 3/5: Checking training environment';
-                    }
-                    if (data.log.includes('Step 4/5')) {
-                        progress = 50;
-                        step = 'Step 4/5: Training LoRA adapter (this is the long part...)';
-                    }
-                    if (data.log.includes('Training LoRA')) {
-                        progress = 55;
-                    }
-                    if (data.log.includes('epoch') || data.log.includes('loss')) {
-                        progress = Math.min(85, progress + 5); // Gradually increase during training
-                    }
-                    if (data.log.includes('LoRA training complete')) {
-                        progress = 90;
-                    }
-                    if (data.log.includes('Step 5/5')) {
-                        progress = 95;
-                        step = 'Step 5/5: Finalizing and saving model';
-                    }
-                    if (data.log.includes('Training Complete')) {
-                        progress = 100;
-                        step = 'Complete!';
-                    }
-                    
-                    // Update progress bar
-                    if (progressBar) {
-                        progressBar.style.width = `${progress}%`;
-                        progressBar.textContent = progress > 10 ? `${progress}%` : '';
-                    }
-                    if (currentStep) {
-                        currentStep.textContent = step;
-                    }
+                }
+                
+                // Use progress and current_step from database (persistent and accurate)
+                const progress = data.progress || 0;
+                const step = data.current_step || 'Initializing...';
+                
+                // Update progress bar
+                if (progressBar) {
+                    progressBar.style.width = `${progress}%`;
+                    progressBar.textContent = progress > 10 ? `${progress}%` : '';
+                }
+                if (currentStep) {
+                    currentStep.textContent = step;
                 }
                 
                 // Update status with pulsing indicator
                 if (data.status) {
-                    if (data.status === 'progress') {
+                    if (data.status === 'progress' || data.status === 'running' || data.status === 'pending') {
                         status.innerHTML = '<span style="display: inline-block; width: 12px; height: 12px; background: #ffa500; border-radius: 50%; margin-right: 8px; animation: pulse 1.5s ease-in-out infinite;"></span>Status: Training...';
                     } else if (data.status === 'completed') {
                         status.innerHTML = '<span style="display: inline-block; width: 12px; height: 12px; background: #51cf66; border-radius: 50%; margin-right: 8px;"></span><span style="color: var(--color-success); font-weight: 700;">✅ Training Complete!</span>';

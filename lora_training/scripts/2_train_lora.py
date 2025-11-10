@@ -147,11 +147,17 @@ def main():
     
     # Load base model with 4-bit quantization
     logger.info("🦙 Loading base model...")
+    logger.info(f"   Model: {args.base_model}")
+    logger.info(f"   Max sequence length: {args.max_seq_length}")
+    logger.info(f"   Quantization: 4-bit")
+    logger.info(f"   Device: CUDA (auto device_map)")
+    
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=args.base_model,
         max_seq_length=args.max_seq_length,
-        dtype=None,  # Auto-detect
-        load_in_4bit=True,  # Required for Tesla P4
+        dtype=None,  # Auto-detect (FP16 for Pascal GPU)
+        load_in_4bit=True,  # 4-bit quantization for VRAM efficiency
+        device_map="auto",  # CRITICAL: Auto device placement for quantized models
     )
     logger.info("✅ Base model loaded")
     logger.info("")

@@ -66,49 +66,62 @@ def index():
     ai_hardware_mode = get_setting('ai_hardware_mode', 'cpu')  # cpu or gpu
     ai_gpu_vram = get_setting('ai_gpu_vram', '8')  # VRAM in GB
     
-    # Check AI system status
+    # Check AI system status and load models from database
     ai_status = {'installed': False, 'running': False, 'model_available': False, 'models': []}
     all_models = []
     try:
-        from ai_report import check_ollama_status, MODEL_INFO
+        from ai_report import check_ollama_status, calculate_cpu_offload_percent, parse_model_size
+        from models import AIModel
+        
         ai_status = check_ollama_status()
         
-        # Get list of installed model names
+        # Get list of installed model names from Ollama
         installed_model_names = [m['name'] for m in ai_status.get('models', [])]
         
         # Get user's VRAM for CPU offload calculation
         user_vram_gb = float(ai_gpu_vram)
         
-        # Import offload calculation functions
-        from ai_report import calculate_cpu_offload_percent, parse_model_size
+        # Query all models from database
+        db_models = AIModel.query.all()
         
-        # Create a list of ALL models from MODEL_INFO, marking which are installed
-        for model_id, model_data in MODEL_INFO.items():
-            is_installed = model_id in installed_model_names
+        for model in db_models:
+            is_installed = model.model_name in installed_model_names
+            
+            # Update installed status in database if changed
+            if model.installed != is_installed:
+                model.installed = is_installed
             
             # Calculate CPU offload percentage
-            model_size_gb = parse_model_size(model_data.get('size', '0'))
+            model_size_gb = parse_model_size(model.size)
             cpu_offload = calculate_cpu_offload_percent(model_size_gb, user_vram_gb)
             
             all_models.append({
-                'name': model_id,
-                'display_name': model_data['name'],
-                'speed': model_data['speed'],
-                'quality': model_data['quality'],
-                'size': model_data['size'],
-                'description': model_data['description'],
-                'speed_estimate': model_data['speed_estimate'],
-                'time_estimate': model_data['time_estimate'],
-                'recommended': model_data.get('recommended', False),
+                'name': model.model_name,
+                'display_name': model.display_name,
+                'speed': model.speed,
+                'quality': model.quality,
+                'size': model.size,
+                'description': model.description,
+                'speed_estimate': model.speed_estimate,
+                'time_estimate': model.time_estimate,
+                'recommended': model.recommended,
+                'trainable': model.trainable,
+                'trained': model.trained,
+                'trained_date': model.trained_date,
+                'training_examples': model.training_examples,
                 'installed': is_installed,
                 'cpu_offload': cpu_offload
             })
         
+        # Commit any installed status updates
+        db.session.commit()
+        
         # Sort: by CPU offload (0% first), then installed status, then recommended
         all_models.sort(key=lambda x: (x['cpu_offload'], not x['installed'], not x['recommended']))
         
-    except:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error loading AI models: {e}")
     
     # Detect hardware for AI settings
     hardware_info = {'gpu': {'gpu_detected': False}, 'cpu': {'cpu_count': 0}}
@@ -624,6 +637,35 @@ def train_ai():
     logger = logging.getLogger(__name__)
     
     try:
+        # Get request data
+        data = request.get_json() or {}
+        model_name = data.get('model_name')
+        report_count = data.get('report_count', 100)
+        
+        # Validate model_name
+        if not model_name:
+            return jsonify({'success': False, 'error': 'Model name is required'}), 400
+        
+        # Check if model exists and is trainable
+        from models import AIModel
+        model = AIModel.query.filter_by(model_name=model_name).first()
+        if not model:
+            return jsonify({'success': False, 'error': f'Model "{model_name}" not found'}), 404
+        
+        if not model.trainable:
+            return jsonify({
+                'success': False, 
+                'error': f'Model "{model_name}" is not trainable. Only dfir-mistral:latest and dfir-qwen:latest support training.'
+            }), 400
+        
+        # Validate report_count
+        try:
+            report_count = int(report_count)
+            if report_count < 50 or report_count > 500:
+                return jsonify({'success': False, 'error': 'Report count must be between 50 and 500'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Invalid report count'}), 400
+        
         # Check OpenCTI is enabled
         opencti_enabled = get_setting('opencti_enabled', 'false') == 'true'
         if not opencti_enabled:
@@ -640,22 +682,25 @@ def train_ai():
         lock_acquired, lock_message = acquire_ai_lock(
             operation_type='AI Model Training',
             user_id=current_user.id,
-            operation_details='Training from OpenCTI threat intelligence'
+            operation_details=f'Training {model_name} with {report_count} reports from OpenCTI'
         )
         
         if not lock_acquired:
             return jsonify({'success': False, 'error': lock_message}), 409  # 409 Conflict
         
-        # Start async training task (batched fetching - 10 at a time)
+        # Start async training task with model and report count
         from tasks import train_dfir_model_from_opencti
-        task = train_dfir_model_from_opencti.delay(limit=50)  # 50 reports in batches of 10
+        task = train_dfir_model_from_opencti.delay(
+            model_name=model_name,
+            limit=report_count
+        )
         
-        logger.info(f"[Settings] Started AI training task: {task.id} by user {current_user.username} (limit=50 reports, batched)")
+        logger.info(f"[Settings] Started AI training task: {task.id} by user {current_user.username} (model={model_name}, reports={report_count}, batched)")
         
         return jsonify({
             'success': True,
             'task_id': task.id,
-            'message': 'Training started'
+            'message': f'Training started for {model_name} with {report_count} reports'
         })
         
     except Exception as e:
@@ -673,32 +718,141 @@ def train_ai():
 @login_required
 @admin_required
 def train_ai_status(task_id):
-    """Get AI training status"""
+    """Get AI training status from both Celery and database (persistent)"""
     from celery.result import AsyncResult
+    from models import AITrainingSession
     
-    task = AsyncResult(task_id)
+    # First check database for persistent session
+    session = AITrainingSession.query.filter_by(task_id=task_id).first()
     
-    response = {
-        'status': task.state.lower(),
-        'log': ''
-    }
-    
-    # Get task metadata (log messages)
-    if task.info:
-        if isinstance(task.info, dict):
-            response['log'] = task.info.get('log', '')
-            response['progress'] = task.info.get('progress', 0)
-        elif isinstance(task.info, str):
-            response['log'] = task.info
-    
-    # If completed, include result
-    if task.state == 'SUCCESS':
-        response['status'] = 'completed'
-        if task.result:
-            response['result'] = task.result
-    elif task.state == 'FAILURE':
-        response['status'] = 'failed'
-        response['error'] = str(task.info) if task.info else 'Unknown error'
+    if session:
+        # Database session found - use it as primary source
+        response = {
+            'status': session.status,
+            'progress': session.progress or 0,
+            'current_step': session.current_step or 'Initializing...',
+            'log': session.log or '',
+            'started_at': session.started_at.isoformat() if session.started_at else None,
+            'completed_at': session.completed_at.isoformat() if session.completed_at else None,
+            'error': session.error_message
+        }
+    else:
+        # Fallback to Celery task metadata (legacy)
+        task = AsyncResult(task_id)
+        
+        response = {
+            'status': task.state.lower(),
+            'log': ''
+        }
+        
+        # Get task metadata (log messages)
+        if task.info:
+            if isinstance(task.info, dict):
+                response['log'] = task.info.get('log', '')
+                response['progress'] = task.info.get('progress', 0)
+            elif isinstance(task.info, str):
+                response['log'] = task.info
+        
+        # If completed, include result
+        if task.state == 'SUCCESS':
+            response['status'] = 'completed'
+            if task.result:
+                response['result'] = task.result
+        elif task.state == 'FAILURE':
+            response['status'] = 'failed'
+            response['error'] = str(task.info) if task.info else 'Unknown error'
     
     return jsonify(response)
+
+
+@settings_bp.route('/get_active_training', methods=['GET'])
+@login_required
+@admin_required
+def get_active_training():
+    """Check if there's an active training session and return its task_id"""
+    from models import AITrainingSession
+    
+    # Find any active training session (status in ['pending', 'running'])
+    active_session = AITrainingSession.query.filter(
+        AITrainingSession.status.in_(['pending', 'running'])
+    ).order_by(AITrainingSession.started_at.desc()).first()
+    
+    if active_session:
+        elapsed_seconds = (datetime.now() - active_session.started_at).total_seconds()
+        
+        return jsonify({
+            'active': True,
+            'task_id': active_session.task_id,
+            'model_name': active_session.model_name,
+            'progress': active_session.progress,
+            'current_step': active_session.current_step,
+            'started_at': active_session.started_at.isoformat(),
+            'elapsed_seconds': int(elapsed_seconds)
+        })
+    else:
+        return jsonify({'active': False})
+
+
+@settings_bp.route('/clear_trained_models', methods=['POST'])
+@login_required
+@admin_required
+def clear_trained_models():
+    """Clear all trained models - reset to default state"""
+    import logging
+    import os
+    import shutil
+    logger = logging.getLogger(__name__)
+    
+    try:
+        from models import AIModel
+        
+        # Get all trained models
+        trained_models = AIModel.query.filter_by(trained=True).all()
+        
+        if not trained_models:
+            return jsonify({
+                'success': True,
+                'message': 'No trained models to clear'
+            })
+        
+        model_names = [m.display_name for m in trained_models]
+        
+        # Reset all models to untrained state
+        for model in trained_models:
+            model.trained = False
+            model.trained_date = None
+            model.training_examples = None
+            
+            # Delete LoRA adapter files if they exist
+            if model.trained_model_path and os.path.exists(model.trained_model_path):
+                try:
+                    shutil.rmtree(model.trained_model_path)
+                    logger.info(f"[Settings] Deleted training data for {model.model_name}: {model.trained_model_path}")
+                except Exception as e:
+                    logger.warning(f"[Settings] Could not delete training data for {model.model_name}: {e}")
+            
+            model.trained_model_path = None
+        
+        db.session.commit()
+        
+        # Clear old system settings for trained model references
+        try:
+            set_setting('ai_model_trained', 'false')
+            set_setting('ai_model_trained_date', '')
+            set_setting('ai_model_training_examples', '0')
+            set_setting('ai_model_trained_path', '')
+        except:
+            pass
+        
+        logger.info(f"[Settings] Cleared {len(trained_models)} trained models by user {current_user.username}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully cleared {len(trained_models)} trained model(s): {", ".join(model_names)}'
+        })
+        
+    except Exception as e:
+        logger.error(f"[Settings] Error clearing trained models: {e}")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
 

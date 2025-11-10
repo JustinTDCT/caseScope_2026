@@ -703,6 +703,13 @@ def generate_ai_report(self, report_id):
             report = db.session.get(AIReport, report_id)
             if report.status == 'cancelled':
                 logger.info(f"[AI REPORT] Report {report_id} was cancelled before starting")
+                # Release AI lock on cancellation
+                try:
+                    from ai_resource_lock import release_ai_lock
+                    release_ai_lock()
+                    logger.info(f"[AI REPORT] ✅ AI lock released (cancelled early)")
+                except Exception as lock_err:
+                    logger.error(f"[AI REPORT] Failed to release lock on cancellation: {lock_err}")
                 return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
             
             # Get case data
@@ -711,6 +718,13 @@ def generate_ai_report(self, report_id):
                 report.status = 'failed'
                 report.error_message = 'Case not found'
                 db.session.commit()
+                # Release AI lock on failure
+                try:
+                    from ai_resource_lock import release_ai_lock
+                    release_ai_lock()
+                    logger.info(f"[AI REPORT] ✅ AI lock released (case not found)")
+                except Exception as lock_err:
+                    logger.error(f"[AI REPORT] Failed to release lock: {lock_err}")
                 return {'status': 'error', 'message': 'Case not found'}
             
             logger.info(f"[AI REPORT] Gathering data for case '{case.name}'")
@@ -725,6 +739,13 @@ def generate_ai_report(self, report_id):
             report = db.session.get(AIReport, report_id)
             if report.status == 'cancelled':
                 logger.info(f"[AI REPORT] Report {report_id} was cancelled during data collection")
+                # Release AI lock on cancellation
+                try:
+                    from ai_resource_lock import release_ai_lock
+                    release_ai_lock()
+                    logger.info(f"[AI REPORT] ✅ AI lock released (cancelled during data collection)")
+                except Exception as lock_err:
+                    logger.error(f"[AI REPORT] Failed to release lock on cancellation: {lock_err}")
                 return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
             
             iocs = IOC.query.filter_by(case_id=case.id).all()
@@ -788,6 +809,13 @@ def generate_ai_report(self, report_id):
             report = db.session.get(AIReport, report_id)
             if report.status == 'cancelled':
                 logger.info(f"[AI REPORT] Report {report_id} was cancelled after data collection")
+                # Release AI lock on cancellation
+                try:
+                    from ai_resource_lock import release_ai_lock
+                    release_ai_lock()
+                    logger.info(f"[AI REPORT] ✅ AI lock released (cancelled after data collection)")
+                except Exception as lock_err:
+                    logger.error(f"[AI REPORT] Failed to release lock on cancellation: {lock_err}")
                 return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
             
             # STAGE 2: Analyzing Data
@@ -807,6 +835,13 @@ def generate_ai_report(self, report_id):
             report = db.session.get(AIReport, report_id)
             if report.status == 'cancelled':
                 logger.info(f"[AI REPORT] Report {report_id} was cancelled before AI generation")
+                # Release AI lock on cancellation
+                try:
+                    from ai_resource_lock import release_ai_lock
+                    release_ai_lock()
+                    logger.info(f"[AI REPORT] ✅ AI lock released (cancelled before AI generation)")
+                except Exception as lock_err:
+                    logger.error(f"[AI REPORT] Failed to release lock on cancellation: {lock_err}")
                 return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
             
             # STAGE 3: Generating Report with AI
@@ -836,6 +871,13 @@ def generate_ai_report(self, report_id):
             report = db.session.get(AIReport, report_id)
             if report.status == 'cancelled':
                 logger.info(f"[AI REPORT] Report {report_id} was cancelled after AI generation")
+                # Release AI lock on cancellation
+                try:
+                    from ai_resource_lock import release_ai_lock
+                    release_ai_lock()
+                    logger.info(f"[AI REPORT] ✅ AI lock released (cancelled after AI generation)")
+                except Exception as lock_err:
+                    logger.error(f"[AI REPORT] Failed to release lock on cancellation: {lock_err}")
                 return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
             
             if success:
@@ -886,6 +928,14 @@ def generate_ai_report(self, report_id):
                 
                 db.session.commit()
                 
+                # CRITICAL: Release AI lock on success
+                try:
+                    from ai_resource_lock import release_ai_lock
+                    release_ai_lock()
+                    logger.info(f"[AI REPORT] ✅ AI lock released (success)")
+                except Exception as lock_err:
+                    logger.error(f"[AI REPORT] Failed to release lock on success: {lock_err}")
+                
                 logger.info(f"[AI REPORT] Report generated successfully in {generation_time:.1f}s")
                 
                 return {
@@ -904,6 +954,14 @@ def generate_ai_report(self, report_id):
                 report.celery_task_id = None  # Clear task ID on failure
                 
                 db.session.commit()
+                
+                # CRITICAL: Release AI lock on failure
+                try:
+                    from ai_resource_lock import release_ai_lock
+                    release_ai_lock()
+                    logger.info(f"[AI REPORT] ✅ AI lock released (failure)")
+                except Exception as lock_err:
+                    logger.error(f"[AI REPORT] Failed to release lock on failure: {lock_err}")
                 
                 logger.error(f"[AI REPORT] Generation failed: {error_msg}")
                 
@@ -925,6 +983,14 @@ def generate_ai_report(self, report_id):
                     db.session.commit()
             except:
                 pass
+            
+            # CRITICAL: Release AI lock on exception
+            try:
+                from ai_resource_lock import release_ai_lock
+                release_ai_lock()
+                logger.info(f"[AI REPORT] ✅ AI lock released (exception)")
+            except Exception as lock_err:
+                logger.error(f"[AI REPORT] Failed to release lock on exception: {lock_err}")
             
             return {
                 'status': 'error',
@@ -1161,11 +1227,12 @@ def delete_case_async(self, case_id):
 # ============================================================================
 
 @celery_app.task(bind=True, name='tasks.train_dfir_model_from_opencti')
-def train_dfir_model_from_opencti(self, limit=50):
+def train_dfir_model_from_opencti(self, model_name='dfir-qwen:latest', limit=50):
     """
     Train DFIR model using OpenCTI threat intelligence
     
     Args:
+        model_name: Name of the model to train (default: 'dfir-qwen:latest')
         limit: Maximum number of reports to fetch from OpenCTI (default: 50)
     Modular design: delegates to ai_training.py and LoRA training scripts
     """
@@ -1175,21 +1242,80 @@ def train_dfir_model_from_opencti(self, limit=50):
         from main import db
         from routes.settings import get_setting
         from ai_training import generate_training_data_from_opencti
+        from models import AIModel, AITrainingSession
+        from flask_login import current_user
+        
+        # Create training session record for persistent progress tracking
+        session = AITrainingSession(
+            task_id=self.request.id,
+            model_name=model_name,
+            user_id=1,  # Default to admin if not in request context
+            status='pending',
+            progress=0,
+            current_step='Initializing...',
+            report_count=limit,
+            log=''
+        )
+        db.session.add(session)
+        db.session.commit()
         
         log_buffer = []
         
         def log(message):
-            """Log and update task state"""
+            """Log and update both Celery state and database session"""
             timestamp = datetime.now().strftime('%H:%M:%S')
             log_message = f"[{timestamp}] {message}"
             log_buffer.append(log_message)
             logger.info(f"[AI_TRAIN] {message}")
             
-            # Update task state with log
+            # Update Celery task state
             self.update_state(
                 state='PROGRESS',
                 meta={'log': '\n'.join(log_buffer), 'progress': len(log_buffer)}
             )
+            
+            # Update database session for persistence
+            try:
+                session.log = '\n'.join(log_buffer)
+                session.status = 'running'
+                session.updated_at = datetime.now()
+                
+                # Calculate progress based on log content
+                progress = 0
+                current_step = 'Initializing...'
+                
+                log_text = '\n'.join(log_buffer)
+                if 'Step 1/5' in log_text:
+                    progress = 5
+                    current_step = 'Step 1/5: Retrieving configuration'
+                if 'Step 2/5' in log_text:
+                    progress = 20
+                    current_step = 'Step 2/5: Generating training data'
+                if 'Generated' in log_text and 'training examples' in log_text:
+                    progress = 35
+                if 'Step 3/5' in log_text:
+                    progress = 40
+                    current_step = 'Step 3/5: Checking environment'
+                if 'Step 4/5' in log_text:
+                    progress = 50
+                    current_step = 'Step 4/5: Training LoRA adapter (30-60 min)'
+                if 'epoch' in log_text.lower() or 'loss' in log_text.lower():
+                    progress = min(85, max(progress, 55))
+                if 'LoRA training complete' in log_text:
+                    progress = 90
+                if 'Step 5/5' in log_text:
+                    progress = 95
+                    current_step = 'Step 5/5: Auto-deploying model'
+                if 'Training Complete' in log_text:
+                    progress = 100
+                    current_step = 'Complete!'
+                
+                session.progress = progress
+                session.current_step = current_step
+                db.session.commit()
+            except Exception as e:
+                logger.warning(f"[AI_TRAIN] Could not update session: {e}")
+                db.session.rollback()
         
         try:
             log("=" * 60)
@@ -1197,8 +1323,24 @@ def train_dfir_model_from_opencti(self, limit=50):
             log("=" * 60)
             log("")
             
-            # Step 1: Get OpenCTI credentials
-            log("Step 1/5: Retrieving OpenCTI configuration...")
+            # Step 1: Get model and OpenCTI credentials
+            log("Step 1/5: Retrieving configuration...")
+            
+            # Get model from database
+            model = AIModel.query.filter_by(model_name=model_name).first()
+            if not model:
+                raise Exception(f"Model '{model_name}' not found in database")
+            
+            if not model.trainable:
+                raise Exception(f"Model '{model_name}' is not trainable")
+            
+            if not model.base_model:
+                raise Exception(f"No base model configured for '{model_name}'")
+            
+            log(f"✅ Model: {model.display_name}")
+            log(f"✅ Base Model: {model.base_model}")
+            log("")
+            
             opencti_url = get_setting('opencti_url', '')
             opencti_api_key = get_setting('opencti_api_key', '')
             
@@ -1264,17 +1406,18 @@ def train_dfir_model_from_opencti(self, limit=50):
             python_exe = f"{venv_path}/bin/python3"
             train_script = "/opt/casescope/lora_training/scripts/2_train_lora.py"
             
-            # Train with optimal settings
+            # Train with optimal settings (max_seq_length=512 to fit in 8GB VRAM)
+            output_dir = f"/opt/casescope/lora_training/models/{model_name.replace(':', '-')}-trained"
             train_cmd = [
                 python_exe,
                 train_script,
-                "--base_model", "unsloth/qwen2-7b-instruct-bnb-4bit",
+                "--base_model", model.base_model,  # Use base_model from database
                 "--training_data", training_file,
-                "--output_dir", "/opt/casescope/lora_training/models/dfir-opencti-trained",
+                "--output_dir", output_dir,
                 "--epochs", "3",
                 "--batch_size", "1",
                 "--lora_rank", "8",
-                "--max_seq_length", "1024"
+                "--max_seq_length", "512"  # Reduced from 1024 to eliminate CPU offloading
             ]
             
             log(f"Running: {' '.join(train_cmd)}")
@@ -1305,45 +1448,53 @@ def train_dfir_model_from_opencti(self, limit=50):
             
             # Step 5: Auto-deploy trained model
             log("Step 5/5: Auto-deploying trained model...")
-            from routes.settings import set_setting
             
             try:
-                # Update system settings to use trained model
-                set_setting('ai_model_trained', 'true')
-                set_setting('ai_model_trained_date', datetime.now().isoformat())
-                set_setting('ai_model_training_examples', str(example_count))
-                set_setting('ai_model_trained_path', '/opt/casescope/lora_training/models/dfir-opencti-trained')
+                # Update model in database
+                model.trained = True
+                model.trained_date = datetime.now()
+                model.training_examples = example_count
+                model.trained_model_path = output_dir
+                db.session.commit()
                 
-                log("✅ System settings updated:")
-                log(f"   - Model marked as trained")
+                log("✅ Model database updated:")
+                log(f"   - Model: {model.display_name}")
+                log(f"   - Marked as trained")
                 log(f"   - Training date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 log(f"   - Training examples: {example_count}")
-                log(f"   - Model path: /opt/casescope/lora_training/models/dfir-opencti-trained")
+                log(f"   - Model path: {output_dir}")
                 log("")
-                log("🎉 The system will now use the trained model for AI report generation!")
+                log("🎉 The system will now use this trained model for AI report generation!")
             except Exception as e:
-                log(f"⚠️  Warning: Could not update system settings: {e}")
+                log(f"⚠️  Warning: Could not update model database: {e}")
                 log("   Model trained successfully but not auto-configured")
+                db.session.rollback()
             
             log("")
             
             log("=" * 60)
             log("✅ Training Complete!")
             log("=" * 60)
+            log(f"Model: {model.display_name}")
             log(f"Training examples: {example_count}")
-            log(f"LoRA adapter: /opt/casescope/lora_training/models/dfir-opencti-trained")
+            log(f"LoRA adapter: {output_dir}")
             log("")
-            log("Next steps:")
-            log("1. Merge LoRA with base model")
-            log("2. Export to Ollama format")
-            log("3. Deploy as dfir-analyst-trained:latest")
+            log("✅ Model is now marked as TRAINED in the system")
+            log("✅ Future AI reports will use the trained version automatically")
+            
+            # Mark session as completed
+            session.status = 'completed'
+            session.progress = 100
+            session.current_step = 'Complete!'
+            session.completed_at = datetime.now()
+            db.session.commit()
             
             return {
                 'status': 'success',
                 'message': 'AI training completed successfully',
                 'training_file': training_file,
                 'example_count': example_count,
-                'model_path': '/opt/casescope/lora_training/models/dfir-opencti-trained'
+                'model_path': output_dir
             }
             
         except Exception as e:
@@ -1352,7 +1503,25 @@ def train_dfir_model_from_opencti(self, limit=50):
             log(f"❌ {error_msg}")
             logger.error(f"[AI_TRAIN] {error_msg}", exc_info=True)
             
+            # Mark session as failed
+            try:
+                session.status = 'failed'
+                session.error_message = str(e)
+                session.completed_at = datetime.now()
+                db.session.commit()
+            except:
+                pass
+            
             return {
                 'status': 'failed',
                 'error': str(e)
             }
+        
+        finally:
+            # CRITICAL: Always release AI lock (success, failure, or exception)
+            try:
+                from ai_resource_lock import release_ai_lock
+                release_ai_lock()
+                logger.info(f"[AI_TRAIN] ✅ AI lock released (training completed)")
+            except Exception as lock_err:
+                logger.error(f"[AI_TRAIN] Failed to release lock: {lock_err}")

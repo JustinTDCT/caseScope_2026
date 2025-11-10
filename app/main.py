@@ -57,6 +57,8 @@ from routes.ioc import ioc_bp
 app.register_blueprint(ioc_bp)
 from routes.systems import systems_bp
 app.register_blueprint(systems_bp)
+from routes.known_users import known_users_bp
+app.register_blueprint(known_users_bp)
 from routes.files import files_bp
 from routes.cases import cases_bp
 from routes.api_stats import api_stats_bp

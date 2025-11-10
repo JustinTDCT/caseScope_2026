@@ -194,6 +194,24 @@ class System(db.Model):
     __table_args__ = (db.UniqueConstraint('case_id', 'system_name', name='_case_system_uc'),)
 
 
+class KnownUser(db.Model):
+    """Known/Valid users in the environment (not CaseScope application users)"""
+    __tablename__ = 'known_user'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    user_type = db.Column(db.String(20), nullable=False, default='-')  # 'domain', 'local', or '-'
+    compromised = db.Column(db.Boolean, default=False, nullable=False)
+    
+    # Tracking metadata
+    added_method = db.Column(db.String(20), nullable=False)  # 'manual' or 'csv'
+    added_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # CaseScope user who added it
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationships
+    creator = db.relationship('User', foreign_keys=[added_by], backref='known_users_added')
+
+
 class SkippedFile(db.Model):
     """Files skipped during upload (duplicates, 0-events, etc.)"""
     __tablename__ = 'skipped_file'
@@ -355,4 +373,54 @@ class AIReportChat(db.Model):
     # Relationships
     report = db.relationship('AIReport', back_populates='chat_messages')
     user = db.relationship('User', backref='ai_chat_messages', foreign_keys=[user_id])
+
+
+class AIModel(db.Model):
+    """AI model metadata and training status"""
+    __tablename__ = 'ai_model'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    model_name = db.Column(db.String(100), unique=True, nullable=False, index=True)  # 'dfir-llama:latest'
+    display_name = db.Column(db.String(200), nullable=False)  # 'DFIR-Llama 3.1 8B (Forensic Profile)'
+    description = db.Column(db.Text)  # Model description
+    speed = db.Column(db.String(50))  # 'Fast', 'Moderate', 'Slow'
+    quality = db.Column(db.String(50))  # 'Excellent', 'Good', etc.
+    size = db.Column(db.String(50))  # '4.9 GB'
+    speed_estimate = db.Column(db.String(200))  # '~25-35 tok/s GPU'
+    time_estimate = db.Column(db.String(200))  # '3-5 minutes (GPU)'
+    recommended = db.Column(db.Boolean, default=False)  # Is this a recommended model?
+    trainable = db.Column(db.Boolean, default=False)  # Can this model be trained with LoRA?
+    trained = db.Column(db.Boolean, default=False)  # Has this model been trained?
+    trained_date = db.Column(db.DateTime)  # When was it trained?
+    training_examples = db.Column(db.Integer)  # How many reports used for training?
+    trained_model_path = db.Column(db.String(500))  # Path to LoRA adapter weights
+    base_model = db.Column(db.String(100))  # Unsloth base model name (e.g., 'unsloth/qwen2-7b-instruct-bnb-4bit')
+    installed = db.Column(db.Boolean, default=False)  # Is model pulled via Ollama?
+    cpu_optimal = db.Column(db.JSON)  # CPU-optimized parameters (JSON)
+    gpu_optimal = db.Column(db.JSON)  # GPU-optimized parameters (JSON)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AITrainingSession(db.Model):
+    """Persistent tracking of AI training sessions for UI progress monitoring"""
+    __tablename__ = 'ai_training_session'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.String(100), unique=True, nullable=False, index=True)  # Celery task ID
+    model_name = db.Column(db.String(100), nullable=False)  # Model being trained
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # Who started it
+    status = db.Column(db.String(20), default='pending', index=True)  # pending, running, completed, failed
+    progress = db.Column(db.Integer, default=0)  # 0-100
+    current_step = db.Column(db.String(200))  # 'Step 3/5: Training LoRA adapter...'
+    log = db.Column(db.Text)  # Full training log
+    error_message = db.Column(db.Text)  # Error details if failed
+    report_count = db.Column(db.Integer)  # Number of reports used for training
+    started_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)  # Actual training start time
+    completed_at = db.Column(db.DateTime)  # When training finished
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship
+    user = db.relationship('User', backref='training_sessions')
 
