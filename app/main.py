@@ -26,6 +26,42 @@ logger = get_logger('app')  # Get app-specific logger
 app = Flask(__name__)
 app.config.from_object(Config)
 
+
+# Helper function for extracting nested field values
+def get_nested_field(source_dict, field_path):
+    """
+    Extract a nested field value from a dictionary using dot notation
+    Example: get_nested_field(event, 'Event.EventData.SubjectUserName')
+    """
+    if not field_path or not source_dict:
+        return None
+    
+    keys = field_path.split('.')
+    value = source_dict
+    
+    for key in keys:
+        if isinstance(value, dict):
+            value = value.get(key)
+            if value is None:
+                return None
+        else:
+            return None
+    
+    # Handle dict values (like {'#text': 'value'})
+    if isinstance(value, dict):
+        if '#text' in value:
+            return value['#text']
+        elif 'text' in value:
+            return value['text']
+        # For other dicts, return string representation
+        return str(value)
+    
+    return value
+
+
+# Register Jinja filter
+app.jinja_env.filters['get_nested'] = get_nested_field
+
 # Disable static file caching for CSS/JS
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
@@ -1468,6 +1504,7 @@ def search_events(case_id):
         fields = extract_event_fields(result['_source'])
         fields['_id'] = result['_id']
         fields['_index'] = result['_index']
+        fields['_source'] = result['_source']  # Store raw source for custom column access
         fields['ioc_types'] = []  # Will be populated if IOCs match
         fields['is_hidden'] = result['_source'].get('is_hidden', False)  # Include hidden status
         events.append(fields)

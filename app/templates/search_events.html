@@ -351,6 +351,20 @@
                             <td>{{ event.computer_name }}</td>
                             {% elif col == 'source_file' %}
                             <td><span class="text-muted" style="font-size: 0.875rem;">{{ event.source_file }}</span></td>
+                            {% else %}
+                            {# Custom column - extract from raw source #}
+                            <td>
+                                {% set custom_value = event._source|get_nested(col) %}
+                                {% if custom_value %}
+                                    {% if custom_value|length > 100 %}
+                                        <span title="{{ custom_value }}">{{ custom_value[:100] }}...</span>
+                                    {% else %}
+                                        {{ custom_value }}
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
                             {% endif %}
                         {% endfor %}
                         
