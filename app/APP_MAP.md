@@ -1,8 +1,150 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.3  
-**Last Updated**: 2025-11-10 20:48 UTC  
+**Version**: 1.12.6  
+**Last Updated**: 2025-11-10 21:52 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔧 v1.12.6 - FIX: NPS Event Field Mapping for VPN Analysis (2025-11-10 21:52 UTC)
+
+**Change**: Fixed NPS events (6272/6273) not appearing in VPN modals due to incorrect field mapping.
+
+### 1. Problem
+
+User reported Event ID 6272 visible in search results but not appearing in VPN Authentications modal despite firewall IP matching (10.0.0.4).
+
+**Root Cause**:
+- NPS events store IP address in `NASIPv4Address` field (not `IpAddress` or `ClientIPAddress`)
+- NPS events use `SubjectUserName` for username (not `TargetUserName`)
+- NPS events use `ClientName` for device (not `WorkstationName`)
+
+### 2. Field Mapping
+
+| Data | Windows 4624/4625 | NPS 6272/6273 |
+|------|------------------|---------------|
+| **Firewall IP** | `Event.EventData.IpAddress` | `Event.EventData.NASIPv4Address` |
+| **Username** | `Event.EventData.TargetUserName` | `Event.EventData.SubjectUserName` |
+| **Device** | `Event.EventData.WorkstationName` | `Event.EventData.ClientName` |
+
+### 3. Solution
+
+**Updated IP Address Query** (`login_analysis.py` lines 702-717):
+```python
+# IP Address matches firewall
+{
+    "should": [
+        # Windows Event IP field
+        {"term": {"Event.EventData.IpAddress.keyword": firewall_ip}},
+        # NPS Event IP fields
+        {"term": {"Event.EventData.ClientIPAddress.keyword": firewall_ip}},
+        {"term": {"Event.EventData.NASIPv4Address.keyword": firewall_ip}}  # PRIMARY NPS IP
+    ]
+}
+```
+
+**Updated Username Extraction** (`login_analysis.py` lines 764-769):
+```python
+# Extract username (TargetUserName for 4624, SubjectUserName for 6272)
+if 'Event' in source and 'EventData' in source['Event']:
+    username = source['Event']['EventData'].get('TargetUserName') or \
+               source['Event']['EventData'].get('SubjectUserName')
+```
+
+**Updated Workstation/Device Extraction** (`login_analysis.py` lines 771-776):
+```python
+# Extract workstation (WorkstationName for 4624, ClientName for 6272)
+if 'Event' in source and 'EventData' in source['Event']:
+    workstation_name = source['Event']['EventData'].get('WorkstationName') or \
+                       source['Event']['EventData'].get('ClientName')
+```
+
+### 4. Files Modified
+
+- **`app/login_analysis.py`**: Updated `get_vpn_authentications()` and `get_failed_vpn_attempts()`
+  - Added `NASIPv4Address` to IP field query
+  - Added `SubjectUserName` extraction for username
+  - Added `ClientName` extraction for device/workstation
+  - Updated `_source` fields to include NPS-specific fields
+
+### 5. User Impact
+
+- ✅ NPS Event ID 6272/6273 now correctly matched by firewall IP
+- ✅ Username extracted from `SubjectUserName` (e.g., "scanner")
+- ✅ Device name extracted from `ClientName` (e.g., "Sonicwall TZ 270")
+- ✅ Complete VPN audit trail (Windows + NPS events)
+
+---
+
+## 🔧 v1.12.5 - FIX: Add ClientIPAddress Field for NPS VPN Events (2025-11-10 21:36 UTC)
+
+**Change**: Added `ClientIPAddress` field matching for NPS events 6272/6273 in VPN queries.
+
+### 1. Issue
+
+After adding Event IDs 6272/6273 to VPN analysis, modals showed "No events found" but events were visible in search results.
+
+**Root Cause**: NPS events store client IP in `Event.EventData.ClientIPAddress` field, not `Event.EventData.IpAddress` like Windows logon events.
+
+### 2. Solution
+
+Updated both VPN functions to check **both** IP fields:
+- `Event.EventData.IpAddress` (Windows 4624/4625)
+- `Event.EventData.ClientIPAddress` (NPS 6272/6273)
+
+### 3. Files Modified
+
+- **`app/login_analysis.py`**: Updated IP field matching in `get_vpn_authentications()` and `get_failed_vpn_attempts()`
+- **`app/templates/search_events.html`**: Updated bulk IOC source string
+
+---
+
+## ✨ v1.12.4 - FEATURE: Add NPS Event IDs to VPN Analysis (2025-11-10 21:19 UTC)
+
+**Change**: Added NPS (Network Policy Server) Event IDs 6272/6273 to VPN analysis buttons for complete VPN audit trail.
+
+### 1. Feature Enhancement
+
+**VPN Authentications** now searches:
+- ✅ Event ID **4624** (Windows successful logon)
+- ✅ Event ID **6272** (NPS granted access) ← NEW
+
+**Failed VPN Attempts** now searches:
+- ✅ Event ID **4625** (Windows failed logon)
+- ✅ Event ID **6273** (NPS denied access) ← NEW
+
+### 2. Use Case
+
+- **Windows Events (4624/4625)**: Endpoint-level authentication
+- **NPS Events (6272/6273)**: Network Policy Server-level access decisions
+- **Together**: Complete VPN authentication audit trail at both levels
+
+### 3. Implementation
+
+**Backend** (`login_analysis.py`):
+```python
+# VPN Authentications
+"should": [
+    {"term": {"normalized_event_id": "4624"}},
+    {"term": {"normalized_event_id": "6272"}}  # Added
+]
+
+# Failed VPN Attempts
+"should": [
+    {"term": {"normalized_event_id": "4625"}},
+    {"term": {"normalized_event_id": "6273"}}  # Added
+]
+```
+
+**Frontend** (`search_events.html`):
+- Updated modal titles: "VPN Authentications (Event ID 4624, 6272)"
+- Updated error messages: "No Event ID 4624 or 6272 with IpAddress=..."
+- Updated bulk IOC source strings
+
+### 4. Files Modified
+
+- **`app/login_analysis.py`**: Updated both VPN functions with OR logic for event IDs
+- **`app/templates/search_events.html`**: Updated modal titles and error messages
 
 ---
 
