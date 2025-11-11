@@ -462,3 +462,168 @@ def sync_to_dfir_iris(ioc):
     return True
 
 
+# ============================================================================
+# BULK OPERATIONS
+# ============================================================================
+
+@ioc_bp.route('/case/<int:case_id>/ioc/bulk_toggle', methods=['POST'])
+@login_required
+def bulk_toggle_iocs(case_id):
+    """Bulk enable/disable IOCs"""
+    # Permission check: Read-only users cannot toggle IOCs
+    if current_user.role == 'read-only':
+        return jsonify({'success': False, 'error': 'Read-only users cannot toggle IOCs'}), 403
+    
+    from main import db, IOC
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.json
+    ioc_ids = data.get('ioc_ids', [])
+    action = data.get('action', 'enable')  # 'enable' or 'disable'
+    
+    if not ioc_ids or not isinstance(ioc_ids, list):
+        return jsonify({'success': False, 'error': 'IOC IDs array required'}), 400
+    
+    if action not in ['enable', 'disable']:
+        return jsonify({'success': False, 'error': 'Action must be "enable" or "disable"'}), 400
+    
+    try:
+        processed_count = 0
+        new_status = (action == 'enable')
+        
+        for ioc_id in ioc_ids:
+            ioc = db.session.get(IOC, int(ioc_id))
+            if ioc and ioc.case_id == case_id:
+                ioc.is_active = new_status
+                processed_count += 1
+        
+        db.session.commit()
+        
+        action_text = 'enabled' if new_status else 'disabled'
+        flash(f'{processed_count} IOC(s) {action_text}', 'success')
+        
+        return jsonify({
+            'success': True,
+            'processed': processed_count,
+            'action': action
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@ioc_bp.route('/case/<int:case_id>/ioc/bulk_delete', methods=['POST'])
+@login_required
+def bulk_delete_iocs(case_id):
+    """Bulk delete IOCs (administrators only)"""
+    # Permission check: Only administrators can bulk delete
+    if current_user.role != 'administrator':
+        return jsonify({'success': False, 'error': 'Only administrators can bulk delete IOCs'}), 403
+    
+    from main import db, IOC
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.json
+    ioc_ids = data.get('ioc_ids', [])
+    
+    if not ioc_ids or not isinstance(ioc_ids, list):
+        return jsonify({'success': False, 'error': 'IOC IDs array required'}), 400
+    
+    try:
+        deleted_count = 0
+        
+        for ioc_id in ioc_ids:
+            ioc = db.session.get(IOC, int(ioc_id))
+            if ioc and ioc.case_id == case_id:
+                db.session.delete(ioc)
+                deleted_count += 1
+        
+        db.session.commit()
+        
+        flash(f'{deleted_count} IOC(s) deleted', 'success')
+        
+        return jsonify({
+            'success': True,
+            'deleted': deleted_count
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@ioc_bp.route('/case/<int:case_id>/ioc/bulk_enrich', methods=['POST'])
+@login_required
+def bulk_enrich_iocs(case_id):
+    """Bulk enrich IOCs from OpenCTI (background processing)"""
+    from main import db, IOC
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    data = request.json
+    ioc_ids = data.get('ioc_ids', [])
+    
+    if not ioc_ids or not isinstance(ioc_ids, list):
+        return jsonify({'success': False, 'error': 'IOC IDs array required'}), 400
+    
+    # Check if OpenCTI is enabled
+    from models import SystemSettings
+    opencti_enabled = SystemSettings.query.filter_by(setting_key='opencti_enabled').first()
+    if not opencti_enabled or opencti_enabled.setting_value != 'true':
+        return jsonify({'success': False, 'error': 'OpenCTI enrichment is not enabled'}), 400
+    
+    try:
+        # Return success immediately, enrich in background
+        flash(f'Enriching {len(ioc_ids)} IOC(s) from OpenCTI in background...', 'info')
+        response = jsonify({
+            'success': True,
+            'queued': len(ioc_ids),
+            'message': 'Enrichment started in background'
+        })
+        
+        # Run enrichment in background thread (non-blocking)
+        from threading import Thread
+        from flask import current_app
+        
+        # Get actual app object (current_app is a proxy that doesn't work in threads)
+        app = current_app._get_current_object()
+        
+        def background_bulk_enrich():
+            with app.app_context():
+                import logging
+                logger = logging.getLogger(__name__)
+                success_count = 0
+                failed_count = 0
+                
+                for ioc_id in ioc_ids:
+                    try:
+                        ioc = db.session.get(IOC, int(ioc_id))
+                        if ioc and ioc.case_id == case_id:
+                            result = enrich_from_opencti(ioc)
+                            if result:
+                                success_count += 1
+                            else:
+                                failed_count += 1
+                    except Exception as e:
+                        logger.error(f"[IOC] Bulk enrichment failed for IOC {ioc_id}: {e}")
+                        failed_count += 1
+                
+                logger.info(f"[IOC] Bulk enrichment complete: {success_count} succeeded, {failed_count} failed")
+        
+        Thread(target=background_bulk_enrich, daemon=True).start()
+        
+        return response
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+

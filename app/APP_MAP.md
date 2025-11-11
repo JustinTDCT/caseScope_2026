@@ -1,8 +1,235 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.8  
-**Last Updated**: 2025-11-10 23:05 UTC  
+**Version**: 1.12.9  
+**Last Updated**: 2025-11-11 00:10 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.12.9 - FEATURE: Bulk Operations for IOC Management (2025-11-11 00:10 UTC)
+
+**Change**: Added bulk selection and actions to IOC Management page for efficient multi-IOC operations.
+
+### 1. Feature Overview
+
+**Bulk Actions Available**:
+- ✅ **Bulk Enable** - Activate multiple IOCs at once
+- ⏸️ **Bulk Disable** - Deactivate multiple IOCs at once
+- 🔍 **Bulk Enrich** - Query OpenCTI for threat intel on multiple IOCs (if OpenCTI enabled)
+- 🗑️ **Bulk Delete** - Delete multiple IOCs (administrators only, double confirmation required)
+
+**User Experience**:
+- Checkbox column added to IOC table
+- "Select All" checkbox in table header
+- Bulk action toolbar with live selection counts
+- Buttons disabled when no IOCs selected
+- Real-time count updates as checkboxes change
+- Permission-based button visibility (admin-only for delete)
+
+### 2. Implementation Pattern
+
+**Followed login analysis bulk IOC pattern** from v1.12.2:
+1. Checkbox column with unique class (`.ioc-checkbox`)
+2. Select all checkbox in header
+3. Bulk action buttons with counts
+4. Three JavaScript functions per action:
+   - `toggleSelectAllIOCs()` - Toggle all checkboxes
+   - `updateBulkButtons()` - Update button counts and enabled states
+   - `bulkActionIOCs()` - Submit selected IOCs to backend
+5. Backend endpoints accept JSON array of IOC IDs
+6. Returns summary: `{success: true, processed: N}`
+
+### 3. Backend Endpoints
+
+**Created 3 new endpoints** in `app/routes/ioc.py` (lines 469-627):
+
+**Bulk Toggle** (`/case/<case_id>/ioc/bulk_toggle`):
+```python
+@ioc_bp.route('/case/<int:case_id>/ioc/bulk_toggle', methods=['POST'])
+@login_required
+def bulk_toggle_iocs(case_id):
+    """Bulk enable/disable IOCs"""
+    # Permission check: Read-only users cannot toggle
+    # Accepts: {ioc_ids: [1,2,3], action: 'enable' or 'disable'}
+    # Returns: {success: true, processed: N, action: 'enable'}
+```
+
+**Bulk Delete** (`/case/<case_id>/ioc/bulk_delete`):
+```python
+@ioc_bp.route('/case/<int:case_id>/ioc/bulk_delete', methods=['POST'])
+@login_required
+def bulk_delete_iocs(case_id):
+    """Bulk delete IOCs (administrators only)"""
+    # Permission check: Only administrators allowed
+    # Accepts: {ioc_ids: [1,2,3]}
+    # Returns: {success: true, deleted: N}
+```
+
+**Bulk Enrich** (`/case/<case_id>/ioc/bulk_enrich`):
+```python
+@ioc_bp.route('/case/<int:case_id>/ioc/bulk_enrich', methods=['POST'])
+@login_required
+def bulk_enrich_iocs(case_id):
+    """Bulk enrich IOCs from OpenCTI (background processing)"""
+    # Check OpenCTI enabled
+    # Returns immediately, enriches in background thread
+    # Accepts: {ioc_ids: [1,2,3]}
+    # Returns: {success: true, queued: N, message: '...'}
+```
+
+### 4. Frontend Changes
+
+**Updated `ioc_management.html`**:
+
+**Bulk Actions Toolbar** (lines 66-85):
+```html
+<div style="...background: var(--color-background-tertiary)...">
+    <span>Bulk Actions:</span>
+    <button id="bulkEnableBtn" onclick="bulkEnableIOCs()">
+        ✅ Enable (<span id="countEnable">0</span>)
+    </button>
+    <button id="bulkDisableBtn" onclick="bulkDisableIOCs()">
+        ⏸️ Disable (<span id="countDisable">0</span>)
+    </button>
+    {% if opencti_enabled %}
+    <button id="bulkEnrichBtn" onclick="bulkEnrichIOCs()">
+        🔍 Enrich from OpenCTI (<span id="countEnrich">0</span>)
+    </button>
+    {% endif %}
+    {% if current_user.role == 'administrator' %}
+    <button id="bulkDeleteBtn" onclick="bulkDeleteIOCs()">
+        🗑️ Delete (<span id="countDelete">0</span>) - Admin Only
+    </button>
+    {% endif %}
+</div>
+```
+
+**Table with Checkboxes** (lines 88-109):
+```html
+<thead>
+    <tr>
+        <th style="width: 50px;">
+            <input type="checkbox" id="selectAllIOCs" onclick="toggleSelectAllIOCs()">
+        </th>
+        <th>Type</th>
+        ...
+    </tr>
+</thead>
+<tbody>
+    {% for ioc in iocs %}
+    <tr>
+        <td>
+            <input type="checkbox" class="ioc-checkbox" value="{{ ioc.id }}" onchange="updateBulkButtons()">
+        </td>
+        ...
+    </tr>
+    {% endfor %}
+</tbody>
+```
+
+**JavaScript Functions** (lines 566-740):
+- `toggleSelectAllIOCs()` - Toggle all checkboxes
+- `updateBulkButtons()` - Update counts and button states
+- `bulkEnableIOCs()` - Enable selected IOCs
+- `bulkDisableIOCs()` - Disable selected IOCs
+- `bulkEnrichIOCs()` - Enrich selected IOCs from OpenCTI
+- `bulkDeleteIOCs()` - Delete selected IOCs (double confirmation)
+
+### 5. Permission & Safety Features
+
+**Permission Checks**:
+- ❌ **Read-only users**: Cannot toggle, enrich, or delete IOCs
+- ✅ **Analysts/Administrators**: Can enable/disable and enrich IOCs
+- ✅ **Administrators only**: Can bulk delete IOCs
+
+**Safety Features**:
+1. **Confirmation dialogs** for all bulk actions
+2. **Double confirmation** for bulk delete (`confirm()` called twice)
+3. **Admin-only delete** enforced at both frontend (button visibility) and backend (403 error)
+4. **Background processing** for bulk enrichment (non-blocking, returns immediately)
+5. **Selection count display** shows number of IOCs before action
+6. **Buttons disabled** when no IOCs selected (prevents accidental empty submissions)
+
+### 6. User Workflow
+
+**Bulk Enable/Disable Workflow**:
+1. User checks IOCs to enable/disable
+2. Clicks "✅ Enable (N)" or "⏸️ Disable (N)" button
+3. Confirmation dialog shows count
+4. Backend toggles all selected IOCs
+5. Page reloads with updated IOC status
+
+**Bulk Enrichment Workflow**:
+1. User checks IOCs to enrich
+2. Clicks "🔍 Enrich from OpenCTI (N)" button
+3. Confirmation dialog explains background processing
+4. Backend queues IOCs for enrichment (returns immediately)
+5. Enrichment runs in background thread (non-blocking)
+6. User refreshes page after a few moments to see enrichment data
+
+**Bulk Delete Workflow** (Admin only):
+1. User checks IOCs to delete
+2. Clicks "🗑️ Delete (N) - Admin Only" button
+3. **First confirmation**: "DELETE N IOC(s)? This action CANNOT be undone!"
+4. **Second confirmation**: "Are you ABSOLUTELY SURE?"
+5. Backend deletes all selected IOCs
+6. Page reloads with IOCs removed
+
+### 7. Modular Design Principles Applied
+
+**Reused Existing Patterns**:
+- ✅ Same checkbox pattern from login analysis bulk IOCs (v1.12.2)
+- ✅ Same button naming convention (`bulkActionBtn`, `countAction`)
+- ✅ Same permission checks from individual IOC operations
+- ✅ Same background thread pattern for OpenCTI enrichment
+- ✅ Same error handling and flash messages
+
+**Low Per-Page Code**:
+- ✅ Bulk functions separated from individual IOC functions
+- ✅ Clear section comment: `// BULK OPERATIONS` (line 562)
+- ✅ Reused existing `enrich_from_opencti()` function (no duplication)
+- ✅ Minimal code changes to table structure (just added checkbox column)
+
+**Function Reuse**:
+- ✅ `enrich_from_opencti(ioc)` - Used by both individual and bulk enrichment
+- ✅ `Case` and `IOC` models - Same permission checks as individual operations
+- ✅ `flash()` - Same user feedback pattern
+- ✅ `jsonify()` - Consistent API responses
+
+### 8. Files Modified
+
+- **`app/routes/ioc.py`**: Added 3 bulk operation endpoints (159 lines added)
+  - `bulk_toggle_iocs()` - Enable/disable IOCs
+  - `bulk_delete_iocs()` - Delete IOCs (admin only)
+  - `bulk_enrich_iocs()` - Enrich IOCs from OpenCTI
+- **`app/templates/ioc_management.html`**: Added bulk UI and JavaScript (194 lines added)
+  - Bulk actions toolbar with 4 buttons
+  - Checkbox column in IOC table
+  - 6 JavaScript functions for bulk operations
+
+### 9. Use Cases
+
+**Incident Response Scenario**:
+> During a ransomware investigation, analyst identifies 47 malicious usernames from AD logs. Instead of manually disabling 47 IOCs one-by-one, analyst selects all malicious usernames and clicks "Disable (47)" to exclude them from future hunts in one action.
+
+**Threat Intelligence Update**:
+> SOC team receives updated threat intel feed with 120 new IOCs. After importing them, admin clicks "Select All" and "Enrich from OpenCTI (120)" to bulk-enrich all new IOCs in background. Enrichment completes in ~5 minutes without blocking the UI.
+
+**Case Cleanup**:
+> Administrator closing a case with 200+ test IOCs. Instead of deleting 200 IOCs individually, admin selects all test IOCs, clicks "Delete (234) - Admin Only", confirms twice, and removes all in one operation.
+
+### 10. Testing Checklist
+
+- [ ] Select individual IOCs, verify count updates
+- [ ] Click "Select All", verify all checked
+- [ ] Bulk enable 5 IOCs, verify status changes
+- [ ] Bulk disable 5 IOCs, verify status changes
+- [ ] Bulk enrich 3 IOCs (if OpenCTI enabled), verify enrichment data appears
+- [ ] Bulk delete as analyst (should see 403 error)
+- [ ] Bulk delete as admin (should succeed after double confirmation)
+- [ ] Verify read-only user cannot see bulk action buttons
+- [ ] Verify buttons disabled when no selection
+- [ ] Verify double confirmation for bulk delete
 
 ---
 
