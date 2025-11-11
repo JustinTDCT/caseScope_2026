@@ -1,8 +1,78 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.15  
-**Last Updated**: 2025-11-11 12:55 UTC  
+**Version**: 1.12.16  
+**Last Updated**: 2025-11-11 13:05 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔧 v1.12.16 - FIX: SIGMA Event Flagging - Safe JSON Parsing (2025-11-11 13:05 UTC)
+
+**Change**: Replaced dangerous `eval()` with safe JSON parsing for SIGMA event flagging.
+
+### 1. Problem: Unsafe eval() and Improper JSON Serialization
+
+**Root Cause**:
+The code had two issues when flagging OpenSearch events with `has_sigma`:
+
+1. **Line 921**: Used `str(event_data)` instead of `json.dumps(event_data)`
+   - Created Python dict string representation: `"{'timestamp': '...', 'computer': '...'}"`
+   - Not proper JSON format
+
+2. **Line 953**: Used dangerous `eval()` to parse the string back
+   - Security risk (arbitrary code execution)
+   - Could fail with special characters in strings
+   - No error handling
+
+### 2. The Fix
+
+**Before (lines 921 + 953)**:
+```python
+# Line 921 - Storing
+'event_data': str(event_data),  # Python string representation
+
+# Line 953 - Parsing
+event_data = eval(v['event_data'])  # Dangerous!
+```
+
+**After (lines 921, 953-961)**:
+```python
+# Line 921 - Storing as proper JSON
+'event_data': json.dumps(event_data),  # Proper JSON string
+
+# Lines 953-961 - Safe parsing with error handling
+try:
+    event_data = json.loads(v['event_data'])  # Safe JSON parsing
+    timestamp = event_data.get('timestamp', '')
+    computer = event_data.get('computer', '')
+    if timestamp and computer:
+        violation_identifiers.add((timestamp, computer))
+except (json.JSONDecodeError, KeyError) as e:
+    logger.warning(f"[CHAINSAW FILE] Could not parse event_data for flagging: {e}")
+    continue
+```
+
+### 3. Impact
+
+**Security**:
+- ✅ Removed arbitrary code execution risk from `eval()`
+- ✅ Using standard `json` library for safe parsing
+
+**Reliability**:
+- ✅ Proper JSON format for event_data storage
+- ✅ Error handling for malformed data
+- ✅ Continues processing even if one event fails to parse
+
+**Functionality**:
+- ✅ `has_sigma` flags now set correctly on OpenSearch events
+- ✅ Works for both initial SIGMA processing and re-runs
+- ✅ SIGMA filter in search page will show results
+
+### 4. Files Modified
+
+- **`app/file_processing.py`** (lines 921, 953-961): Safe JSON parsing
+- **`app/version.json`**: Updated to v1.12.16
+- **`app/APP_MAP.md`**: Updated to v1.12.16
 
 ---
 

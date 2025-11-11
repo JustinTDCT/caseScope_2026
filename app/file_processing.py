@@ -918,7 +918,7 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
                                 'file_id': file_id,
                                 'rule_id': rule_cache[rule_title],
                                 'event_id': row.get('Event ID', row.get('EventID', row.get('event_id', ''))),
-                                'event_data': str(event_data),  # Store as JSON string
+                                'event_data': json.dumps(event_data),  # Store as proper JSON string
                                 'matched_fields': '{}',  # Placeholder
                                 'severity': rule_level
                             }
@@ -950,11 +950,15 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
                 # Collect all violation identifiers (timestamp + computer pairs)
                 violation_identifiers = set()
                 for v in violations_found:
-                    event_data = eval(v['event_data'])  # Parse the JSON string back to dict
-                    timestamp = event_data.get('timestamp', '')
-                    computer = event_data.get('computer', '')
-                    if timestamp and computer:
-                        violation_identifiers.add((timestamp, computer))
+                    try:
+                        event_data = json.loads(v['event_data'])  # Parse JSON string back to dict
+                        timestamp = event_data.get('timestamp', '')
+                        computer = event_data.get('computer', '')
+                        if timestamp and computer:
+                            violation_identifiers.add((timestamp, computer))
+                    except (json.JSONDecodeError, KeyError) as e:
+                        logger.warning(f"[CHAINSAW FILE] Could not parse event_data for flagging: {e}")
+                        continue
                 
                 # Search OpenSearch for these events and update them
                 from opensearchpy.helpers import bulk as opensearch_bulk
