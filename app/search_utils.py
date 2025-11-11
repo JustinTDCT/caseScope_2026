@@ -70,13 +70,13 @@ def build_search_query(
         # Events with 3 or more IOC matches
         query["bool"]["filter"].append({"range": {"ioc_count": {"gte": 3}}})
     elif filter_type == "sigma_and_ioc":
+        # Require BOTH SIGMA and IOC (AND logic, not OR)
         query["bool"]["filter"].append({
             "bool": {
-                "should": [
+                "must": [
                     {"term": {"has_sigma": True}},
                     {"term": {"has_ioc": True}}
-                ],
-                "minimum_should_match": 1
+                ]
             }
         })
     elif filter_type == "tagged":

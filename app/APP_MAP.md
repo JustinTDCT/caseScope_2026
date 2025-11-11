@@ -1,8 +1,186 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.9  
-**Last Updated**: 2025-11-11 00:10 UTC  
+**Version**: 1.12.14  
+**Last Updated**: 2025-11-11 12:50 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🚨 v1.12.14 - CRITICAL FIX: SIGMA Violations Filter + SIGMA+IOC AND Logic (2025-11-11 12:50 UTC)
+
+**Change**: Fixed two critical search filter bugs preventing SIGMA event filtering.
+
+### 1. Problem 1: SIGMA Violations Only Filter Returns 0 Events
+
+**User Report**: "I tried to view SIGMA events only and none were returned but as you can see they do exist"
+- Event Statistics shows **54,636 SIGMA Violations**
+- SIGMA Violations Only filter returns **0 events**
+
+**Root Cause**: 
+The `has_sigma` flag was **never being set** in OpenSearch events during SIGMA processing.
+
+**Evidence from code review**:
+```python
+# file_processing.py - run_chainsaw_on_file()
+# Line 683 comment said: "Update OpenSearch events with has_sigma_violation flag"
+# BUT: No code actually updated OpenSearch!
+
+# Compare to IOC hunting (line 1224):
+'script': {
+    'source': 'ctx._source.has_ioc = true; if (ctx._source.ioc_count == null) { ctx._source.ioc_count = 1 } else { ctx._source.ioc_count += 1 }',
+    'lang': 'painless'
+}
+```
+
+**The Fix**:
+Added OpenSearch event flagging to `run_chainsaw_on_file()` after SIGMA violations are stored in the database (lines 946-1015):
+
+```python
+# Update OpenSearch events with has_sigma flag
+# Extract unique timestamps and computers to find matching events
+logger.info("[CHAINSAW FILE] Updating OpenSearch events with has_sigma flags...")
+
+# Collect all violation identifiers (timestamp + computer pairs)
+violation_identifiers = set()
+for v in violations_found:
+    event_data = eval(v['event_data'])  # Parse the JSON string back to dict
+    timestamp = event_data.get('timestamp', '')
+    computer = event_data.get('computer', '')
+    if timestamp and computer:
+        violation_identifiers.add((timestamp, computer))
+
+# Search OpenSearch for these events and update them
+from opensearchpy.helpers import bulk as opensearch_bulk
+batch_size = 100
+total_updated = 0
+
+for identifier_batch in [list(violation_identifiers)[i:i+batch_size] for i in range(0, len(violation_identifiers), batch_size)]:
+    # Build query to find events matching these identifiers
+    should_clauses = []
+    for timestamp, computer in identifier_batch:
+        should_clauses.append({
+            "bool": {
+                "must": [
+                    {"match": {"normalized_timestamp": timestamp}},
+                    {"match": {"normalized_computer": computer}}
+                ]
+            }
+        })
+    
+    search_query = {
+        "query": {
+            "bool": {
+                "should": should_clauses,
+                "minimum_should_match": 1
+            }
+        },
+        "size": 1000,
+        "_source": False
+    }
+    
+    try:
+        search_results = opensearch_client.search(index=index_name, body=search_query)
+        hits = search_results['hits']['hits']
+        
+        if hits:
+            # Prepare bulk updates
+            bulk_updates = []
+            for hit in hits:
+                bulk_updates.append({
+                    '_op_type': 'update',
+                    '_index': index_name,
+                    '_id': hit['_id'],
+                    'script': {
+                        'source': 'ctx._source.has_sigma = true',
+                        'lang': 'painless'
+                    }
+                })
+            
+            if bulk_updates:
+                opensearch_bulk(opensearch_client, bulk_updates)
+                total_updated += len(bulk_updates)
+                logger.info(f"[CHAINSAW FILE] Updated {len(bulk_updates)} OpenSearch events with has_sigma flag")
+    
+    except Exception as e:
+        logger.warning(f"[CHAINSAW FILE] Error updating OpenSearch batch: {e}")
+        continue
+
+logger.info(f"[CHAINSAW FILE] ✓ Updated {total_updated} total OpenSearch events with has_sigma flag")
+```
+
+**Key Points**:
+- Uses timestamp + computer matching (same as Chainsaw CSV output)
+- Batches updates (100 events per batch) for efficiency
+- Sets `has_sigma = true` flag in OpenSearch using Painless script
+- Mirrors IOC hunting pattern from line 1224
+
+### 2. Problem 2: SIGMA+IOC Filter Uses OR Logic Instead of AND
+
+**User Report**: "the sigma+ioc only returned IOCs by the way no sigma was returned"
+
+**Root Cause**:
+The `sigma_and_ioc` filter used **OR logic** (should + minimum_should_match:1) instead of **AND logic** (must):
+
+```python
+# BEFORE (search_utils.py lines 72-81):
+elif filter_type == "sigma_and_ioc":
+    query["bool"]["filter"].append({
+        "bool": {
+            "should": [  # ❌ OR LOGIC - Either flag can match
+                {"term": {"has_sigma": True}},
+                {"term": {"has_ioc": True}}
+            ],
+            "minimum_should_match": 1  # ❌ Only 1 required
+        }
+    })
+```
+
+**The Fix**:
+Changed from `"should"` to `"must"` to require BOTH flags:
+
+```python
+# AFTER (search_utils.py lines 72-81):
+elif filter_type == "sigma_and_ioc":
+    # Require BOTH SIGMA and IOC (AND logic, not OR)
+    query["bool"]["filter"].append({
+        "bool": {
+            "must": [  # ✅ AND LOGIC - Both flags required
+                {"term": {"has_sigma": True}},
+                {"term": {"has_ioc": True}}
+            ]
+        }
+    })
+```
+
+### 3. Files Modified
+
+- **`app/file_processing.py`** (lines 946-1015): Added OpenSearch event flagging after SIGMA violations are stored
+- **`app/search_utils.py`** (lines 72-81): Changed SIGMA+IOC filter from OR to AND logic
+- **`app/version.json`**: Updated to v1.12.14
+- **`app/APP_MAP.md`**: Updated to v1.12.14
+
+### 4. User Impact
+
+**Before**:
+- ❌ SIGMA Violations Only filter: 0 events (despite 54,636 violations existing)
+- ❌ IOC+SIGMA Events Only: Returned only IOC events (OR logic)
+
+**After**:
+- ✅ SIGMA Violations Only filter: Returns all events with SIGMA violations
+- ✅ IOC+SIGMA Events Only: Returns only events with BOTH SIGMA and IOC flags (AND logic)
+- ✅ Future EVTX uploads will automatically flag events during SIGMA processing
+- ✅ Existing files need to be re-processed to populate flags (re-run SIGMA detection)
+
+### 5. Important Notes
+
+**For Existing Cases**:
+- Events indexed BEFORE v1.12.14 do NOT have the `has_sigma` flag set
+- To fix: Re-upload files OR re-run SIGMA detection on existing files
+- The SIGMA violations are still in the database, only the OpenSearch flags are missing
+
+**For New Cases**:
+- All EVTX files will automatically get `has_sigma` flags during processing
+- Works immediately after service restart
 
 ---
 

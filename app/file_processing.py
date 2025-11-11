@@ -942,6 +942,77 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
                     db.session.add(violation)
                 
                 logger.info(f"[CHAINSAW FILE] Stored {violation_count} violations in database")
+                
+                # Update OpenSearch events with has_sigma flag
+                # Extract unique timestamps and computers to find matching events
+                logger.info("[CHAINSAW FILE] Updating OpenSearch events with has_sigma flags...")
+                
+                # Collect all violation identifiers (timestamp + computer pairs)
+                violation_identifiers = set()
+                for v in violations_found:
+                    event_data = eval(v['event_data'])  # Parse the JSON string back to dict
+                    timestamp = event_data.get('timestamp', '')
+                    computer = event_data.get('computer', '')
+                    if timestamp and computer:
+                        violation_identifiers.add((timestamp, computer))
+                
+                # Search OpenSearch for these events and update them
+                from opensearchpy.helpers import bulk as opensearch_bulk
+                batch_size = 100
+                total_updated = 0
+                
+                for identifier_batch in [list(violation_identifiers)[i:i+batch_size] for i in range(0, len(violation_identifiers), batch_size)]:
+                    # Build query to find events matching these identifiers
+                    should_clauses = []
+                    for timestamp, computer in identifier_batch:
+                        should_clauses.append({
+                            "bool": {
+                                "must": [
+                                    {"match": {"normalized_timestamp": timestamp}},
+                                    {"match": {"normalized_computer": computer}}
+                                ]
+                            }
+                        })
+                    
+                    search_query = {
+                        "query": {
+                            "bool": {
+                                "should": should_clauses,
+                                "minimum_should_match": 1
+                            }
+                        },
+                        "size": 1000,
+                        "_source": False
+                    }
+                    
+                    try:
+                        search_results = opensearch_client.search(index=index_name, body=search_query)
+                        hits = search_results['hits']['hits']
+                        
+                        if hits:
+                            # Prepare bulk updates
+                            bulk_updates = []
+                            for hit in hits:
+                                bulk_updates.append({
+                                    '_op_type': 'update',
+                                    '_index': index_name,
+                                    '_id': hit['_id'],
+                                    'script': {
+                                        'source': 'ctx._source.has_sigma = true',
+                                        'lang': 'painless'
+                                    }
+                                })
+                            
+                            if bulk_updates:
+                                opensearch_bulk(opensearch_client, bulk_updates)
+                                total_updated += len(bulk_updates)
+                                logger.info(f"[CHAINSAW FILE] Updated {len(bulk_updates)} OpenSearch events with has_sigma flag")
+                    
+                    except Exception as e:
+                        logger.warning(f"[CHAINSAW FILE] Error updating OpenSearch batch: {e}")
+                        continue
+                
+                logger.info(f"[CHAINSAW FILE] ✓ Updated {total_updated} total OpenSearch events with has_sigma flag")
             
             # Update file violation count
             case_file.violation_count = violation_count
