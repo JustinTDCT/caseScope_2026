@@ -142,13 +142,20 @@ def update_sigma_rules():
         }
     
     try:
+        # Set up environment with proper PATH for subprocess
+        # Fixes: [Errno 2] No such file or directory: 'git'
+        import os
+        env = os.environ.copy()
+        env['PATH'] = '/usr/bin:/usr/local/bin:/bin:' + env.get('PATH', '')
+        
         # Git pull
         result = subprocess.run(
             ['git', 'pull'],
             cwd=str(sigma_repo),
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=60,
+            env=env
         )
         
         output = result.stdout + result.stderr
