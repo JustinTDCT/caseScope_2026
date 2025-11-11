@@ -917,6 +917,7 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
                                 'case_id': case_file.case_id,
                                 'file_id': file_id,
                                 'rule_id': rule_cache[rule_title],
+                                'rule_title': rule_title,  # Store for OpenSearch flagging
                                 'event_id': row.get('Event ID', row.get('EventID', row.get('event_id', ''))),
                                 'event_data': json.dumps(event_data),  # Store as proper JSON string
                                 'matched_fields': '{}',  # Placeholder
@@ -943,19 +944,26 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
                 
                 logger.info(f"[CHAINSAW FILE] Stored {violation_count} violations in database")
                 
-                # Update OpenSearch events with has_sigma flag
+                # Update OpenSearch events with has_sigma flag and rule name
                 # Extract unique timestamps and computers to find matching events
                 logger.info("[CHAINSAW FILE] Updating OpenSearch events with has_sigma flags...")
                 
-                # Collect all violation identifiers (timestamp + computer pairs)
-                violation_identifiers = set()
+                # Build map: (timestamp, computer) -> rule_title
+                # If multiple rules match same event, concatenate with semicolon
+                violation_map = {}
                 for v in violations_found:
                     try:
                         event_data = json.loads(v['event_data'])  # Parse JSON string back to dict
                         timestamp = event_data.get('timestamp', '')
                         computer = event_data.get('computer', '')
                         if timestamp and computer:
-                            violation_identifiers.add((timestamp, computer))
+                            key = (timestamp, computer)
+                            rule_title = v.get('rule_title', 'Unknown')
+                            if key in violation_map:
+                                # Multiple rules for same event - append with separator
+                                violation_map[key] += f"; {rule_title}"
+                            else:
+                                violation_map[key] = rule_title
                     except (json.JSONDecodeError, KeyError) as e:
                         logger.warning(f"[CHAINSAW FILE] Could not parse event_data for flagging: {e}")
                         continue
@@ -965,7 +973,7 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
                 batch_size = 100
                 total_updated = 0
                 
-                for identifier_batch in [list(violation_identifiers)[i:i+batch_size] for i in range(0, len(violation_identifiers), batch_size)]:
+                for identifier_batch in [list(violation_map.keys())[i:i+batch_size] for i in range(0, len(violation_map), batch_size)]:
                     # Build query to find events matching these identifiers
                     should_clauses = []
                     for timestamp, computer in identifier_batch:
@@ -986,7 +994,7 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
                             }
                         },
                         "size": 1000,
-                        "_source": False
+                        "_source": ["normalized_timestamp", "normalized_computer"]
                     }
                     
                     try:
@@ -994,23 +1002,31 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
                         hits = search_results['hits']['hits']
                         
                         if hits:
-                            # Prepare bulk updates
+                            # Prepare bulk updates with has_sigma flag AND sigma_rule field
                             bulk_updates = []
                             for hit in hits:
+                                # Get the rule title for this specific event
+                                hit_timestamp = hit['_source'].get('normalized_timestamp', '')
+                                hit_computer = hit['_source'].get('normalized_computer', '')
+                                rule_title = violation_map.get((hit_timestamp, hit_computer), 'Unknown')
+                                
                                 bulk_updates.append({
                                     '_op_type': 'update',
                                     '_index': index_name,
                                     '_id': hit['_id'],
                                     'script': {
-                                        'source': 'ctx._source.has_sigma = true',
-                                        'lang': 'painless'
+                                        'source': 'ctx._source.has_sigma = true; ctx._source.sigma_rule = params.rule',
+                                        'lang': 'painless',
+                                        'params': {
+                                            'rule': rule_title
+                                        }
                                     }
                                 })
                             
                             if bulk_updates:
                                 opensearch_bulk(opensearch_client, bulk_updates)
                                 total_updated += len(bulk_updates)
-                                logger.info(f"[CHAINSAW FILE] Updated {len(bulk_updates)} OpenSearch events with has_sigma flag")
+                                logger.info(f"[CHAINSAW FILE] Updated {len(bulk_updates)} OpenSearch events with has_sigma flag and rule name")
                     
                     except Exception as e:
                         logger.warning(f"[CHAINSAW FILE] Error updating OpenSearch batch: {e}")

@@ -1778,11 +1778,17 @@ def get_event_detail_route(case_id, event_id):
     
     ioc_values = [ioc.ioc_value.lower() for ioc in iocs]  # Lowercase for case-insensitive matching
     
+    # Get SIGMA rule if present in event
+    sigma_rule = event['_source'].get('sigma_rule', None)
+    has_sigma = event['_source'].get('has_sigma', False)
+    
     return jsonify({
         'event_id': event_id,
         'index': index_name,
         'fields': fields,
-        'iocs': ioc_values  # Include IOCs for client-side highlighting
+        'iocs': ioc_values,  # Include IOCs for client-side highlighting
+        'has_sigma': has_sigma,
+        'sigma_rule': sigma_rule  # Include SIGMA rule for purple highlighting
     })
 
 
