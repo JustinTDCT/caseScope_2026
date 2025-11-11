@@ -217,6 +217,89 @@
 </div>
 {% endif %}
 
+<!-- Common Event IDs & Search Tips -->
+<div class="card" style="margin-bottom: var(--spacing-lg);">
+    <div class="card-body">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-xl);">
+            <!-- Common Event IDs -->
+            <div>
+                <h3 style="margin-bottom: var(--spacing-md); font-size: 1rem; color: var(--color-text-primary); font-weight: 600;">
+                    📋 Common Event IDs
+                </h3>
+                <div style="display: grid; gap: var(--spacing-xs);">
+                    <div style="display: flex; align-items: center; padding: var(--spacing-xs); background: var(--color-background-tertiary); border-radius: 4px;">
+                        <code style="font-weight: 600; color: var(--color-primary); min-width: 60px;">4624</code>
+                        <span style="color: var(--color-text-secondary);">User has logged in</span>
+                    </div>
+                    <div style="display: flex; align-items: center; padding: var(--spacing-xs); background: var(--color-background-tertiary); border-radius: 4px;">
+                        <code style="font-weight: 600; color: var(--color-primary); min-width: 60px;">4625</code>
+                        <span style="color: var(--color-text-secondary);">User access denied</span>
+                    </div>
+                    <div style="display: flex; align-items: center; padding: var(--spacing-xs); background: var(--color-background-tertiary); border-radius: 4px;">
+                        <code style="font-weight: 600; color: var(--color-primary); min-width: 60px;">5140</code>
+                        <span style="color: var(--color-text-secondary);">Share accessed</span>
+                    </div>
+                    <div style="display: flex; align-items: center; padding: var(--spacing-xs); background: var(--color-background-tertiary); border-radius: 4px;">
+                        <code style="font-weight: 600; color: var(--color-primary); min-width: 60px;">6272</code>
+                        <span style="color: var(--color-text-secondary);">NPS allowed login</span>
+                    </div>
+                    <div style="display: flex; align-items: center; padding: var(--spacing-xs); background: var(--color-background-tertiary); border-radius: 4px;">
+                        <code style="font-weight: 600; color: var(--color-primary); min-width: 60px;">6273</code>
+                        <span style="color: var(--color-text-secondary);">NPS denied login</span>
+                    </div>
+                    <div style="display: flex; align-items: center; padding: var(--spacing-xs); background: var(--color-background-tertiary); border-radius: 4px;">
+                        <code style="font-weight: 600; color: var(--color-primary); min-width: 60px;">4725</code>
+                        <span style="color: var(--color-text-secondary);">User disabled</span>
+                    </div>
+                    <div style="display: flex; align-items: center; padding: var(--spacing-xs); background: var(--color-background-tertiary); border-radius: 4px;">
+                        <code style="font-weight: 600; color: var(--color-primary); min-width: 60px;">4738</code>
+                        <span style="color: var(--color-text-secondary);">User changed</span>
+                    </div>
+                    <div style="display: flex; align-items: center; padding: var(--spacing-xs); background: var(--color-background-tertiary); border-radius: 4px;">
+                        <code style="font-weight: 600; color: var(--color-primary); min-width: 60px;">4720</code>
+                        <span style="color: var(--color-text-secondary);">User created</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Search Syntax Tips -->
+            <div>
+                <h3 style="margin-bottom: var(--spacing-md); font-size: 1rem; color: var(--color-text-primary); font-weight: 600;">
+                    🔍 Search Syntax Guide
+                </h3>
+                <div style="display: grid; gap: var(--spacing-sm);">
+                    <div>
+                        <strong style="color: var(--color-primary);">Search by Event ID:</strong>
+                        <div style="margin-top: var(--spacing-xs); padding: var(--spacing-sm); background: var(--color-background-tertiary); border-radius: 4px; font-family: monospace; font-size: 0.875rem;">
+                            Event.System.EventID:4624
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <strong style="color: var(--color-primary);">Boolean Operators:</strong>
+                        <ul style="margin: var(--spacing-xs) 0 0 var(--spacing-lg); padding: 0; list-style: disc;">
+                            <li style="margin-bottom: var(--spacing-xs);"><code style="background: var(--color-background-tertiary); padding: 2px 6px; border-radius: 3px;">AND</code> - All terms must match (default)</li>
+                            <li style="margin-bottom: var(--spacing-xs);"><code style="background: var(--color-background-tertiary); padding: 2px 6px; border-radius: 3px;">OR</code> - Any term can match</li>
+                            <li style="margin-bottom: var(--spacing-xs);"><code style="background: var(--color-background-tertiary); padding: 2px 6px; border-radius: 3px;">NOT</code> - Exclude terms</li>
+                        </ul>
+                    </div>
+                    
+                    <div>
+                        <strong style="color: var(--color-primary);">Grouping with Parentheses:</strong>
+                        <div style="margin-top: var(--spacing-xs); padding: var(--spacing-sm); background: var(--color-background-tertiary); border-radius: 4px; font-family: monospace; font-size: 0.875rem;">
+                            (admin OR administrator) AND NOT system
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: var(--spacing-xs); padding: var(--spacing-sm); background: rgba(59, 130, 246, 0.1); border-left: 3px solid var(--color-primary); border-radius: 4px; font-size: 0.875rem;">
+                        <strong>💡 Tip:</strong> Operators must be UPPERCASE (AND, OR, NOT). Use parentheses to control search logic.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Results Header -->
 <div class="card" style="margin-bottom: var(--spacing-lg);">
     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
