@@ -268,7 +268,7 @@ def process_file(self, file_id, operation='full'):
             # CHAINSAW ONLY
             elif operation == 'chainsaw_only':
                 from models import SigmaViolation
-                db.session.query(SigmaViolation).filter_by(case_file_id=file_id).delete()
+                db.session.query(SigmaViolation).filter_by(file_id=file_id).delete()
                 db.session.commit()
                 
                 result = chainsaw_file(

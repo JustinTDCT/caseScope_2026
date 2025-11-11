@@ -1,8 +1,66 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.14  
-**Last Updated**: 2025-11-11 12:50 UTC  
+**Version**: 1.12.15  
+**Last Updated**: 2025-11-11 12:55 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🚨 v1.12.15 - CRITICAL FIX: SIGMA Re-run Field Name Error (2025-11-11 12:55 UTC)
+
+**Change**: Fixed SIGMA re-processing failing with database field name error.
+
+### 1. Problem: All SIGMA Re-runs Failing
+
+**User Report**: "I did the re-sigma and all failed"
+
+**Error in logs**:
+```
+sqlalchemy.exc.InvalidRequestError: Entity namespace for "sigma_violation" has no property "case_file_id"
+Traceback:
+  File "/opt/casescope/app/tasks.py", line 271, in process_file
+    db.session.query(SigmaViolation).filter_by(case_file_id=file_id).delete()
+```
+
+**Root Cause**: 
+The `chainsaw_only` operation in `tasks.py` line 271 used the wrong field name when clearing existing SIGMA violations before re-running detection.
+
+**Incorrect code**:
+```python
+# tasks.py line 271 (BEFORE):
+db.session.query(SigmaViolation).filter_by(case_file_id=file_id).delete()
+```
+
+The `SigmaViolation` model uses `file_id`, not `case_file_id`.
+
+### 2. The Fix
+
+**Updated `tasks.py` line 271**:
+```python
+# tasks.py line 271 (AFTER):
+db.session.query(SigmaViolation).filter_by(file_id=file_id).delete()
+```
+
+**Impact**:
+- SIGMA re-runs now work correctly
+- Existing violations are properly cleared before re-detection
+- All files can be re-processed to populate `has_sigma` flags
+
+### 3. Files Modified
+
+- **`app/tasks.py`** (line 271): Fixed field name from `case_file_id` to `file_id`
+- **`app/version.json`**: Updated to v1.12.15
+- **`app/APP_MAP.md`**: Updated to v1.12.15
+
+### 4. Testing Instructions
+
+After service restart:
+1. Go to case files page
+2. Select EVTX files
+3. Click "Re-run SIGMA Detection"
+4. Files should process successfully (not all fail)
+5. Check search page with "SIGMA Violations Only" filter
+6. Should now see events with SIGMA violations
 
 ---
 
