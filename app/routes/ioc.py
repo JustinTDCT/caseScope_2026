@@ -474,7 +474,7 @@ def bulk_toggle_iocs(case_id):
     if current_user.role == 'read-only':
         return jsonify({'success': False, 'error': 'Read-only users cannot toggle IOCs'}), 403
     
-    from main import db, IOC
+    from main import db, Case, IOC
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -524,7 +524,7 @@ def bulk_delete_iocs(case_id):
     if current_user.role != 'administrator':
         return jsonify({'success': False, 'error': 'Only administrators can bulk delete IOCs'}), 403
     
-    from main import db, IOC
+    from main import db, Case, IOC
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -563,7 +563,7 @@ def bulk_delete_iocs(case_id):
 @login_required
 def bulk_enrich_iocs(case_id):
     """Bulk enrich IOCs from OpenCTI (background processing)"""
-    from main import db, IOC
+    from main import db, Case, IOC
     
     case = db.session.get(Case, case_id)
     if not case:
