@@ -455,27 +455,84 @@ HTTP Upload / Bulk Upload
 ### Directory Structure
 ```
 /opt/casescope/
-├── app/              # Application code
-│   ├── main.py       # Flask application
-│   ├── models.py     # SQLAlchemy models
-│   ├── tasks.py      # Celery tasks
-│   ├── config.py     # Configuration
-│   ├── routes/       # Route blueprints
-│   ├── templates/    # Jinja2 templates
-│   └── static/       # CSS, JS, images
-├── data/             # Application data
-├── uploads/          # Final uploaded files (by case_id)
-├── staging/          # Temporary staging area
-├── archive/          # 0-event files (hidden)
-├── local_uploads/    # Bulk upload folder
-├── logs/             # Application logs
-│   ├── app.log       # Main application logs
-│   ├── workers.log   # Celery worker logs
-│   ├── api.log       # API request logs
-│   └── files.log     # File processing logs
-├── bin/              # Binaries (evtx_dump, chainsaw)
-├── sigma_rules_repo/ # SIGMA detection rules repository
-└── venv/             # Python virtual environment
+├── app/                    # Application code
+│   ├── main.py             # Flask application
+│   ├── models.py           # SQLAlchemy models
+│   ├── tasks.py            # Celery tasks
+│   ├── celery_app.py       # Celery configuration
+│   ├── config.py           # Application configuration
+│   ├── file_processing.py  # File processing pipeline
+│   ├── ai_report.py        # AI report generation
+│   ├── ai_training.py      # AI LoRA training
+│   ├── ai_resource_lock.py # AI resource locking
+│   ├── routes/             # Route blueprints
+│   │   ├── cases.py        # Case management routes
+│   │   ├── files.py        # File management routes
+│   │   ├── api.py          # API routes
+│   │   ├── ioc.py          # IOC management routes
+│   │   ├── systems.py      # Systems management routes
+│   │   ├── known_users.py  # Known users routes
+│   │   └── ...             # Additional route blueprints
+│   ├── templates/          # Jinja2 templates
+│   │   ├── base.html       # Base template with navigation
+│   │   ├── case_files.html # Case files page
+│   │   ├── search_events.html # Event search page
+│   │   └── ...             # Additional templates
+│   ├── static/             # CSS, JS, images
+│   │   ├── css/theme.css   # Centralized theme
+│   │   ├── js/app.js       # JavaScript functionality
+│   │   └── favicon.svg     # Custom favicon
+│   ├── migrations/         # Database migrations
+│   └── version.json        # Version and changelog
+├── data/                   # Application data
+├── uploads/                # Final uploaded files (organized by case_id)
+│   ├── 1/                  # Case 1 files
+│   ├── 2/                  # Case 2 files
+│   └── ...
+├── staging/                # Temporary staging area for processing
+│   └── .rules-merged/      # Merged SIGMA rules cache
+├── archive/                # 0-event files (hidden files)
+│   ├── 1/                  # Case 1 hidden files
+│   ├── 2/                  # Case 2 hidden files
+│   └── ...
+├── local_uploads/          # Bulk upload folder (monitored directory)
+├── bulk_import/            # Bulk import staging area
+├── logs/                   # Application logs (rotating)
+│   ├── app.log             # Main application logs
+│   ├── workers.log         # Celery worker logs
+│   ├── api.log             # API request logs
+│   ├── files.log           # File processing logs
+│   ├── cases.log           # Case management logs
+│   ├── celery.log          # Celery task logs
+│   ├── dfir_iris.log       # DFIR-IRIS integration logs
+│   └── opencti.log         # OpenCTI integration logs
+├── bin/                    # Binaries and tools
+│   ├── chainsaw            # SIGMA detection engine (v2.13.1)
+│   └── evtx_dump           # EVTX parsing utility
+├── chainsaw/               # Chainsaw configuration
+│   └── mappings/           # Event log mappings
+│       └── sigma-event-logs-all.yml
+├── sigma_rules_repo/       # SigmaHQ rules repository (git clone)
+│   ├── rules/              # Core SIGMA rules
+│   ├── rules-dfir/         # DFIR-specific rules
+│   ├── rules-emerging-threats/ # Emerging threat rules
+│   ├── rules-threat-hunting/   # Threat hunting rules
+│   └── ...
+├── lolrmm/                 # Living Off The Land RMM detection
+│   ├── yaml/               # LOLRMM SIGMA rules
+│   ├── detections/         # Detection definitions
+│   └── bin/                # LOLRMM tools
+├── ollama_profiles/        # Ollama model configurations
+│   ├── dfir-qwen.Modelfile # DFIR-tuned Qwen model
+│   ├── dfir-llama.Modelfile # DFIR-tuned Llama model
+│   └── ...
+├── lora_training/          # AI LoRA training system
+│   ├── scripts/            # Training scripts
+│   ├── models/             # Trained model checkpoints
+│   ├── training_data/      # Training datasets
+│   ├── logs/               # Training logs
+│   └── venv/               # Separate Python environment
+└── venv/                   # Python virtual environment (main app)
 ```
 
 ### Database Schema
