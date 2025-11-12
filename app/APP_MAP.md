@@ -1,8 +1,148 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.24  
-**Last Updated**: 2025-11-12 21:20 UTC  
+**Version**: 1.12.25  
+**Last Updated**: 2025-11-12 21:25 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔧 v1.12.25 - CRITICAL FIX: Filter Windows Temporary Files During Extraction (2025-11-12 21:25 UTC)
+
+**Change**: Added filtering to prevent Windows temporary files created during ZIP extraction from being added to cases. These temp files (e.g., `TASERVER3_$17WWJ3J.evtx`) are now automatically detected and skipped.
+
+### 1. Problem
+
+**Windows Temporary Files**:
+- Files created during ZIP extraction with pattern `*_$[A-Z0-9]+.ext`
+- Examples: `TASERVER3_$17WWJ3J.evtx`, `TASERVER3_$IK21JKU.evtx`, `TASERVER3_$ICQQMOG.evtx`
+- These files are 0 MB and fail during processing
+- They clutter the failed files list and waste processing resources
+
+**Root Cause**:
+- ZIP extraction process extracts ALL files from archives
+- No filtering for Windows temp file patterns
+- Temp files were being moved to staging and queued for processing
+
+### 2. Solution
+
+**Added `is_temp_file()` Function** (`upload_pipeline.py`):
+
+```python
+def is_temp_file(filename: str) -> bool:
+    """
+    Detect Windows temporary files created during extraction.
+    
+    Patterns:
+    - Files ending with _$[A-Z0-9]+.ext (e.g., TASERVER3_$17WWJ3J.evtx)
+    - Files starting with ~$ (e.g., ~$document.evtx)
+    - Files with .tmp extension
+    """
+    import re
+    
+    # Pattern: *_$[A-Z0-9]+.ext (Windows temp files during extraction)
+    temp_pattern = r'_\$[A-Z0-9]+\.[a-z]+$'
+    
+    # Pattern: ~$filename (Windows temp files)
+    tilde_pattern = r'^~\$'
+    
+    # Check patterns
+    if re.search(temp_pattern, filename, re.IGNORECASE):
+        return True
+    
+    if re.search(tilde_pattern, filename):
+        return True
+    
+    # Check .tmp extension
+    if filename.lower().endswith('.tmp'):
+        return True
+    
+    return False
+```
+
+**Integration Points**:
+
+1. **During ZIP Extraction** (`extract_single_zip`):
+   - Checks each extracted file before moving to staging
+   - Deletes temp files immediately
+   - Logs warning: `[EXTRACT] Skipping temp file: {filename}`
+   - Tracks count in `stats['temp_files_skipped']`
+
+2. **During Queue Building** (`build_file_queue`):
+   - Safety net to catch any temp files that slip through
+   - Checks files in staging before queuing
+   - Deletes temp files and logs warning
+   - Tracks count in `stats['temp_files_skipped']`
+
+### 3. Technical Details
+
+**Detection Patterns**:
+- `*_$[A-Z0-9]+.ext` - Windows temp files during extraction (e.g., `FILE_$ABC123.evtx`)
+- `~$filename` - Windows temp files (e.g., `~$document.evtx`)
+- `*.tmp` - Generic temp files
+
+**Regex Pattern**:
+- `r'_\$[A-Z0-9]+\.[a-z]+$'` - Matches underscore, dollar sign, alphanumeric, dot, extension
+- Case-insensitive matching
+- Anchored to end of filename
+
+**Stats Tracking**:
+- `extract_single_zip`: Returns `temp_files_skipped` count
+- `extract_zips_in_staging`: Aggregates temp files skipped across all ZIPs
+- `build_file_queue`: Tracks temp files skipped in queue building
+- `process_upload_pipeline`: Combines both counts in final stats
+
+**Logging**:
+- Warning level: `[EXTRACT] Skipping temp file: {filename}`
+- Warning level: `[QUEUE] Skipping temp file: {filename}`
+- Summary logs include temp files skipped count when > 0
+
+### 4. Files Modified
+
+**Backend**:
+- `app/upload_pipeline.py`:
+  - Added `is_temp_file()` function (lines 175-210)
+  - Updated `extract_single_zip()` to filter temp files (lines 251-257)
+  - Updated `extract_zips_in_staging()` to track temp files skipped (lines 293-344)
+  - Updated `build_file_queue()` to filter temp files (lines 410-416)
+  - Updated logging to show temp files skipped counts
+
+**Documentation**:
+- `app/version.json`: Added v1.12.25 entry
+- `app/APP_MAP.md`: This entry
+
+### 5. Benefits
+
+✅ **Prevents Clutter**: Temp files no longer appear in failed files list  
+✅ **Saves Resources**: No processing time wasted on temp files  
+✅ **Automatic**: No manual intervention needed  
+✅ **Comprehensive**: Catches temp files at both extraction and queue stages  
+✅ **Logged**: Clear visibility into what's being filtered  
+✅ **Pattern-Based**: Detects multiple Windows temp file patterns  
+
+### 6. Testing
+
+**Test Cases Verified**:
+- ✅ `TASERVER3_$17WWJ3J.evtx` → Detected as temp
+- ✅ `TASERVER3_$IK21JKU.evtx` → Detected as temp
+- ✅ `TASERVER3_$ICQQMOG.evtx` → Detected as temp
+- ✅ `FILE_$ABC123.evtx` → Detected as temp
+- ✅ `~$document.evtx` → Detected as temp
+- ✅ `test.tmp` → Detected as temp
+- ✅ `normal_file.evtx` → NOT detected (valid file)
+
+### 7. Related Features
+
+- **Failed Files Management** (v1.12.24): Temp files would have appeared here
+- **ZIP Extraction** (v9.6.0): Now includes temp file filtering
+- **File Queue Building** (v9.6.0): Includes temp file safety net
+
+### 8. Note on Existing Temp Files
+
+**Existing Database Records**:
+- Temp files already in the database will remain
+- They can be viewed/deleted via Failed Files page
+- Future uploads will automatically filter temp files
+- Consider manual cleanup script if needed (not included in this release)
 
 ---
 

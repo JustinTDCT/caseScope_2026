@@ -172,6 +172,44 @@ def stage_bulk_upload(case_id: int, source_folder: str, cleanup_after: bool = Tr
 # STEP 2: EXTRACT ZIP FILES
 # ============================================================================
 
+def is_temp_file(filename: str) -> bool:
+    """
+    Detect Windows temporary files created during extraction.
+    
+    Patterns:
+    - Files ending with _$[A-Z0-9]+.ext (e.g., TASERVER3_$17WWJ3J.evtx)
+    - Files starting with ~$ (e.g., ~$document.evtx)
+    - Files with .tmp extension
+    
+    Args:
+        filename: File name to check
+        
+    Returns:
+        bool: True if file appears to be a temporary file
+    """
+    import re
+    
+    # Pattern: *_$[A-Z0-9]+.ext (Windows temp files during extraction)
+    # Example: TASERVER3_$17WWJ3J.evtx, FILE_$ABC123.evtx
+    temp_pattern = r'_\$[A-Z0-9]+\.[a-z]+$'
+    
+    # Pattern: ~$filename (Windows temp files)
+    tilde_pattern = r'^~\$'
+    
+    # Check patterns
+    if re.search(temp_pattern, filename, re.IGNORECASE):
+        return True
+    
+    if re.search(tilde_pattern, filename):
+        return True
+    
+    # Check .tmp extension
+    if filename.lower().endswith('.tmp'):
+        return True
+    
+    return False
+
+
 def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict:
     """
     Extract a single ZIP file recursively (handles nested ZIPs)
@@ -211,6 +249,13 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
                     os.remove(file_path)
                     
                 elif file_lower.endswith(('.evtx', '.ndjson')):
+                    # Skip Windows temporary files created during extraction
+                    if is_temp_file(file):
+                        logger.warning(f"[EXTRACT]   Skipping temp file: {file}")
+                        os.remove(file_path)  # Delete temp file
+                        stats['temp_files_skipped'] += 1
+                        continue
+                    
                     # Move to target with prefix
                     # NOTE: Only EVTX and NDJSON are extracted from ZIPs
                     # JSON and CSV inside ZIPs are ignored
@@ -250,6 +295,7 @@ def extract_zips_in_staging(case_id: int) -> Dict:
         'zips_processed': 0,
         'files_extracted': 0,
         'nested_zips_found': 0,
+        'temp_files_skipped': 0,
         'zips_deleted': 0
     }
     
@@ -276,14 +322,17 @@ def extract_zips_in_staging(case_id: int) -> Dict:
             
             stats['files_extracted'] += extract_stats['files_extracted']
             stats['nested_zips_found'] += extract_stats['nested_zips_found']
+            stats['temp_files_skipped'] += extract_stats.get('temp_files_skipped', 0)
             
             # Delete original ZIP
             os.remove(zip_path)
             stats['zips_deleted'] += 1
             stats['zips_processed'] += 1
             
+            temp_skipped = extract_stats.get('temp_files_skipped', 0)
             logger.info(f"[EXTRACT] ✓ {zip_filename}: {extract_stats['files_extracted']} files, "
-                       f"{extract_stats['nested_zips_found']} nested ZIPs")
+                       f"{extract_stats['nested_zips_found']} nested ZIPs"
+                       + (f", {temp_skipped} temp files skipped" if temp_skipped > 0 else ""))
             
         except Exception as e:
             logger.error(f"[EXTRACT] Failed to process {zip_filename}: {e}")
@@ -291,7 +340,8 @@ def extract_zips_in_staging(case_id: int) -> Dict:
     
     logger.info("="*80)
     logger.info(f"[EXTRACT] Complete: {stats['zips_processed']} ZIPs, "
-                f"{stats['files_extracted']} files, {stats['nested_zips_found']} nested ZIPs")
+                f"{stats['files_extracted']} files, {stats['nested_zips_found']} nested ZIPs"
+                + (f", {stats['temp_files_skipped']} temp files skipped" if stats['temp_files_skipped'] > 0 else ""))
     logger.info("="*80)
     
     # Add alias for backward compatibility
@@ -345,6 +395,7 @@ def build_file_queue(db, CaseFile, SkippedFile, case_id: int) -> Dict:
         'files_queued': 0,
         'duplicates_skipped': 0,
         'zero_bytes_skipped': 0,
+        'temp_files_skipped': 0,
         'queue': []
     }
     
@@ -362,6 +413,13 @@ def build_file_queue(db, CaseFile, SkippedFile, case_id: int) -> Dict:
     for filename in all_files:
         staging_path = os.path.join(staging_dir, filename)
         file_size = os.path.getsize(staging_path)
+        
+        # Skip Windows temporary files (safety net - should be caught during extraction)
+        if is_temp_file(filename):
+            logger.warning(f"[QUEUE] Skipping temp file: {filename}")
+            os.remove(staging_path)
+            stats['temp_files_skipped'] += 1
+            continue
         
         # Skip zero-byte files
         if file_size == 0:
@@ -435,6 +493,8 @@ def build_file_queue(db, CaseFile, SkippedFile, case_id: int) -> Dict:
     logger.info(f"  Files queued: {stats['files_queued']}")
     logger.info(f"  Duplicates skipped: {stats['duplicates_skipped']}")
     logger.info(f"  Zero-byte skipped: {stats['zero_bytes_skipped']}")
+    if stats['temp_files_skipped'] > 0:
+        logger.info(f"  Temp files skipped: {stats['temp_files_skipped']}")
     logger.info("="*80)
     
     return stats
@@ -621,6 +681,7 @@ def process_upload_pipeline(db, CaseFile, SkippedFile, case_id: int,
         pipeline_stats['files_queued'] = queue_stats['files_queued']
         pipeline_stats['duplicates_skipped'] = queue_stats['duplicates_skipped']
         pipeline_stats['zero_bytes_skipped'] = queue_stats['zero_bytes_skipped']
+        pipeline_stats['temp_files_skipped'] = extract_stats.get('temp_files_skipped', 0) + queue_stats.get('temp_files_skipped', 0)
         
         # STEP 4: Filter zero-event files
         filter_stats = filter_zero_event_files(db, CaseFile, SkippedFile, queue_stats['queue'], case_id)
