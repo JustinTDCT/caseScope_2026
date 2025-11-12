@@ -885,7 +885,14 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
                         reader = csv.DictReader(f)
                         for row in reader:
                             # Extract rule name and level
-                            rule_title = row.get('name', row.get('rule', row.get('Rule', 'Unknown')))
+                            # Chainsaw CSV uses 'detections' column for rule names
+                            rule_title = (row.get('detections', '').strip() or 
+                                        row.get('name', '').strip() or 
+                                        row.get('rule', '').strip() or 
+                                        row.get('Rule', '').strip() or 
+                                        row.get('title', '').strip() or 
+                                        row.get('detection', '').strip() or 
+                                        row.get('rule_title', '').strip() or 'Unknown')
                             rule_level = row.get('level', row.get('Level', 'medium'))
                             
                             # Get or create SigmaRule
@@ -939,7 +946,9 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
                 
                 # Insert new violations
                 for v in violations_found:
-                    violation = SigmaViolation(**v)
+                    # Remove rule_title from dict (only for OpenSearch, not DB model)
+                    db_data = {k: val for k, val in v.items() if k != 'rule_title'}
+                    violation = SigmaViolation(**db_data)
                     db.session.add(violation)
                 
                 logger.info(f"[CHAINSAW FILE] Stored {violation_count} violations in database")
