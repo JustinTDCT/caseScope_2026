@@ -393,8 +393,9 @@ def bulk_import_status(case_id, task_id):
     GET endpoint for progress updates
     """
     from celery.result import AsyncResult
+    from celery_app import celery_app
     
-    task = AsyncResult(task_id)
+    task = AsyncResult(task_id, app=celery_app)
     
     if task.state == 'PENDING':
         response = {

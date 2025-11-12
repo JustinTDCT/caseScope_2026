@@ -556,6 +556,12 @@ def bulk_import_directory(self, case_id):
             
             if total_files == 0:
                 logger.info("[BULK IMPORT] No files found in directory")
+                # Update state before returning so UI shows message
+                self.update_state(state='PROGRESS', meta={
+                    'stage': 'No files found',
+                    'progress': 100,
+                    'message': 'No files found in bulk import directory'
+                })
                 return {'status': 'success', 'message': 'No files to import', 'files_processed': 0}
             
             logger.info(f"[BULK IMPORT] Found {total_files} files to import")
@@ -753,23 +759,43 @@ def bulk_import_directory(self, case_id):
                 'files_staged': files_staged,
                 'files_extracted': extracted_count,
                 'duplicates_skipped': queue_result.get('duplicates_skipped', 0),
-                'zero_event_files': filter_result['zero_events'],
+                'zero_event_files': filter_result.get('zero_events', 0),
                 'valid_files': valid_count,
-                'queued_for_processing': valid_count
+                'queued_for_processing': valid_count,
+                'files_processed': valid_count  # Add this for UI check
             }
             
             logger.info(f"[BULK IMPORT] Complete: {summary}")
+            
+            # Update final state before returning
+            try:
+                self.update_state(state='PROGRESS', meta={
+                    'stage': 'Complete',
+                    'progress': 100,
+                    **summary
+                })
+            except:
+                pass
             
             return summary
             
         except Exception as e:
             logger.error(f"[BULK IMPORT] Fatal error: {e}", exc_info=True)
+            # Update state to show error before returning
+            try:
+                self.update_state(state='FAILURE', meta={
+                    'error': str(e),
+                    'stage': 'Error',
+                    'progress': 0
+                })
+            except:
+                pass
             # Try to clean up on error
             try:
                 clear_staging(case_id)
             except:
                 pass
-            return {'status': 'error', 'message': str(e)}
+            raise  # Re-raise so Celery marks task as FAILURE
 
 
 # ============================================================================

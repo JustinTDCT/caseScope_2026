@@ -261,6 +261,7 @@ async function uploadFileInChunks(file) {
 
 let currentBulkTaskId = null;
 let bulkImportInterval = null;
+let bulkImportStartTime = null;  // Track when import started
 
 async function scanBulkDirectory() {
     try {
@@ -322,8 +323,10 @@ async function startBulkImport() {
         }
         
         currentBulkTaskId = result.task_id;
+        bulkImportStartTime = Date.now();  // Record start time
         
-        // Start polling for status
+        // Start polling for status (check immediately, then every second)
+        checkBulkImportStatus();  // Check immediately
         bulkImportInterval = setInterval(checkBulkImportStatus, 1000);
         
     } catch (error) {
@@ -339,7 +342,18 @@ async function checkBulkImportStatus() {
     
     try {
         const response = await fetch(`/case/${CASE_ID}/bulk_import/status/${currentBulkTaskId}`);
+        
+        if (!response.ok) {
+            console.error('Status check failed:', response.status);
+            return;
+        }
+        
         const status = await response.json();
+        
+        // Debug: Log status for troubleshooting
+        if (status.state === 'SUCCESS') {
+            console.log('Bulk import completed:', status.result);
+        }
         
         // Update progress bar
         const progress = status.progress || 0;
@@ -414,20 +428,52 @@ async function checkBulkImportStatus() {
         if (status.state === 'SUCCESS') {
             clearInterval(bulkImportInterval);
             document.getElementById('bulkProgressBar').style.background = 'var(--color-success)';
-            document.getElementById('bulkProgressText').textContent = 'Complete! Redirecting...';
+            document.getElementById('bulkProgressBar').style.width = '100%';
+            document.getElementById('bulkProgressPercent').textContent = '100%';
             
             // Show final summary
             if (status.result) {
                 const r = status.result;
-                document.getElementById('bulkStatFound').textContent = r.files_found || '-';
-                document.getElementById('bulkStatStaged').textContent = r.files_staged || '-';
-                document.getElementById('bulkStatExtracted').textContent = r.files_extracted || '-';
-                document.getElementById('bulkStatQueued').textContent = r.valid_files || '-';
-                document.getElementById('bulkStatDuplicates').textContent = r.duplicates_skipped || '-';
-                document.getElementById('bulkStatZeroEvents').textContent = r.zero_event_files || '-';
+                document.getElementById('bulkStatFound').textContent = r.files_found || 0;
+                document.getElementById('bulkStatStaged').textContent = r.files_staged || 0;
+                document.getElementById('bulkStatExtracted').textContent = r.files_extracted || 0;
+                document.getElementById('bulkStatQueued').textContent = r.valid_files || 0;
+                document.getElementById('bulkStatDuplicates').textContent = r.duplicates_skipped || 0;
+                document.getElementById('bulkStatZeroEvents').textContent = r.zero_event_files || 0;
+                
+                // Always show stats
+                document.getElementById('bulkFileLists').style.display = 'block';
+                
+                // Show message if no files processed - don't redirect
+                if ((r.files_processed === 0 && r.files_found === 0) || (r.message && r.message.includes('No files'))) {
+                    document.getElementById('bulkProgressText').textContent = r.message || 'Complete - No files to import';
+                    document.getElementById('bulkImportBtn').disabled = false;  // Re-enable button
+                    // Don't redirect if no files - let user see the message
+                    return;
+                }
+                
+                // Also check if valid_files is 0 (all duplicates or zero events)
+                if (r.valid_files === 0 && r.files_found > 0) {
+                    document.getElementById('bulkProgressText').textContent = `Complete - ${r.files_found} files found but all were duplicates or had zero events`;
+                    document.getElementById('bulkImportBtn').disabled = false;
+                    // Don't redirect - show stats
+                    return;
+                }
             }
             
-            // Redirect to case files page
+            // Check if task completed too quickly (less than 2 seconds) - might be an error
+            const elapsed = bulkImportStartTime ? (Date.now() - bulkImportStartTime) : 0;
+            if (elapsed < 2000 && (!status.result || !status.result.valid_files || status.result.valid_files === 0)) {
+                console.warn('Bulk import completed very quickly - might be an issue');
+                document.getElementById('bulkProgressText').textContent = 'Complete - Check results above';
+                document.getElementById('bulkImportBtn').disabled = false;
+                // Don't redirect - let user see what happened
+                return;
+            }
+            
+            document.getElementById('bulkProgressText').textContent = 'Complete! Redirecting...';
+            
+            // Redirect to case files page (only if files were actually processed)
             setTimeout(() => {
                 window.location.href = `/case/${CASE_ID}/files`;
             }, 3000);
