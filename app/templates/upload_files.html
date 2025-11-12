@@ -263,6 +263,26 @@ let currentBulkTaskId = null;
 let bulkImportInterval = null;
 let bulkImportStartTime = null;  // Track when import started
 
+function resetBulkImportUI() {
+    // Clear any running intervals
+    if (bulkImportInterval) {
+        clearInterval(bulkImportInterval);
+        bulkImportInterval = null;
+    }
+    
+    // Reset task tracking
+    currentBulkTaskId = null;
+    bulkImportStartTime = null;
+    
+    // Reset UI elements
+    document.getElementById('bulkImportBtn').disabled = false;
+    document.getElementById('bulkProgressBar').style.width = '0%';
+    document.getElementById('bulkProgressBar').style.background = '';
+    document.getElementById('bulkProgressPercent').textContent = '0%';
+    document.getElementById('bulkProgressText').textContent = '';
+    document.getElementById('bulkFileLists').style.display = 'none';
+}
+
 async function scanBulkDirectory() {
     try {
         const response = await fetch(`/case/${CASE_ID}/bulk_import/scan`);
@@ -306,6 +326,9 @@ async function startBulkImport() {
         return;
     }
     
+    // Reset UI state first
+    resetBulkImportUI();
+    
     try {
         // Disable buttons
         document.getElementById('bulkImportBtn').disabled = true;
@@ -338,7 +361,14 @@ async function startBulkImport() {
 }
 
 async function checkBulkImportStatus() {
-    if (!currentBulkTaskId) return;
+    if (!currentBulkTaskId) {
+        // If no task ID, stop polling
+        if (bulkImportInterval) {
+            clearInterval(bulkImportInterval);
+            bulkImportInterval = null;
+        }
+        return;
+    }
     
     try {
         const response = await fetch(`/case/${CASE_ID}/bulk_import/status/${currentBulkTaskId}`);
@@ -478,11 +508,30 @@ async function checkBulkImportStatus() {
                 window.location.href = `/case/${CASE_ID}/files`;
             }, 3000);
             
-        } else if (status.state === 'FAILURE') {
-            clearInterval(bulkImportInterval);
+        } else if (status.state === 'FAILURE' || status.state === 'ERROR' || status.state === 'UNKNOWN') {
+            // Stop polling
+            if (bulkImportInterval) {
+                clearInterval(bulkImportInterval);
+                bulkImportInterval = null;
+            }
+            
+            // Show error message
             document.getElementById('bulkProgressBar').style.background = 'var(--color-error)';
-            document.getElementById('bulkProgressText').textContent = 'Failed: ' + (status.error || 'Unknown error');
+            document.getElementById('bulkProgressBar').style.width = '100%';
+            document.getElementById('bulkProgressPercent').textContent = '100%';
+            document.getElementById('bulkProgressText').textContent = status.error || status.status || 'Failed: ' + (status.error || 'Unknown error');
+            
+            // Reset state so user can try again
+            currentBulkTaskId = null;
+            bulkImportStartTime = null;
             document.getElementById('bulkImportBtn').disabled = false;
+            
+            // Auto-reset UI after 5 seconds to allow retry
+            setTimeout(() => {
+                if (!currentBulkTaskId) {  // Only reset if no new task started
+                    resetBulkImportUI();
+                }
+            }, 5000);
         }
         
     } catch (error) {

@@ -533,7 +533,7 @@ def bulk_import_directory(self, case_id):
         extract_zips_in_staging,
         build_file_queue,
         filter_zero_event_files,
-        get_staging_path,
+        ensure_staging_exists,
         clear_staging
     )
     from bulk_operations import queue_file_processing
@@ -584,8 +584,8 @@ def bulk_import_directory(self, case_id):
             })
             
             # Step 2: Stage files from bulk import directory
-            # Enhance stage_bulk_upload to report progress per file
-            staging_dir = get_staging_path(case_id)
+            # Ensure staging directory exists
+            staging_dir = ensure_staging_exists(case_id)
             files_staged = 0
             staged_file_list = []
             

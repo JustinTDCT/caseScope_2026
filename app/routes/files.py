@@ -395,40 +395,104 @@ def bulk_import_status(case_id, task_id):
     from celery.result import AsyncResult
     from celery_app import celery_app
     
-    task = AsyncResult(task_id, app=celery_app)
-    
-    if task.state == 'PENDING':
-        response = {
-            'state': task.state,
-            'status': 'Waiting to start...'
-        }
-    elif task.state == 'PROGRESS':
-        response = {
-            'state': task.state,
-            'status': task.info.get('stage', 'Processing...'),
-            'progress': task.info.get('progress', 0),
-            'details': task.info  # Include all progress details
-        }
-    elif task.state == 'SUCCESS':
-        response = {
-            'state': task.state,
-            'status': 'Complete',
-            'progress': 100,
-            'result': task.info
-        }
-    elif task.state == 'FAILURE':
-        response = {
-            'state': task.state,
-            'status': 'Failed',
-            'error': str(task.info)
-        }
-    else:
-        response = {
-            'state': task.state,
-            'status': str(task.state)
-        }
-    
-    return jsonify(response)
+    try:
+        # Try to create AsyncResult - this might fail if metadata is corrupted
+        try:
+            task = AsyncResult(task_id, app=celery_app)
+        except Exception as e:
+            logger.error(f"[BULK IMPORT STATUS] Error creating AsyncResult for {task_id}: {e}")
+            # Try to clear corrupted metadata
+            try:
+                from celery_app import celery_app
+                celery_app.backend.delete(task_id)
+                logger.info(f"[BULK IMPORT STATUS] Cleared corrupted task metadata for {task_id}")
+            except:
+                pass
+            return jsonify({
+                'state': 'ERROR',
+                'status': 'Task metadata corrupted - please try again',
+                'error': 'Task metadata is corrupted. Please start a new bulk import.',
+                'progress': 0
+            })
+        
+        # Safely get task state - catch corruption errors
+        try:
+            state = task.state
+        except (ValueError, KeyError, TypeError) as e:
+            # These errors indicate corrupted metadata
+            logger.error(f"[BULK IMPORT STATUS] Corrupted task metadata for {task_id}: {e}")
+            # Try to clear it
+            try:
+                celery_app.backend.delete(task_id)
+                logger.info(f"[BULK IMPORT STATUS] Cleared corrupted task metadata for {task_id}")
+            except:
+                pass
+            return jsonify({
+                'state': 'ERROR',
+                'status': 'Task metadata corrupted - please try again',
+                'error': 'Task metadata is corrupted. Please start a new bulk import.',
+                'progress': 0
+            })
+        except Exception as e:
+            logger.error(f"[BULK IMPORT STATUS] Error getting task state: {e}")
+            return jsonify({
+                'state': 'UNKNOWN',
+                'status': 'Error checking status',
+                'error': 'Could not retrieve task state',
+                'progress': 0
+            })
+        
+        # Safely get task info
+        try:
+            task_info = task.info if task.state != 'PENDING' else {}
+        except Exception as e:
+            logger.warning(f"[BULK IMPORT STATUS] Error getting task info (state: {state}): {e}")
+            task_info = {}
+        
+        if state == 'PENDING':
+            response = {
+                'state': state,
+                'status': 'Waiting to start...',
+                'progress': 0
+            }
+        elif state == 'PROGRESS':
+            response = {
+                'state': state,
+                'status': task_info.get('stage', 'Processing...') if isinstance(task_info, dict) else 'Processing...',
+                'progress': task_info.get('progress', 0) if isinstance(task_info, dict) else 0,
+                'details': task_info if isinstance(task_info, dict) else {}
+            }
+        elif state == 'SUCCESS':
+            response = {
+                'state': state,
+                'status': 'Complete',
+                'progress': 100,
+                'result': task_info if isinstance(task_info, dict) else {}
+            }
+        elif state == 'FAILURE':
+            error_msg = str(task_info) if task_info else 'Unknown error'
+            response = {
+                'state': state,
+                'status': 'Failed',
+                'error': error_msg,
+                'progress': 0
+            }
+        else:
+            response = {
+                'state': state,
+                'status': str(state),
+                'progress': 0
+            }
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"[BULK IMPORT STATUS] Unexpected error: {e}", exc_info=True)
+        return jsonify({
+            'state': 'ERROR',
+            'status': 'Error checking status',
+            'error': str(e)
+        }), 500
 
 
 @files_bp.route('/case/<int:case_id>/file/<int:file_id>/reindex', methods=['POST'])

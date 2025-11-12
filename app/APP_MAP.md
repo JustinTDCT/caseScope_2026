@@ -1,8 +1,53 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.28  
-**Last Updated**: 2025-11-12 23:00 UTC  
+**Version**: 1.12.29  
+**Last Updated**: 2025-11-12 23:50 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.12.29 - CRITICAL FIX: Bulk Import Staging Directory Creation (2025-11-12 23:50 UTC)
+
+**Change**: Fixed bulk import failure caused by missing staging directory creation after progress tracking refactor.
+
+### 1. Problem
+
+**Issue**: Bulk import was failing with error:
+```
+[Errno 2] No such file or directory: '/opt/casescope/staging/11'
+```
+
+**Root Cause**: 
+- When adding per-file progress tracking in v1.12.28, the code was refactored to manually stage files instead of using `stage_bulk_upload()`
+- The manual staging code used `get_staging_path()` which only returns the path but doesn't create the directory
+- The original `stage_bulk_upload()` function internally calls `ensure_staging_exists()` which creates the directory
+- This broke bulk import for cases where the staging directory didn't exist yet
+
+### 2. Solution
+
+**Fix**: Changed manual staging code to use `ensure_staging_exists()` instead of `get_staging_path()`
+
+**Before**:
+```python
+staging_dir = get_staging_path(case_id)  # Only returns path, doesn't create
+```
+
+**After**:
+```python
+staging_dir = ensure_staging_exists(case_id)  # Creates directory if missing
+```
+
+### 3. Files Modified
+
+**Backend**:
+- `app/tasks.py`: Changed `get_staging_path` import to `ensure_staging_exists` (line 536)
+- `app/tasks.py`: Updated staging directory initialization to use `ensure_staging_exists()` (line 588)
+
+### 4. Verification
+
+- ✅ Staging directory is now created automatically if missing
+- ✅ Bulk import works for new cases without existing staging directories
+- ✅ No impact on existing functionality
 
 ---
 
