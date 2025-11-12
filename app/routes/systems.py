@@ -3,12 +3,14 @@ System Management Routes
 Handles system identification, categorization, and management
 """
 
-from flask import Blueprint, render_template, request, redirect, url_for, jsonify, flash
+from flask import Blueprint, render_template, request, redirect, url_for, jsonify, flash, Response
 from flask_login import login_required, current_user
 from datetime import datetime
 import json
 import logging
 import re
+import csv
+import io
 
 systems_bp = Blueprint('systems', __name__)
 logger = logging.getLogger(__name__)
@@ -695,4 +697,53 @@ def sync_to_dfir_iris(system):
     logger.info(f"[DFIR-IRIS] System synced: {system.system_name}")
     
     return True
+
+
+@systems_bp.route('/case/<int:case_id>/systems/export_csv')
+@login_required
+def export_systems_csv(case_id):
+    """Export all systems for a case to CSV"""
+    from main import db
+    from models import Case, System
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    try:
+        # Get all systems for this case (exclude hidden unless admin/analyst)
+        query = System.query.filter_by(case_id=case_id)
+        if current_user.role not in ['administrator', 'analyst']:
+            query = query.filter_by(hidden=False)
+        
+        systems = query.order_by(System.system_type, System.system_name).all()
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow(['Name', 'Type', 'IP'])
+        
+        # Write data
+        for system in systems:
+            writer.writerow([
+                system.system_name,
+                system.system_type,
+                system.ip_address or ''
+            ])
+        
+        # Create response
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename=systems_case_{case_id}_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'}
+        )
+    
+    except Exception as e:
+        flash(f'Export failed: {str(e)}', 'error')
+        return redirect(url_for('systems.systems_management', case_id=case_id))
 

@@ -1,8 +1,147 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.22  
-**Last Updated**: 2025-11-12 20:55 UTC  
+**Version**: 1.12.23  
+**Last Updated**: 2025-11-12 21:05 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.12.23 - FEATURE: CSV Export for IOC and Systems Management (2025-11-12 21:05 UTC)
+
+**Change**: Added CSV export functionality to both IOC Management and Systems Management pages for backup, reporting, and external analysis.
+
+### 1. Feature Overview
+
+**IOC Management CSV Export**:
+- Exports all IOCs for a case
+- Columns: Type, Value, Description
+- Ordered by type, then value
+- Case-specific export
+
+**Systems Management CSV Export**:
+- Exports all systems for a case
+- Columns: Name, Type, IP
+- Ordered by type, then name
+- Respects user permissions (excludes hidden systems for non-admin/analyst users)
+- Case-specific export
+
+### 2. Implementation Details
+
+**A. IOC Export Route** (`routes/ioc.py`):
+
+```python
+@ioc_bp.route('/case/<int:case_id>/ioc/export_csv')
+@login_required
+def export_iocs_csv(case_id):
+    """Export all IOCs for a case to CSV"""
+    # Get all IOCs for this case
+    iocs = IOC.query.filter_by(case_id=case_id).order_by(IOC.ioc_type, IOC.ioc_value).all()
+    
+    # CSV columns: Type, Value, Description
+    writer.writerow(['Type', 'Value', 'Description'])
+    for ioc in iocs:
+        writer.writerow([ioc.ioc_type, ioc.ioc_value, ioc.description or ''])
+```
+
+**B. Systems Export Route** (`routes/systems.py`):
+
+```python
+@systems_bp.route('/case/<int:case_id>/systems/export_csv')
+@login_required
+def export_systems_csv(case_id):
+    """Export all systems for a case to CSV"""
+    # Get all systems (exclude hidden for non-admin users)
+    query = System.query.filter_by(case_id=case_id)
+    if current_user.role not in ['administrator', 'analyst']:
+        query = query.filter_by(hidden=False)
+    
+    # CSV columns: Name, Type, IP
+    writer.writerow(['Name', 'Type', 'IP'])
+    for system in systems:
+        writer.writerow([system.system_name, system.system_type, system.ip_address or ''])
+```
+
+**C. UI Integration**:
+
+**IOC Management** (`templates/ioc_management.html`):
+- Green Export CSV button placed between "Re-Hunt All Files" and "Back to Case"
+- Styled with `var(--color-success)` to match green button pattern
+- Icon: 📥 Export CSV
+
+**Systems Management** (`templates/systems_management.html`):
+- Green Export CSV button placed between "Find Systems" and "Back to Case"
+- Styled with `var(--color-success)` to match existing green buttons
+- Icon: 📥 Export CSV
+
+### 3. Technical Details
+
+**CSV Format**:
+- Standard CSV format with comma-separated values
+- UTF-8 encoding
+- Headers in first row
+- Empty values exported as empty strings (not "None" or "null")
+
+**File Naming**:
+- IOC exports: `iocs_case_{case_id}_export_{timestamp}.csv`
+- Systems exports: `systems_case_{case_id}_export_{timestamp}.csv`
+- Timestamp format: `YYYYMMDD_HHMMSS`
+
+**Ordering**:
+- IOCs: Ordered by `ioc_type`, then `ioc_value` (alphabetical)
+- Systems: Ordered by `system_type`, then `system_name` (alphabetical)
+
+**Permissions**:
+- IOC exports: All users can export (no filtering)
+- Systems exports: Non-admin/analyst users exclude hidden systems
+
+### 4. Use Cases
+
+**Backup**:
+- Export IOCs before case closure
+- Export systems inventory for documentation
+
+**Reporting**:
+- Share IOC list with stakeholders
+- Generate systems inventory reports
+
+**External Analysis**:
+- Import into Excel/Google Sheets for analysis
+- Use in external tools (SIEM, threat intel platforms)
+- Share with external teams
+
+**Data Migration**:
+- Export from one case to import into another
+- Backup before major changes
+
+### 5. Files Modified
+
+**Backend**:
+- `app/routes/ioc.py`: Added `export_iocs_csv()` route (lines 632-673)
+- `app/routes/systems.py`: Added `export_systems_csv()` route (lines 702-748)
+- Both routes import `csv`, `io`, and `Response` from Flask
+
+**Frontend**:
+- `app/templates/ioc_management.html`: Added Export CSV button (line 19-21)
+- `app/templates/systems_management.html`: Added Export CSV button (line 19-21)
+
+**Documentation**:
+- `app/version.json`: Added v1.12.23 entry
+- `app/APP_MAP.md`: This entry
+
+### 6. Benefits
+
+✅ **Data Portability**: Easy export for backup and sharing  
+✅ **Reporting**: Quick generation of IOC and systems lists  
+✅ **External Analysis**: Import into Excel, SIEMs, or other tools  
+✅ **Consistency**: Same export pattern as Known Users CSV export  
+✅ **User-Friendly**: One-click export with clear button placement  
+
+### 7. Related Features
+
+- **Known Users CSV Export** (v1.12.0): Similar export pattern
+- **Search Results CSV Export** (v1.12.7): Unlimited event export
+- **IOC Management**: Full CRUD operations
+- **Systems Management**: Full CRUD operations with auto-discovery
 
 ---
 

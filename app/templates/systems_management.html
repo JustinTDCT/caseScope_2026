@@ -16,6 +16,9 @@
             <button onclick="scanSystems()" class="btn" style="background: var(--color-success); color: white;">
                 🔍 Find Systems
             </button>
+            <a href="{{ url_for('systems.export_systems_csv', case_id=case.id) }}" class="btn" style="background: var(--color-success); color: white;">
+                📥 Export CSV
+            </a>
             <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
                 ← Back to Case
             </a>

@@ -16,6 +16,9 @@
             <button onclick="confirmRehuntAllFiles()" class="btn" style="background: var(--color-warning); color: white;">
                 🎯 Re-Hunt All Files
             </button>
+            <a href="{{ url_for('ioc.export_iocs_csv', case_id=case.id) }}" class="btn" style="background: var(--color-success); color: white;">
+                📥 Export CSV
+            </a>
             <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
                 ← Back to Case
             </a>

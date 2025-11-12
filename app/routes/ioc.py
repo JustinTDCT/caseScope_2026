@@ -3,10 +3,12 @@ IOC Management Routes
 Handles Indicators of Compromise (IOC) operations
 """
 
-from flask import Blueprint, render_template, request, redirect, url_for, jsonify, flash
+from flask import Blueprint, render_template, request, redirect, url_for, jsonify, flash, Response
 from flask_login import login_required, current_user
 from datetime import datetime
 import json
+import csv
+import io
 
 ioc_bp = Blueprint('ioc', __name__)
 
@@ -625,5 +627,49 @@ def bulk_enrich_iocs(case_id):
     
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@ioc_bp.route('/case/<int:case_id>/ioc/export_csv')
+@login_required
+def export_iocs_csv(case_id):
+    """Export all IOCs for a case to CSV"""
+    from main import db, Case, IOC
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    try:
+        # Get all IOCs for this case
+        iocs = IOC.query.filter_by(case_id=case_id).order_by(IOC.ioc_type, IOC.ioc_value).all()
+        
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow(['Type', 'Value', 'Description'])
+        
+        # Write data
+        for ioc in iocs:
+            writer.writerow([
+                ioc.ioc_type,
+                ioc.ioc_value,
+                ioc.description or ''
+            ])
+        
+        # Create response
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename=iocs_case_{case_id}_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'}
+        )
+    
+    except Exception as e:
+        flash(f'Export failed: {str(e)}', 'error')
+        return redirect(url_for('ioc.ioc_management', case_id=case_id))
 
 
