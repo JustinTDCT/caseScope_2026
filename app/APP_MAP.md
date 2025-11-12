@@ -1,8 +1,129 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.27  
-**Last Updated**: 2025-11-12 22:30 UTC  
+**Version**: 1.12.28  
+**Last Updated**: 2025-11-12 23:00 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.12.28 - UX IMPROVEMENT: Enhanced Bulk Import Progress Display (2025-11-12 23:00 UTC)
+
+**Change**: Enhanced bulk import progress display to show detailed file-by-file progress, current file being processed, and comprehensive statistics to prevent appearance of being stuck on large uploads.
+
+### 1. Problem
+
+**User Feedback**:
+- Large bulk uploads appeared "stuck" even though processing was ongoing
+- No visibility into which files were being worked on
+- Limited progress information (only percentage and stage name)
+- Users couldn't tell if system was actively processing or hung
+
+### 2. Solution
+
+**Enhanced Progress Tracking**:
+- **Per-File Progress**: Updates progress for each file during staging
+- **Current File Display**: Shows filename currently being processed
+- **Real-Time Stats**: Displays counts for found/staged/extracted/queued/duplicates/zero events
+- **File Lists**: Shows lists of files being processed at each stage
+- **ZIP Extraction Details**: Shows which ZIPs are being extracted and file counts
+
+**Progress Stages with Details**:
+1. **Staging files**: Shows current file, files processed/total, file list (first 50)
+2. **Extracting ZIPs**: Shows current ZIP, files extracted, extraction results
+3. **Building file queue**: Shows files in staging count
+4. **Filtering files**: Shows queue files, duplicates skipped
+5. **Queueing for processing**: Shows valid files, zero-event files skipped
+
+### 3. Implementation Details
+
+**Backend Changes** (`tasks.py` - `bulk_import_directory`):
+
+**Staging Progress**:
+```python
+# Update progress for each file
+self.update_state(state='PROGRESS', meta={
+    'stage': 'Staging files',
+    'progress': 10 + int((files_staged / total_files) * 20),
+    'current_file': filename,
+    'files_list': all_files[:50],
+    'files_processed': files_staged,
+    'files_total': total_files
+})
+```
+
+**ZIP Extraction Progress**:
+```python
+# Update progress for each ZIP
+self.update_state(state='PROGRESS', meta={
+    'stage': 'Extracting ZIPs',
+    'current_file': f'Extracting {zip_filename}',
+    'zips_processed': zip_idx,
+    'zips_total': len(zip_files),
+    'files_extracted': extracted_count,
+    'extracted_files': extracted_files  # List of ZIP → file count
+})
+```
+
+**Frontend Changes** (`templates/upload_files.html`):
+
+**New UI Elements**:
+- **Current File Display**: Shows "Currently processing: filename"
+- **Stats Grid**: 6-column grid showing Found/Staged/Extracted/Queued/Duplicates/Zero Events
+- **File List**: Scrollable list (max-height: 300px) showing files being processed
+- **Dynamic Updates**: Updates every second via polling
+
+**JavaScript Enhancements**:
+- `checkBulkImportStatus()`: Enhanced to parse and display all progress details
+- Shows appropriate file list based on current stage
+- Updates stats in real-time
+- Displays current file being processed
+
+### 4. Files Modified
+
+**Backend**:
+- `app/tasks.py`: Enhanced `bulk_import_directory` task (lines 563-744)
+  - Added per-file progress updates during staging
+  - Added ZIP extraction progress tracking
+  - Added file list tracking for each stage
+  - Enhanced progress meta with detailed information
+
+**Frontend**:
+- `app/templates/upload_files.html`: Enhanced progress display (lines 69-104, 337-451)
+  - Added current file display section
+  - Added stats grid (6 metrics)
+  - Added scrollable file list display
+  - Enhanced JavaScript to parse and display all progress details
+
+**Routes**:
+- `app/routes/files.py`: Verified status endpoint returns all details (line 409)
+
+**Documentation**:
+- `app/version.json`: Added v1.12.28 entry
+- `app/APP_MAP.md`: This entry
+
+### 5. Benefits
+
+✅ **Visibility**: Users can see exactly what's happening  
+✅ **Confidence**: No more wondering if system is stuck  
+✅ **Transparency**: File-by-file progress updates  
+✅ **Statistics**: Real-time counts for all stages  
+✅ **File Lists**: See which files are being processed  
+✅ **Better UX**: Clear indication of active processing  
+
+### 6. User Experience
+
+**Before**:
+- Progress bar: 30%
+- Status: "Extracting ZIPs"
+- User thinks: "Is it stuck?"
+
+**After**:
+- Progress bar: 30%
+- Status: "Extracting ZIPs"
+- Current file: "Extracting archive.zip"
+- Stats: Found: 50, Staged: 50, Extracted: 15, Queued: -, Duplicates: -, Zero Events: -
+- File list: "archive.zip → 15 files", "backup.zip → 8 files", ...
+- User thinks: "Great! It's actively processing archive.zip and has extracted 15 files so far"
 
 ---
 

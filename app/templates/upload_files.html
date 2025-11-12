@@ -75,6 +75,31 @@
                     <div style="background: var(--color-bg-tertiary); height: 20px; border-radius: var(--border-radius); overflow: hidden;">
                         <div id="bulkProgressBar" style="background: var(--color-primary); height: 100%; width: 0%; transition: width 0.3s;"></div>
                     </div>
+                    
+                    <!-- Current File -->
+                    <div id="bulkCurrentFile" style="margin-top: var(--spacing-md); padding: var(--spacing-sm); background: var(--color-bg-tertiary); border-radius: var(--border-radius); font-size: 0.875rem; display: none;">
+                        <div style="color: var(--color-text-secondary); margin-bottom: var(--spacing-xs);">Currently processing:</div>
+                        <div id="bulkCurrentFileName" style="font-weight: 600; font-family: monospace; word-break: break-all;"></div>
+                    </div>
+                    
+                    <!-- File Lists -->
+                    <div id="bulkFileLists" style="margin-top: var(--spacing-md); display: none;">
+                        <!-- Stats -->
+                        <div id="bulkStats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--spacing-sm); margin-bottom: var(--spacing-md); font-size: 0.875rem;">
+                            <div><span class="text-muted">Found:</span> <span id="bulkStatFound">-</span></div>
+                            <div><span class="text-muted">Staged:</span> <span id="bulkStatStaged">-</span></div>
+                            <div><span class="text-muted">Extracted:</span> <span id="bulkStatExtracted">-</span></div>
+                            <div><span class="text-muted">Queued:</span> <span id="bulkStatQueued">-</span></div>
+                            <div><span class="text-muted">Duplicates:</span> <span id="bulkStatDuplicates">-</span></div>
+                            <div><span class="text-muted">Zero Events:</span> <span id="bulkStatZeroEvents">-</span></div>
+                        </div>
+                        
+                        <!-- Files Being Processed -->
+                        <div id="bulkFilesList" style="max-height: 300px; overflow-y: auto; padding: var(--spacing-sm); background: var(--color-bg-tertiary); border-radius: var(--border-radius); font-size: 0.875rem; display: none;">
+                            <div style="color: var(--color-text-secondary); margin-bottom: var(--spacing-xs); font-weight: 600;">Files being processed:</div>
+                            <div id="bulkFilesListContent" style="font-family: monospace; line-height: 1.8;"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -316,11 +341,74 @@ async function checkBulkImportStatus() {
         const response = await fetch(`/case/${CASE_ID}/bulk_import/status/${currentBulkTaskId}`);
         const status = await response.json();
         
-        // Update progress
+        // Update progress bar
         const progress = status.progress || 0;
         document.getElementById('bulkProgressBar').style.width = progress + '%';
         document.getElementById('bulkProgressPercent').textContent = progress + '%';
-        document.getElementById('bulkProgressText').textContent = status.status || 'Processing...';
+        
+        // Update stage text
+        const stage = status.details?.stage || status.status || 'Processing...';
+        document.getElementById('bulkProgressText').textContent = stage;
+        
+        // Update current file being processed
+        const currentFile = status.details?.current_file;
+        const currentFileDiv = document.getElementById('bulkCurrentFile');
+        const currentFileNameDiv = document.getElementById('bulkCurrentFileName');
+        
+        if (currentFile) {
+            currentFileDiv.style.display = 'block';
+            currentFileNameDiv.textContent = currentFile;
+        } else {
+            currentFileDiv.style.display = 'none';
+        }
+        
+        // Update stats
+        const details = status.details || {};
+        if (details.files_found !== undefined) {
+            document.getElementById('bulkStatFound').textContent = details.files_found;
+        }
+        if (details.files_staged !== undefined) {
+            document.getElementById('bulkStatStaged').textContent = details.files_staged;
+        }
+        if (details.files_extracted !== undefined) {
+            document.getElementById('bulkStatExtracted').textContent = details.files_extracted;
+        }
+        if (details.valid_files !== undefined) {
+            document.getElementById('bulkStatQueued').textContent = details.valid_files;
+        }
+        if (details.duplicates_skipped !== undefined) {
+            document.getElementById('bulkStatDuplicates').textContent = details.duplicates_skipped;
+        }
+        if (details.zero_event_files !== undefined) {
+            document.getElementById('bulkStatZeroEvents').textContent = details.zero_event_files;
+        }
+        
+        // Show file lists
+        const filesListDiv = document.getElementById('bulkFilesList');
+        const filesListContent = document.getElementById('bulkFilesListContent');
+        const fileListsDiv = document.getElementById('bulkFileLists');
+        
+        // Determine which file list to show based on stage
+        let filesToShow = [];
+        if (details.files_list && details.stage === 'Staging files') {
+            filesToShow = details.files_list;
+        } else if (details.extracted_files && details.stage === 'Extracting ZIPs') {
+            filesToShow = details.extracted_files;
+        } else if (details.queue_files && details.stage === 'Filtering files') {
+            filesToShow = details.queue_files;
+        } else if (details.valid_file_names && details.stage === 'Queueing for processing') {
+            filesToShow = details.valid_file_names;
+        }
+        
+        if (filesToShow.length > 0) {
+            fileListsDiv.style.display = 'block';
+            filesListDiv.style.display = 'block';
+            filesListContent.innerHTML = filesToShow.map(f => 
+                `<div style="padding: 2px 0;">${escapeHtml(f)}</div>`
+            ).join('');
+        } else {
+            fileListsDiv.style.display = 'none';
+        }
         
         // Check if complete
         if (status.state === 'SUCCESS') {
@@ -328,16 +416,21 @@ async function checkBulkImportStatus() {
             document.getElementById('bulkProgressBar').style.background = 'var(--color-success)';
             document.getElementById('bulkProgressText').textContent = 'Complete! Redirecting...';
             
-            // Show summary
+            // Show final summary
             if (status.result) {
                 const r = status.result;
-                console.log('Bulk import complete:', r);
+                document.getElementById('bulkStatFound').textContent = r.files_found || '-';
+                document.getElementById('bulkStatStaged').textContent = r.files_staged || '-';
+                document.getElementById('bulkStatExtracted').textContent = r.files_extracted || '-';
+                document.getElementById('bulkStatQueued').textContent = r.valid_files || '-';
+                document.getElementById('bulkStatDuplicates').textContent = r.duplicates_skipped || '-';
+                document.getElementById('bulkStatZeroEvents').textContent = r.zero_event_files || '-';
             }
             
             // Redirect to case files page
             setTimeout(() => {
                 window.location.href = `/case/${CASE_ID}/files`;
-            }, 2000);
+            }, 3000);
             
         } else if (status.state === 'FAILURE') {
             clearInterval(bulkImportInterval);
@@ -349,6 +442,12 @@ async function checkBulkImportStatus() {
     } catch (error) {
         console.error('Status check failed:', error);
     }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Auto-scan on page load

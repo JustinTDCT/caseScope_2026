@@ -406,7 +406,7 @@ def bulk_import_status(case_id, task_id):
             'state': task.state,
             'status': task.info.get('stage', 'Processing...'),
             'progress': task.info.get('progress', 0),
-            'details': task.info
+            'details': task.info  # Include all progress details
         }
     elif task.state == 'SUCCESS':
         response = {

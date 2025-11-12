@@ -560,53 +560,131 @@ def bulk_import_directory(self, case_id):
             
             logger.info(f"[BULK IMPORT] Found {total_files} files to import")
             
+            # Get file list for display
+            files_by_type = scan_result.get('files_by_type', {})
+            all_files = []
+            for file_list in files_by_type.values():
+                all_files.extend([os.path.basename(f) for f in file_list])
+            
             # Update progress
             self.update_state(state='PROGRESS', meta={
                 'stage': 'Staging files',
                 'progress': 10,
-                'files_found': total_files
+                'files_found': total_files,
+                'current_file': None,
+                'files_list': all_files[:50],  # Show first 50 files
+                'files_processed': 0,
+                'files_total': total_files
             })
             
             # Step 2: Stage files from bulk import directory
-            stage_result = stage_bulk_upload(
-                case_id=case_id,
-                source_folder=BULK_IMPORT_DIR,
-                cleanup_after=True  # Move files to staging, delete originals
-            )
-            
-            if stage_result['status'] != 'success':
-                logger.error(f"[BULK IMPORT] Staging failed: {stage_result.get('message')}")
-                return stage_result
-            
+            # Enhance stage_bulk_upload to report progress per file
             staging_dir = get_staging_path(case_id)
-            files_staged = stage_result.get('files_staged', 0)
+            files_staged = 0
+            staged_file_list = []
+            
+            # Stage files one by one with progress updates
+            for file_type, file_paths in files_by_type.items():
+                if file_type == 'other':
+                    continue
+                for file_path in file_paths:
+                    filename = os.path.basename(file_path)
+                    try:
+                        # Update progress for each file
+                        self.update_state(state='PROGRESS', meta={
+                            'stage': 'Staging files',
+                            'progress': 10 + int((files_staged / total_files) * 20),
+                            'files_found': total_files,
+                            'current_file': filename,
+                            'files_list': all_files[:50],
+                            'files_processed': files_staged,
+                            'files_total': total_files
+                        })
+                        
+                        dest_path = os.path.join(staging_dir, filename)
+                        shutil.copy2(file_path, dest_path)
+                        files_staged += 1
+                        staged_file_list.append(filename)
+                        
+                        # Cleanup original
+                        try:
+                            os.remove(file_path)
+                        except:
+                            pass
+                            
+                    except Exception as e:
+                        logger.error(f"[BULK IMPORT] Failed to stage {filename}: {e}")
+                        continue
+            
+            stage_result = {
+                'status': 'success',
+                'files_staged': files_staged,
+                'staged_files': staged_file_list
+            }
             
             logger.info(f"[BULK IMPORT] Staged {files_staged} files")
             
-            # Update progress
-            self.update_state(state='PROGRESS', meta={
-                'stage': 'Extracting ZIPs',
-                'progress': 30,
-                'files_staged': files_staged
-            })
+            # Step 3: Extract ZIPs with progress tracking
+            # Find ZIP files first
+            zip_files = [f for f in os.listdir(staging_dir) 
+                        if f.lower().endswith('.zip') and not f.startswith('_temp_')]
             
-            # Step 3: Extract ZIPs (reuses nested extraction logic)
-            extract_result = extract_zips_in_staging(case_id)
+            extracted_count = 0
+            extracted_files = []
+            zips_processed = 0
             
-            if extract_result['status'] != 'success':
-                logger.error(f"[BULK IMPORT] ZIP extraction failed: {extract_result.get('message')}")
+            for zip_idx, zip_filename in enumerate(zip_files):
+                # Update progress for each ZIP
+                self.update_state(state='PROGRESS', meta={
+                    'stage': 'Extracting ZIPs',
+                    'progress': 30 + int((zip_idx / len(zip_files)) * 20) if zip_files else 30,
+                    'files_staged': files_staged,
+                    'current_file': f'Extracting {zip_filename}',
+                    'zips_processed': zip_idx,
+                    'zips_total': len(zip_files),
+                    'files_extracted': extracted_count
+                })
+                
+                zip_path = os.path.join(staging_dir, zip_filename)
+                try:
+                    from upload_pipeline import extract_single_zip
+                    extract_stats = extract_single_zip(zip_path, staging_dir)
+                    extracted_count += extract_stats.get('files_extracted', 0)
+                    zips_processed += 1
+                    
+                    # Track extracted files (limited list)
+                    if len(extracted_files) < 20:
+                        extracted_files.append(f"{zip_filename} → {extract_stats.get('files_extracted', 0)} files")
+                    
+                    # Delete original ZIP
+                    os.remove(zip_path)
+                    logger.info(f"[BULK IMPORT] Extracted {zip_filename}: {extract_stats.get('files_extracted', 0)} files")
+                except Exception as e:
+                    logger.error(f"[BULK IMPORT] Failed to extract {zip_filename}: {e}")
+                    continue
             
-            extracted_count = extract_result.get('total_extracted', 0)
-            logger.info(f"[BULK IMPORT] Extracted {extracted_count} files from ZIPs")
+            extract_result = {
+                'status': 'success',
+                'total_extracted': extracted_count,
+                'zips_processed': zips_processed,
+                'extracted_files': extracted_files
+            }
             
-            # Update progress
+            logger.info(f"[BULK IMPORT] Extracted {extracted_count} files from {zips_processed} ZIPs")
+            
+            # Step 4: Build file queue (deduplication, 0-event detection)
+            # Get list of files in staging for progress tracking
+            staging_files = [f for f in os.listdir(staging_dir) 
+                            if os.path.isfile(os.path.join(staging_dir, f))]
+            
             self.update_state(state='PROGRESS', meta={
                 'stage': 'Building file queue',
                 'progress': 50,
-                'files_extracted': extracted_count
+                'files_extracted': extracted_count,
+                'current_file': f'Processing {len(staging_files)} files',
+                'files_in_staging': len(staging_files)
             })
             
-            # Step 4: Build file queue (deduplication, 0-event detection)
             queue_result = build_file_queue(db, CaseFile, SkippedFile, case_id)
             
             if queue_result['status'] != 'success':
@@ -614,11 +692,16 @@ def bulk_import_directory(self, case_id):
                 clear_staging(case_id)
                 return queue_result
             
+            # Get filenames from queue for display
+            queue_file_names = [item[1] for item in queue_result['queue'][:30]]  # First 30 files
+            
             # Update progress
             self.update_state(state='PROGRESS', meta={
                 'stage': 'Filtering files',
                 'progress': 70,
-                'total_in_queue': len(queue_result['queue'])
+                'total_in_queue': len(queue_result['queue']),
+                'queue_files': queue_file_names,
+                'duplicates_skipped': queue_result.get('duplicates_skipped', 0)
             })
             
             # Step 5: Filter zero-event files
@@ -630,11 +713,16 @@ def bulk_import_directory(self, case_id):
             
             valid_count = filter_result['valid_files']
             
+            # Get valid file names for display
+            valid_file_names = [item[1] for item in filter_result['filtered_queue'][:30]]
+            
             # Update progress
             self.update_state(state='PROGRESS', meta={
                 'stage': 'Queueing for processing',
                 'progress': 90,
-                'valid_files': valid_count
+                'valid_files': valid_count,
+                'valid_file_names': valid_file_names,
+                'zero_event_files': filter_result.get('zero_events', 0)
             })
             
             # Step 6: Queue valid files for processing
@@ -642,6 +730,15 @@ def bulk_import_directory(self, case_id):
             if valid_count > 0:
                 file_ids = [item[0] for item in filter_result['filtered_queue']]
                 case_files = db.session.query(CaseFile).filter(CaseFile.id.in_(file_ids)).all()
+                
+                # Update progress while queueing
+                self.update_state(state='PROGRESS', meta={
+                    'stage': 'Queueing for processing',
+                    'progress': 95,
+                    'valid_files': valid_count,
+                    'valid_file_names': valid_file_names,
+                    'queued_count': len(case_files)
+                })
                 
                 queue_file_processing(process_file, case_files, operation='full')
                 logger.info(f"[BULK IMPORT] Queued {len(case_files)} files for processing")
