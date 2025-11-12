@@ -195,11 +195,12 @@ class System(db.Model):
 
 
 class KnownUser(db.Model):
-    """Known/Valid users in the environment (not CaseScope application users)"""
+    """Known/Valid users in the environment (not CaseScope application users) - Case-specific"""
     __tablename__ = 'known_user'
     
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    username = db.Column(db.String(255), nullable=False, index=True)
     user_type = db.Column(db.String(20), nullable=False, default='-')  # 'domain', 'local', or '-'
     compromised = db.Column(db.Boolean, default=False, nullable=False)
     
@@ -209,7 +210,11 @@ class KnownUser(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationships
+    case = db.relationship('Case', backref='known_users')
     creator = db.relationship('User', foreign_keys=[added_by], backref='known_users_added')
+    
+    # Unique constraint: username must be unique per case
+    __table_args__ = (db.UniqueConstraint('case_id', 'username', name='uq_known_user_case_username'),)
 
 
 class SkippedFile(db.Model):

@@ -1,8 +1,237 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.21  
-**Last Updated**: 2025-11-12 12:50 UTC  
+**Version**: 1.12.22  
+**Last Updated**: 2025-11-12 20:55 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔧 v1.12.22 - CRITICAL FIX: Known Users Now Case-Specific (2025-11-12 20:55 UTC)
+
+**Change**: Fixed Known Users being global instead of case-specific. All Known Users are now scoped to individual cases.
+
+### 1. Problem Statement
+
+**User Report**: "The 'known users' is supposed to be case specific. check app_map.md and versions.json to see how this function works; review the template and database and correct this; ensure the template and all methods of adding users (upload CSV or manual) is fixed -and- the buttons which cross reference the users lists in the search events page are fixed also"
+
+**Previous Behavior**:
+- Known Users were stored globally (no `case_id` field)
+- All cases shared the same Known Users list
+- Login analysis badges referenced global users
+- CSV uploads and manual adds created global users
+- No way to have different Known Users per case
+
+**Business Impact**:
+- Multi-case investigations couldn't maintain separate user lists
+- Users from Case A appeared in Case B's analysis
+- Impossible to track case-specific legitimate users
+- Login analysis badges showed incorrect information
+
+### 2. Solution Implemented
+
+**A. Database Schema Changes** (`models.py`):
+
+Added `case_id` field to `KnownUser` model:
+```python
+class KnownUser(db.Model):
+    """Known/Valid users in the environment (not CaseScope application users) - Case-specific"""
+    __tablename__ = 'known_user'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    username = db.Column(db.String(255), nullable=False, index=True)
+    user_type = db.Column(db.String(20), nullable=False, default='-')
+    compromised = db.Column(db.Boolean, default=False, nullable=False)
+    
+    # Unique constraint: username must be unique per case
+    __table_args__ = (db.UniqueConstraint('case_id', 'username', name='uq_known_user_case_username'),)
+```
+
+**Key Changes**:
+- Added `case_id` column (required, indexed)
+- Changed unique constraint from `username` to `(case_id, username)`
+- Added relationship to `Case` model
+- Removed global `unique=True` from username
+
+**B. Database Migration** (`migrations/add_case_id_to_known_users.py`):
+
+Migration script performs:
+1. Adds `case_id` column (nullable initially)
+2. Assigns all existing users to case 9 (or first case if case 9 doesn't exist)
+3. Makes `case_id` NOT NULL
+4. Drops old unique constraint on `username`
+5. Creates new unique constraint on `(case_id, username)`
+6. Creates index on `case_id`
+
+**Migration Results**:
+- ✅ 63 existing Known Users assigned to case 9
+- ✅ Database schema updated successfully
+- ✅ No data loss
+
+**C. Route Updates** (`routes/known_users.py`):
+
+All 6 routes updated to require `case_id`:
+
+1. **List Page**: `/case/<case_id>/known_users`
+   - Filters users by `case_id`
+   - Shows case name in header
+   - Stats calculated per case
+
+2. **Add User**: `/case/<case_id>/known_users/add`
+   - Requires `case_id` in POST
+   - Validates case exists
+   - Checks duplicates within case only
+
+3. **Update User**: `/case/<case_id>/known_users/<user_id>/update`
+   - Verifies user belongs to case
+   - Checks duplicates within case
+
+4. **Delete User**: `/case/<case_id>/known_users/<user_id>/delete`
+   - Verifies user belongs to case
+   - Admin-only permission
+
+5. **CSV Upload**: `/case/<case_id>/known_users/upload_csv`
+   - Assigns all imported users to case
+   - Checks duplicates within case
+
+6. **CSV Export**: `/case/<case_id>/known_users/export_csv`
+   - Exports only users for specified case
+   - Filename includes case ID
+
+**D. Utility Function Updates** (`known_user_utils.py`):
+
+**Updated `check_known_user()`**:
+```python
+def check_known_user(username: str, case_id: int) -> Dict[str, any]:
+    """Check if username exists in Known Users database for a specific case"""
+    known_user = KnownUser.query.filter(
+        KnownUser.case_id == case_id,
+        KnownUser.username.ilike(username)
+    ).first()
+```
+
+**Updated `enrich_login_records()`**:
+- Now requires `case_id` parameter (no longer optional)
+- Calls `check_known_user(username, case_id)` instead of global lookup
+- All login analysis badges now case-specific
+
+**E. Template Updates**:
+
+**`known_users.html`**:
+- Shows case name in header: "👥 Known Users: {case_name}"
+- All URLs include `case_id` parameter
+- "Back to Case" button added
+- JavaScript functions updated to use case-specific URLs
+
+**`base.html`**:
+- Known Users sidebar link only appears when `current_case` exists
+- Link includes `case_id`: `/case/<case_id>/known_users`
+
+**`search_events.html`**:
+- Known User badges are now clickable links
+- Links point to `/case/{CASE_ID}/known_users`
+- Badges (COMPROMISED, UNKNOWN, Domain, Local) all link to case-specific page
+
+### 3. Technical Details
+
+**Database Query Pattern**:
+```python
+# Before (global):
+KnownUser.query.filter_by(username=username).first()
+
+# After (case-specific):
+KnownUser.query.filter_by(case_id=case_id, username=username).first()
+```
+
+**Unique Constraint**:
+- **Before**: `username` must be unique globally
+- **After**: `(case_id, username)` must be unique
+- **Result**: Same username can exist in different cases
+
+**Migration Safety**:
+- Existing users preserved (assigned to case 9)
+- No data loss
+- Backward compatible (all existing users migrated)
+
+### 4. User Workflows
+
+**Before** (Global):
+1. Add user "jdoe" → Available in ALL cases
+2. Case A and Case B share same user list
+3. Cannot have different users per case
+
+**After** (Case-Specific):
+1. Add user "jdoe" to Case 9 → Only visible in Case 9
+2. Case 9 and Case 10 have separate user lists
+3. Each case maintains independent Known Users
+
+**Login Analysis Integration**:
+1. View login analysis in Case 9
+2. See badge "❓ UNKNOWN" for user "attacker"
+3. Click badge → Navigate to Case 9's Known Users page
+4. Add "attacker" as compromised user
+5. Badge updates to "🚨 COMPROMISED" (case-specific)
+
+### 5. Files Modified
+
+**Database**:
+- `app/models.py`: Added `case_id` to `KnownUser` model, updated constraints
+- `app/migrations/add_case_id_to_known_users.py`: Migration script (NEW)
+
+**Backend**:
+- `app/routes/known_users.py`: All 6 routes updated to require `case_id`
+- `app/known_user_utils.py`: `check_known_user()` and `enrich_login_records()` updated
+
+**Frontend**:
+- `app/templates/known_users.html`: Case name display, case-specific URLs
+- `app/templates/base.html`: Conditional sidebar link
+- `app/templates/search_events.html`: Clickable badge links
+
+**Documentation**:
+- `app/version.json`: Added v1.12.22 entry
+- `app/APP_MAP.md`: This entry
+
+### 6. Breaking Changes
+
+⚠️ **Breaking Change**: Known Users are no longer global.
+
+**Migration Required**:
+- Run `python migrations/add_case_id_to_known_users.py`
+- Existing users will be assigned to case 9 (or first case)
+- All new users must specify `case_id`
+
+**API Changes**:
+- All Known User routes now require `case_id` parameter
+- Old routes (`/known_users`) no longer work
+- Must use `/case/<case_id>/known_users`
+
+### 7. Benefits
+
+✅ **Case Isolation**: Each case has independent Known Users list  
+✅ **Multi-Case Support**: Different users per case without conflicts  
+✅ **Accurate Analysis**: Login badges reflect case-specific users  
+✅ **Better Organization**: Users scoped to relevant investigations  
+✅ **Data Integrity**: Unique constraint prevents duplicates per case  
+
+### 8. Verification
+
+**Database Check**:
+```sql
+SELECT case_id, COUNT(*) FROM known_user GROUP BY case_id;
+-- Result: case_id=9, count=63
+```
+
+**Route Testing**:
+- ✅ `/case/9/known_users` → Shows 63 users
+- ✅ `/case/10/known_users` → Shows 0 users (empty)
+- ✅ Add user to Case 10 → Only appears in Case 10
+- ✅ Login badges link to correct case
+
+**Migration Verification**:
+- ✅ All 63 existing users assigned to case 9
+- ✅ Unique constraint created successfully
+- ✅ Index on `case_id` created
+- ✅ No errors during migration
 
 ---
 

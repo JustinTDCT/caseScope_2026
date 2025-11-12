@@ -1,13 +1,19 @@
 {% extends "base.html" %}
 
-{% block title %}Known Users - CaseScope 2026{% endblock %}
+{% block title %}Known Users - {{ case.name }} - CaseScope 2026{% endblock %}
 
 {% block content %}
 <div class="content">
     <div class="content-header">
         <div>
-            <h1>👥 Known Users</h1>
-            <p class="text-muted">Legitimate users in the environment</p>
+            <h1>👥 Known Users: {{ case.name }}</h1>
+            <p class="text-muted">Legitimate users in the environment for this case</p>
+        </div>
+        <div>
+            <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
+                <span>←</span>
+                <span>Back to Case</span>
+            </a>
         </div>
         <div class="content-actions">
             <button class="btn btn-primary" onclick="showAddUserModal()">
@@ -16,7 +22,7 @@
             <button class="btn" style="background: var(--color-success); color: white;" onclick="showUploadCSVModal()">
                 📤 Upload CSV
             </button>
-            <a href="{{ url_for('known_users.export_csv') }}" class="btn btn-secondary">
+            <a href="{{ url_for('known_users.export_csv', case_id=case_id) }}" class="btn btn-secondary">
                 📥 Export CSV
             </a>
         </div>
@@ -60,7 +66,7 @@
     <!-- Search Bar -->
     <div class="card" style="margin-bottom: var(--spacing-md);">
         <div class="card-body">
-            <form action="{{ url_for('known_users.list_known_users') }}" method="GET" style="display: flex; gap: var(--spacing-sm);">
+            <form action="{{ url_for('known_users.list_known_users', case_id=case_id) }}" method="GET" style="display: flex; gap: var(--spacing-sm);">
                 <input type="text" 
                        name="search" 
                        value="{{ search_query }}" 
@@ -69,7 +75,7 @@
                        style="flex: 1;">
                 <button type="submit" class="btn btn-primary">🔍 Search</button>
                 {% if search_query %}
-                <a href="{{ url_for('known_users.list_known_users') }}" class="btn btn-secondary">✖️ Clear</a>
+                <a href="{{ url_for('known_users.list_known_users', case_id=case_id) }}" class="btn btn-secondary">✖️ Clear</a>
                 {% endif %}
             </form>
         </div>
@@ -144,7 +150,7 @@
             {% if pagination.pages > 1 %}
             <div style="margin-top: var(--spacing-lg); display: flex; justify-content: center; gap: var(--spacing-sm); align-items: center;">
                 {% if pagination.has_prev %}
-                <a href="{{ url_for('known_users.list_known_users', page=pagination.prev_num, search=search_query) }}" class="btn btn-sm btn-secondary">← Previous</a>
+                <a href="{{ url_for('known_users.list_known_users', case_id=case_id, page=pagination.prev_num, search=search_query) }}" class="btn btn-sm btn-secondary">← Previous</a>
                 {% endif %}
                 
                 <span class="text-muted">
@@ -152,7 +158,7 @@
                 </span>
                 
                 {% if pagination.has_next %}
-                <a href="{{ url_for('known_users.list_known_users', page=pagination.next_num, search=search_query) }}" class="btn btn-sm btn-secondary">Next →</a>
+                <a href="{{ url_for('known_users.list_known_users', case_id=case_id, page=pagination.next_num, search=search_query) }}" class="btn btn-sm btn-secondary">Next →</a>
                 {% endif %}
             </div>
             {% endif %}
@@ -310,7 +316,7 @@ function addUser(event) {
     button.disabled = true;
     button.textContent = 'Adding...';
     
-    fetch('/known_users/add', {
+    fetch('/case/{{ case_id }}/known_users/add', {
         method: 'POST',
         body: formData
     })
@@ -354,7 +360,7 @@ function updateUser(event) {
     button.disabled = true;
     button.textContent = 'Updating...';
     
-    fetch(`/known_users/${userId}/update`, {
+    fetch(`/case/{{ case_id }}/known_users/${userId}/update`, {
         method: 'POST',
         body: formData
     })
@@ -382,7 +388,7 @@ function deleteUser(userId) {
         return;
     }
     
-    fetch(`/known_users/${userId}/delete`, {
+    fetch(`/case/{{ case_id }}/known_users/${userId}/delete`, {
         method: 'POST'
     })
     .then(response => response.json())
@@ -408,7 +414,7 @@ function uploadCSV(event) {
     button.disabled = true;
     button.textContent = 'Uploading...';
     
-    fetch('/known_users/upload_csv', {
+    fetch('/case/{{ case_id }}/known_users/upload_csv', {
         method: 'POST',
         body: formData
     })

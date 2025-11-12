@@ -12,20 +12,26 @@ import io
 known_users_bp = Blueprint('known_users', __name__)
 
 
-@known_users_bp.route('/known_users')
+@known_users_bp.route('/case/<int:case_id>/known_users')
 @login_required
-def list_known_users():
-    """Known Users management page"""
+def list_known_users(case_id):
+    """Known Users management page - Case-specific"""
     from main import db
-    from models import KnownUser
+    from models import KnownUser, Case
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('dashboard'))
     
     # Get pagination parameters
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)
     search_query = request.args.get('search', '').strip()
     
-    # Base query
-    query = KnownUser.query
+    # Base query - filter by case_id
+    query = KnownUser.query.filter_by(case_id=case_id)
     
     # Apply search filter
     if search_query:
@@ -38,13 +44,15 @@ def list_known_users():
     
     known_users = pagination.items
     
-    # Calculate stats
-    total_users = KnownUser.query.count()
-    domain_users = KnownUser.query.filter_by(user_type='domain').count()
-    local_users = KnownUser.query.filter_by(user_type='local').count()
-    compromised_users = KnownUser.query.filter_by(compromised=True).count()
+    # Calculate stats - case-specific
+    total_users = KnownUser.query.filter_by(case_id=case_id).count()
+    domain_users = KnownUser.query.filter_by(case_id=case_id, user_type='domain').count()
+    local_users = KnownUser.query.filter_by(case_id=case_id, user_type='local').count()
+    compromised_users = KnownUser.query.filter_by(case_id=case_id, compromised=True).count()
     
     return render_template('known_users.html',
+                         case=case,
+                         case_id=case_id,
                          known_users=known_users,
                          pagination=pagination,
                          search_query=search_query,
@@ -54,16 +62,21 @@ def list_known_users():
                          compromised_users=compromised_users)
 
 
-@known_users_bp.route('/known_users/add', methods=['POST'])
+@known_users_bp.route('/case/<int:case_id>/known_users/add', methods=['POST'])
 @login_required
-def add_known_user():
-    """Add new known user manually"""
+def add_known_user(case_id):
+    """Add new known user manually - Case-specific"""
     # Permission check: Read-only users cannot add
     if current_user.role == 'read-only':
         return jsonify({'success': False, 'error': 'Read-only users cannot add known users'}), 403
     
     from main import db
-    from models import KnownUser
+    from models import KnownUser, Case
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     try:
         username = request.form.get('username', '').strip()
@@ -77,13 +90,14 @@ def add_known_user():
         if user_type not in ['domain', 'local', '-']:
             user_type = '-'
         
-        # Check for duplicate
-        existing = KnownUser.query.filter_by(username=username).first()
+        # Check for duplicate within this case
+        existing = KnownUser.query.filter_by(case_id=case_id, username=username).first()
         if existing:
-            return jsonify({'success': False, 'error': f'User "{username}" already exists'}), 400
+            return jsonify({'success': False, 'error': f'User "{username}" already exists in this case'}), 400
         
         # Create known user
         known_user = KnownUser(
+            case_id=case_id,
             username=username,
             user_type=user_type,
             compromised=compromised,
@@ -101,10 +115,10 @@ def add_known_user():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@known_users_bp.route('/known_users/<int:user_id>/update', methods=['POST'])
+@known_users_bp.route('/case/<int:case_id>/known_users/<int:user_id>/update', methods=['POST'])
 @login_required
-def update_known_user(user_id):
-    """Update known user"""
+def update_known_user(case_id, user_id):
+    """Update known user - Case-specific"""
     # Permission check: Read-only users cannot update
     if current_user.role == 'read-only':
         return jsonify({'success': False, 'error': 'Read-only users cannot update known users'}), 403
@@ -117,19 +131,24 @@ def update_known_user(user_id):
         if not known_user:
             return jsonify({'success': False, 'error': 'Known user not found'}), 404
         
+        # Verify user belongs to this case
+        if known_user.case_id != case_id:
+            return jsonify({'success': False, 'error': 'User does not belong to this case'}), 403
+        
         # Update fields
         if 'username' in request.form:
             new_username = request.form['username'].strip()
             if not new_username:
                 return jsonify({'success': False, 'error': 'Username cannot be empty'}), 400
             
-            # Check for duplicate (excluding current user)
+            # Check for duplicate within this case (excluding current user)
             existing = KnownUser.query.filter(
+                KnownUser.case_id == case_id,
                 KnownUser.username == new_username,
                 KnownUser.id != user_id
             ).first()
             if existing:
-                return jsonify({'success': False, 'error': f'User "{new_username}" already exists'}), 400
+                return jsonify({'success': False, 'error': f'User "{new_username}" already exists in this case'}), 400
             
             known_user.username = new_username
         
@@ -151,10 +170,10 @@ def update_known_user(user_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@known_users_bp.route('/known_users/<int:user_id>/delete', methods=['POST'])
+@known_users_bp.route('/case/<int:case_id>/known_users/<int:user_id>/delete', methods=['POST'])
 @login_required
-def delete_known_user(user_id):
-    """Delete known user"""
+def delete_known_user(case_id, user_id):
+    """Delete known user - Case-specific"""
     # Permission check: Only administrators can delete
     if current_user.role not in ['administrator']:
         return jsonify({'success': False, 'error': 'Only administrators can delete known users'}), 403
@@ -166,6 +185,10 @@ def delete_known_user(user_id):
         known_user = db.session.get(KnownUser, user_id)
         if not known_user:
             return jsonify({'success': False, 'error': 'Known user not found'}), 404
+        
+        # Verify user belongs to this case
+        if known_user.case_id != case_id:
+            return jsonify({'success': False, 'error': 'User does not belong to this case'}), 403
         
         username = known_user.username
         db.session.delete(known_user)
@@ -179,16 +202,21 @@ def delete_known_user(user_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@known_users_bp.route('/known_users/upload_csv', methods=['POST'])
+@known_users_bp.route('/case/<int:case_id>/known_users/upload_csv', methods=['POST'])
 @login_required
-def upload_csv():
-    """Upload CSV file with known users"""
+def upload_csv(case_id):
+    """Upload CSV file with known users - Case-specific"""
     # Permission check: Read-only users cannot upload
     if current_user.role == 'read-only':
         return jsonify({'success': False, 'error': 'Read-only users cannot upload CSV'}), 403
     
     from main import db
-    from models import KnownUser
+    from models import KnownUser, Case
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     if 'csv_file' not in request.files:
         return jsonify({'success': False, 'error': 'No file uploaded'}), 400
@@ -241,14 +269,15 @@ def upload_csv():
                 # Parse compromised
                 compromised = compromised_str in ['true', 't', 'yes', 'y', '1']
                 
-                # Check for duplicate
-                existing = KnownUser.query.filter_by(username=username).first()
+                # Check for duplicate within this case
+                existing = KnownUser.query.filter_by(case_id=case_id, username=username).first()
                 if existing:
                     skipped_count += 1
                     continue
                 
                 # Create known user
                 known_user = KnownUser(
+                    case_id=case_id,
                     username=username,
                     user_type=user_type,
                     compromised=compromised,
@@ -285,18 +314,22 @@ def upload_csv():
         return jsonify({'success': False, 'error': f'CSV processing error: {str(e)}'}), 500
 
 
-@known_users_bp.route('/known_users/export_csv')
+@known_users_bp.route('/case/<int:case_id>/known_users/export_csv')
 @login_required
-def export_csv():
-    """Export all known users to CSV"""
+def export_csv(case_id):
+    """Export all known users to CSV - Case-specific"""
     from main import db
-    from models import KnownUser, User
-    import csv
-    from flask import Response
+    from models import KnownUser, User, Case
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('dashboard'))
     
     try:
-        # Get all known users
-        known_users = KnownUser.query.order_by(KnownUser.username).all()
+        # Get all known users for this case
+        known_users = KnownUser.query.filter_by(case_id=case_id).order_by(KnownUser.username).all()
         
         # Create CSV in memory
         output = io.StringIO()
@@ -321,13 +354,14 @@ def export_csv():
         
         # Create response
         output.seek(0)
+        from flask import Response
         return Response(
             output.getvalue(),
             mimetype='text/csv',
-            headers={'Content-Disposition': f'attachment; filename=known_users_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'}
+            headers={'Content-Disposition': f'attachment; filename=known_users_case_{case_id}_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'}
         )
     
     except Exception as e:
         flash(f'Export failed: {str(e)}', 'error')
-        return redirect(url_for('known_users.list_known_users'))
+        return redirect(url_for('known_users.list_known_users', case_id=case_id))
 

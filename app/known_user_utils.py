@@ -57,24 +57,26 @@ def check_ioc_match(username: str, case_id: Optional[int] = None) -> Dict[str, a
         }
 
 
-def check_known_user(username: str) -> Dict[str, any]:
+def check_known_user(username: str, case_id: int) -> Dict[str, any]:
     """
-    Check if a username exists in the Known Users database
+    Check if a username exists in the Known Users database for a specific case
     
     Args:
         username: Username to check (case-insensitive)
+        case_id: Case ID to filter by (required)
         
     Returns:
         Dict with:
-            - 'is_known': bool (True if user exists in database)
+            - 'is_known': bool (True if user exists in database for this case)
             - 'compromised': bool (True if user is marked as compromised)
             - 'user_type': str ('domain', 'local', or '-')
     """
     try:
         from models import KnownUser
         
-        # Case-insensitive lookup
+        # Case-insensitive lookup within specific case
         known_user = KnownUser.query.filter(
+            KnownUser.case_id == case_id,
             KnownUser.username.ilike(username)
         ).first()
         
@@ -92,7 +94,7 @@ def check_known_user(username: str) -> Dict[str, any]:
             }
     
     except Exception as e:
-        logger.error(f"[KNOWN_USER_CHECK] Error checking username '{username}': {e}")
+        logger.error(f"[KNOWN_USER_CHECK] Error checking username '{username}' for case {case_id}: {e}")
         return {
             'is_known': False,
             'compromised': False,
@@ -100,13 +102,13 @@ def check_known_user(username: str) -> Dict[str, any]:
         }
 
 
-def enrich_login_records(login_records: list, case_id: Optional[int] = None) -> list:
+def enrich_login_records(login_records: list, case_id: int) -> list:
     """
     Enrich login records with Known User and IOC information
     
     Args:
         login_records: List of dicts with 'username' key
-        case_id: Optional case ID for IOC filtering
+        case_id: Case ID (required) for filtering Known Users and IOCs
         
     Returns:
         Same list with added keys:
@@ -117,15 +119,19 @@ def enrich_login_records(login_records: list, case_id: Optional[int] = None) -> 
             - 'ioc_threat_level': str or None
     """
     try:
+        if case_id is None:
+            logger.warning("[KNOWN_USER_ENRICH] case_id is None, skipping enrichment")
+            return login_records
+        
         enriched = []
         
         for record in login_records:
             username = record.get('username', '')
             
-            # Check against Known Users database
-            user_info = check_known_user(username)
+            # Check against Known Users database (case-specific)
+            user_info = check_known_user(username, case_id)
             
-            # Check against IOCs
+            # Check against IOCs (case-specific)
             ioc_info = check_ioc_match(username, case_id)
             
             # Add enrichment data to record
@@ -144,12 +150,12 @@ def enrich_login_records(login_records: list, case_id: Optional[int] = None) -> 
         compromised = sum(1 for r in enriched if r['is_compromised'])
         iocs = sum(1 for r in enriched if r['is_ioc'])
         
-        logger.info(f"[KNOWN_USER_ENRICH] Enriched {total} records: {known} known users, {compromised} compromised, {iocs} IOCs")
+        logger.info(f"[KNOWN_USER_ENRICH] Enriched {total} records for case {case_id}: {known} known users, {compromised} compromised, {iocs} IOCs")
         
         return enriched
     
     except Exception as e:
-        logger.error(f"[KNOWN_USER_ENRICH] Error enriching records: {e}")
+        logger.error(f"[KNOWN_USER_ENRICH] Error enriching records for case {case_id}: {e}")
         # Return original records without enrichment on error
         return login_records
 

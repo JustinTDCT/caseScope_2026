@@ -1559,18 +1559,19 @@ function getKnownUserBadges(record) {
         badges += ` <span style="display: inline-block; background: ${threatColor}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px;">📌 IOC (${threatLabel})</span>`;
     }
     
-    // Compromised user - highest priority for Known Users
+    // Compromised user - highest priority for Known Users (clickable link)
+    const knownUsersUrl = `/case/${CASE_ID}/known_users`;
     if (record.is_compromised) {
-        badges += ' <span style="display: inline-block; background: var(--color-error); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px;">🚨 COMPROMISED</span>';
+        badges += ` <a href="${knownUsersUrl}" style="display: inline-block; background: var(--color-error); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px; text-decoration: none; cursor: pointer;" title="View Known Users">🚨 COMPROMISED</a>`;
     }
-    // Unknown user - not in Known Users database
+    // Unknown user - not in Known Users database (clickable link)
     else if (!record.is_known_user) {
-        badges += ' <span style="display: inline-block; background: var(--color-warning); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px;">❓ UNKNOWN</span>';
+        badges += ` <a href="${knownUsersUrl}" style="display: inline-block; background: var(--color-warning); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px; text-decoration: none; cursor: pointer;" title="View Known Users">❓ UNKNOWN</a>`;
     }
-    // Known user with type indicator
+    // Known user with type indicator (clickable link)
     else if (record.user_type) {
         const typeLabel = record.user_type === 'domain' ? '🏢 Domain' : record.user_type === 'local' ? '💻 Local' : '✓ Known';
-        badges += ` <span style="display: inline-block; background: var(--color-success); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px;">${typeLabel}</span>`;
+        badges += ` <a href="${knownUsersUrl}" style="display: inline-block; background: var(--color-success); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px; text-decoration: none; cursor: pointer;" title="View Known Users">${typeLabel}</a>`;
     }
     
     return badges;
