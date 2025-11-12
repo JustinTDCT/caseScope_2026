@@ -1,8 +1,113 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.16  
-**Last Updated**: 2025-11-11 13:05 UTC  
+**Version**: 1.12.21  
+**Last Updated**: 2025-11-12 12:50 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔧 v1.12.21 - FIX: SIGMA Rule Title Extraction from Chainsaw CSV (2025-11-12 12:50 UTC)
+
+**Change**: Fixed SIGMA rule names showing as "Unknown" in OpenSearch event details.
+
+### 1. Problem: Rule Names Not Displaying
+
+**User Report**: "The counter which indicates the number of SIGMA items found is not incrementing... can you see if the rule violated tag is being updated"
+
+**Symptoms**:
+- ✅ SIGMA counter was working correctly (violations detected and counted)
+- ❌ OpenSearch events had `sigma_rule: "Unknown"` instead of actual rule names
+- ❌ Event details modal showed "🛡️ SIGMA Rule Violated: Unknown"
+
+**Root Cause**:
+The code was extracting the rule name from the wrong CSV column.
+
+```python
+# file_processing.py line 893 (BEFORE):
+rule_title = row.get('name', row.get('rule', row.get('Rule', 'Unknown')))
+```
+
+**Actual Chainsaw CSV columns**:
+```python
+['timestamp', 'detections', 'path', 'count', 'Event.System.Provider', 
+ 'Event ID', 'Record ID', 'Computer', 'Event Data']
+```
+
+The rule name is in the **`'detections'`** column, not `'name'`.
+
+### 2. Discovery Process
+
+**Debug Logging Added**:
+```python
+# Lines 890, 902 - Added temporary logging
+logger.info(f"[CHAINSAW FILE] DEBUG: CSV columns: {list(row.keys())}")
+logger.info(f"[CHAINSAW FILE] DEBUG: row['detections']='{row.get('detections')}', final rule_title='{rule_title}'")
+```
+
+**Output**:
+```
+DEBUG: CSV columns: ['timestamp', 'detections', 'path', 'count', ...]
+DEBUG: row['name']='KEY_MISSING', final rule_title='Unknown'
+```
+
+Confirmed: `'name'` column doesn't exist; rule is in `'detections'`.
+
+### 3. The Fix
+
+**Updated line 889-896** to check `'detections'` first:
+```python
+# Extract rule name and level
+# Chainsaw CSV uses 'detections' column for rule names
+rule_title = (row.get('detections', '').strip() or 
+            row.get('name', '').strip() or 
+            row.get('rule', '').strip() or 
+            row.get('Rule', '').strip() or 
+            row.get('title', '').strip() or 
+            row.get('detection', '').strip() or 
+            row.get('rule_title', '').strip() or 'Unknown')
+```
+
+**Key improvements**:
+- Uses `.get('detections', '')` to safely get the column
+- Calls `.strip()` to remove whitespace
+- Uses `or` chaining to fallback to other possible column names
+- Returns `'Unknown'` only if all columns are missing or empty
+
+### 4. Verification
+
+**OpenSearch Query**:
+```bash
+curl "localhost:9200/case_9_*/_search" -d '{
+  "query": {"bool": {"must": [
+    {"term": {"has_sigma": true}},
+    {"bool": {"must_not": {"term": {"sigma_rule.keyword": "Unknown"}}}}
+  ]}}
+}'
+```
+
+**Results**:
+- ✅ **10,000+ events** with actual rule names
+- ✅ Examples: "Windows Update Error", "Windows Service Terminated With Error", "Application Uninstalled"
+- ✅ Event details modal now shows proper rule names
+
+### 5. Files Modified
+
+- **`app/file_processing.py`** (line 889-896): Updated rule_title extraction
+- **`app/APP_MAP.md`** (line 12036): Corrected CSV column documentation
+- **`app/version.json`**: Added v1.12.21 entry
+
+### 6. Related Context
+
+**Worker Restart Required**:
+The fix from yesterday (v1.12.16) that added `rule_title` to the violation dict required a worker restart to take effect. The workers were still running old code from Nov 11, causing the initial counter issue. After restart:
+- ✅ Violations saved correctly (lines 942-943 filter out `rule_title` before DB insert)
+- ✅ Counter incremented properly
+- ✅ Rule names extracted from correct column
+
+**APP_MAP Correction**:
+Line 12036 previously stated: `"Parse CSV output (name, level, timestamp, computer, event_id, description)"`
+
+Updated to: `"Parse CSV output (detections, timestamp, computer, Event ID, Event Data) - NOTE: Rule name is in detections column"`
 
 ---
 
@@ -12033,7 +12138,7 @@ JavaScript updates DOM (no page reload)
    - **NEW**: Clone/update lolrmm rules (`~/lolrmm/`)
    - **NEW**: Build merged rules cache (`/opt/casescope/staging/.rules-merged/`)
    - Run Chainsaw: `/opt/casescope/bin/chainsaw hunt --sigma CACHE --mapping /opt/casescope/chainsaw/mappings/sigma-event-logs-all.yml --csv EVTX`
-   - Parse CSV output (name, level, timestamp, computer, event_id, description)
+   - Parse CSV output (`detections`, timestamp, computer, Event ID, Event Data) - **NOTE**: Rule name is in `detections` column
    - **NEW**: Create/lookup `SigmaRule` entries for each unique rule title
    - **NEW**: Store violations with proper schema: {case_id, file_id, rule_id, event_id, event_data, matched_fields, severity}
    - Update file.violation_count
