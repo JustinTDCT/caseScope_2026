@@ -1,9 +1,9 @@
-# 🔍 CaseScope 2026 v1.11.2
+# 🔍 CaseScope 2026 v1.12.21
 
 **Digital Forensics & Incident Response Platform**  
 **Built from scratch with clean, modular architecture**
 
-**Current Version**: 1.11.2 (November 6, 2025)
+**Current Version**: 1.12.21 (November 12, 2025)
 
 ---
 
@@ -13,8 +13,8 @@ CaseScope 2026 is a complete rewrite of CaseScope 7.x, designed from the ground 
 - ✅ **Zero legacy code** - Clean slate, no technical debt
 - ✅ **Modular architecture** - 5-step processing pipeline
 - ✅ **Production-ready** - PostgreSQL 16 with connection pooling, robust error handling
-- ✅ **Powerful IOC hunting** - Searches all fields with intelligent matching
-- ✅ **SIGMA detection** - Automated threat hunting with 3,074 active rules (SigmaHQ + LOLRMM)
+- ✅ **Powerful IOC hunting** - Searches all fields with intelligent matching, bulk operations
+- ✅ **SIGMA detection** - Automated threat hunting with 3,074+ active rules (SigmaHQ + LOLRMM) with rule name display
 - ✅ **Advanced search** - Full-text search with filters, tagging, and timeline views
 - ✅ **AI-Powered Analysis** - Ollama integration for automated case report generation
 - ✅ **Systems Discovery** - Automatic system identification and categorization
@@ -47,14 +47,17 @@ CaseScope 2026 is a complete rewrite of CaseScope 7.x, designed from the ground 
 - **IOC Management** - Add, edit, enable/disable IOCs with multiple types:
   - IP addresses, URLs, FQDNs
   - Filenames, file paths, MD5/SHA256 hashes
-  - Usernames, user SIDs
+  - Usernames, user SIDs  
   - Commands (simple and complex/obfuscated)
   - OpenCTI enrichment with threat intelligence
-- **SIGMA Rule Management** - Browse, enable/disable detection rules
+  - Bulk operations (Enable/Disable/Delete/Enrich)
+- **SIGMA Rule Management** - Browse, enable/disable detection rules, view violated rules in event details with purple highlighting
 - **Systems Discovery** - Auto-discover and categorize systems (servers, workstations, firewalls)
+- **Login Analysis** - 4 quick analysis buttons (Successful Logins, Failed Logins, RDP, Console) with LogonType classification
+- **VPN Analysis** - VPN authentication tracking with NPS event support (4624/4625, 6272/6273)
 - **EVTX Event Descriptions** - Human-readable descriptions for Windows events
 - **AI Report Generation** - Ollama-powered analysis with live streaming, cancellation, multi-model support
-- **Export** - CSV export of search results
+- **Export** - Unlimited CSV export of search results via OpenSearch Scroll API
 
 ### Technical Stack
 - **Backend**: Flask + SQLAlchemy + Celery
@@ -620,8 +623,32 @@ EOF
 
 ## 🎯 Version History
 
-### v1.11.x - PostgreSQL Migration & Dashboard Fixes
-- ✅ v1.11.2 - System Dashboard PostgreSQL Migration Issues (comma formatting, software versions)
+### v1.12.x - SIGMA Enhancements & Bulk Operations
+- ✅ v1.12.21 - SIGMA Rule Title Extraction Fix (Chainsaw CSV 'detections' column)
+- ✅ v1.12.20 - SIGMA Rule Display in Event Details (purple highlighting)
+- ✅ v1.12.16 - SIGMA Event Flagging Safe JSON Parsing (removed eval())
+- ✅ v1.12.15 - SIGMA Re-run Field Name Error Fix
+- ✅ v1.12.14 - SIGMA Violations Filter & SIGMA+IOC AND Logic
+- ✅ v1.12.13 - SIGMA Rules Update git Command Fix
+- ✅ v1.12.10 - Bulk IOC Operations Missing Import Fix
+- ✅ v1.12.9 - Bulk Operations for IOC Management (Enable/Disable/Delete/Enrich)
+- ✅ v1.12.8 - CSV Export Full Event Payload
+- ✅ v1.12.7 - Unlimited CSV Export via OpenSearch Scroll API
+- ✅ v1.12.6 - NPS Event Field Mapping for VPN Analysis
+- ✅ v1.12.5 - ClientIPAddress Field for NPS VPN Events
+- ✅ v1.12.4 - NPS Event IDs for VPN Analysis (6272/6273)
+- ✅ v1.12.3 - Custom Columns in Search Events Display Fix
+- ✅ v1.12.2 - Bulk Operations for Login Analysis
+- ✅ v1.12.1 - VPN Authentication Analysis
+- ✅ v1.12.0 - Login Analysis Suite (4 quick analysis buttons)
+
+### v1.11.x - PostgreSQL Migration & Dashboard Fixes  
+- ✅ v1.11.20 - AI LoRA Training Auto-Deployment
+- ✅ v1.11.19 - AI Resource Locking System
+- ✅ v1.11.6 - Asynchronous Case Deletion with Progress Tracking
+- ✅ v1.11.5 - OpenSearch Shard Limit Crisis Prevention (10K → 50K)
+- ✅ v1.11.5 - Windows Logon Analysis Suite
+- ✅ v1.11.2 - System Dashboard PostgreSQL Migration Issues
 - ✅ v1.11.1 - PostgreSQL Decimal Formatting in JSON APIs
 - ✅ v1.11.0 - **MAJOR**: SQLite → PostgreSQL 16 Migration (430,523 rows, zero data loss)
 
@@ -664,7 +691,8 @@ EOF
 - ✅ v1.10.7 - Fixed IOC hunting (nested fields, special chars, scroll API)
 - ✅ v1.0.0 - Core MVP
 
-See `APP_MAP.md` for detailed changelog and technical documentation (6,700+ lines).
+See `APP_MAP.md` for detailed changelog and technical documentation (12,000+ lines).
+See `version.json` for complete feature list with all bug fixes and enhancements.
 
 ---
 
@@ -696,13 +724,13 @@ This is a complete rewrite. Contributions welcome!
 
 ## 📚 Additional Documentation
 
-- **APP_MAP.md** - Comprehensive changelog, bug fixes, and technical details (6,700+ lines)
+- **APP_MAP.md** - Comprehensive changelog, bug fixes, and technical details (12,000+ lines)
 - **DEPLOYMENT_GUIDE.md** - Production deployment guide
-- **QUICK_REFERENCE.md** - Command reference and troubleshooting
+- **QUICK_REFERENCE.md** - Command reference and troubleshooting  
 - **UI_SYSTEM.md** - UI/UX documentation
 - **EVTX_DESCRIPTIONS_README.md** - EVTX event descriptions system
 - **FRESH_INSTALL_USAGE.md** - Fresh install / reset guide
-- **POSTGRESQL_SEQUENCE_FIX.md** - PostgreSQL sequence migration fix documentation
+- **AI_RESOURCE_LOCKING_SUMMARY.md** - AI training auto-deployment system
 
 ---
 
