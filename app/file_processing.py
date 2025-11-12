@@ -193,6 +193,14 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
     from utils import make_index_name
     from tasks import commit_with_retry
     
+    # Check if event deduplication is enabled
+    from event_deduplication import should_deduplicate_events, generate_event_document_id
+    deduplicate_enabled = should_deduplicate_events(case_id)
+    if deduplicate_enabled:
+        logger.info("[INDEX FILE] Event deduplication ENABLED - using deterministic document IDs")
+    else:
+        logger.info("[INDEX FILE] Event deduplication DISABLED - using auto-generated document IDs")
+    
     logger.info("="*80)
     logger.info("[INDEX FILE] Starting file indexing")
     logger.info(f"[INDEX FILE] File: {filename}")
@@ -411,10 +419,16 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     from event_normalization import normalize_event
                     event = normalize_event(event)
                     
-                    bulk_data.append({
+                    # Add deterministic document ID for deduplication if enabled
+                    bulk_doc = {
                         '_index': index_name,
                         '_source': event
-                    })
+                    }
+                    if deduplicate_enabled:
+                        doc_id = generate_event_document_id(case_id, event)
+                        bulk_doc['_id'] = doc_id
+                    
+                    bulk_data.append(bulk_doc)
                     
                     event_count += 1
                     
@@ -517,10 +531,16 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                                 # Don't fail indexing if description lookup fails
                                 logger.warning(f"[INDEX FILE] Could not add event description: {e}")
                         
-                        bulk_data.append({
+                        # Add deterministic document ID for deduplication if enabled
+                        bulk_doc = {
                             '_index': index_name,
                             '_source': event
-                        })
+                        }
+                        if deduplicate_enabled:
+                            doc_id = generate_event_document_id(case_id, event)
+                            bulk_doc['_id'] = doc_id
+                        
+                        bulk_data.append(bulk_doc)
                         
                         event_count += 1
                         

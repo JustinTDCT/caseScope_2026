@@ -42,4 +42,7 @@ class Config:
     CHAINSAW_PATH = '/opt/casescope/bin/chainsaw'
     CHAINSAW_RULES = '/opt/casescope/sigma_rules'
     CHAINSAW_MAPPING = '/opt/casescope/chainsaw/mappings/sigma-event-logs-all.yml'
+    
+    # Event Deduplication
+    DEDUPLICATE_EVENTS = True  # Enable event-level deduplication globally
 
