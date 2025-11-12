@@ -378,10 +378,29 @@ def queue_file_processing(process_file_task, files: List[Any], operation: str = 
     Returns:
         Number of tasks queued
     """
-    for f in files:
-        process_file_task.delay(f.id, operation=operation)
-        logger.debug(f"[BULK OPS] Queued {operation} processing for file {f.id}")
+    queued_count = 0
+    errors = []
     
-    logger.info(f"[BULK OPS] Queued {operation} processing for {len(files)} file(s)")
-    return len(files)
+    for f in files:
+        try:
+            result = process_file_task.delay(f.id, operation=operation)
+            # Store task ID in database for tracking
+            if hasattr(f, 'celery_task_id'):
+                f.celery_task_id = result.id
+            logger.debug(f"[BULK OPS] Queued {operation} processing for file {f.id} (task_id: {result.id})")
+            queued_count += 1
+        except Exception as e:
+            error_msg = f"Failed to queue file {f.id}: {e}"
+            logger.error(f"[BULK OPS] {error_msg}")
+            errors.append(error_msg)
+            # Continue with other files even if one fails
+    
+    if errors:
+        logger.warning(f"[BULK OPS] Queued {queued_count}/{len(files)} files successfully. {len(errors)} errors occurred.")
+        for error in errors[:10]:  # Log first 10 errors
+            logger.warning(f"[BULK OPS]   - {error}")
+    else:
+        logger.info(f"[BULK OPS] Successfully queued {operation} processing for {queued_count} file(s)")
+    
+    return queued_count
 

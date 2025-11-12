@@ -1,8 +1,85 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.31  
-**Last Updated**: 2025-11-13 01:00 UTC  
+**Version**: 1.12.32  
+**Last Updated**: 2025-11-13 02:00 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.12.32 - FIX: Bulk Import Task Queueing + Error Handling (2025-11-13 02:00 UTC)
+
+**Change**: Fixed bulk import files being marked as "Queued" but tasks not actually queued to Redis, and improved error handling in queue_file_processing().
+
+### 1. Problem
+
+**Issue**: After bulk import, files were marked as "Queued" in database but tasks weren't in Redis queue, causing files to sit indefinitely without processing.
+
+**Symptoms**:
+- 1491 files marked as "Queued" in database
+- Redis queue empty (0 tasks)
+- Workers idle, no files processing
+- Files stuck in "Queued" status indefinitely
+
+**Root Cause**: The `queue_file_processing()` function in `bulk_operations.py` had no error handling. If task queuing failed silently (e.g., Redis connection issue, Celery broker issue), files would be marked as queued but tasks wouldn't actually be queued.
+
+### 2. Solution
+
+**Immediate Fix**: Manually requeued all 1480 stuck files to get them processing immediately.
+
+**Code Fix**: Enhanced `queue_file_processing()` function with:
+- Try/except around each task queue operation
+- Error logging for failed queue operations
+- Stores `celery_task_id` in database for tracking
+- Continues processing remaining files even if individual files fail
+- Returns actual count of successfully queued files
+- Logs summary of successes/errors
+
+**Before**:
+```python
+for f in files:
+    process_file_task.delay(f.id, operation=operation)
+    logger.debug(f"[BULK OPS] Queued {operation} processing for file {f.id}")
+```
+
+**After**:
+```python
+for f in files:
+    try:
+        result = process_file_task.delay(f.id, operation=operation)
+        if hasattr(f, 'celery_task_id'):
+            f.celery_task_id = result.id
+        logger.debug(f"[BULK OPS] Queued {operation} processing for file {f.id} (task_id: {result.id})")
+        queued_count += 1
+    except Exception as e:
+        logger.error(f"[BULK OPS] Failed to queue file {f.id}: {e}")
+        errors.append(error_msg)
+        # Continue with other files even if one fails
+```
+
+### 3. Files Modified
+
+**Backend**:
+- `app/bulk_operations.py`: Enhanced `queue_file_processing()` function (lines 369-405)
+  - Added error handling with try/except
+  - Added `celery_task_id` storage
+  - Added error logging and summary
+  - Returns actual queued count
+
+### 4. Benefits
+
+✅ **Prevents Silent Failures**: Errors are now logged and visible
+✅ **Database Tracking**: `celery_task_id` stored for task tracking
+✅ **Resilient**: Continues processing even if individual files fail
+✅ **Better Debugging**: Clear error messages show which files failed and why
+✅ **Accurate Reporting**: Returns actual count of successfully queued files
+
+### 5. Verification
+
+- ✅ All 1480 stuck files requeued successfully
+- ✅ Tasks now in Redis queue (2948 tasks)
+- ✅ Workers processing files (3 files indexing)
+- ✅ Error handling prevents silent failures
+- ✅ `celery_task_id` stored in database for tracking
 
 ---
 
