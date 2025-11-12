@@ -60,7 +60,9 @@
                     </div>
                     <div class="stat-item">
                         <div class="text-secondary" style="font-size: 0.875rem; color: var(--color-error);">❌ Failed</div>
-                        <div style="color: var(--color-error);"><strong id="stat-failed">{{ files_failed }}</strong></div>
+                        <a href="{{ url_for('files.view_failed_files', case_id=case.id) }}" style="text-decoration: none;">
+                            <div style="color: var(--color-error); cursor: pointer;"><strong id="stat-failed">{{ files_failed }}</strong></div>
+                        </a>
                     </div>
                     <div class="stat-item">
                         <div class="text-secondary" style="font-size: 0.875rem;">⏳ Queued</div>

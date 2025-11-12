@@ -1,8 +1,176 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.23  
-**Last Updated**: 2025-11-12 21:05 UTC  
+**Version**: 1.12.24  
+**Last Updated**: 2025-11-12 21:20 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.12.24 - FEATURE: Failed Files Management Page (2025-11-12 21:20 UTC)
+
+**Change**: Added clickable "Failed" files stat on case files dashboard that navigates to a dedicated failed files management page, similar to the hidden files feature.
+
+### 1. Feature Overview
+
+**Failed Files Page**:
+- Clickable "Failed" count on case files dashboard
+- Dedicated page showing all failed files for a case
+- Search functionality (by filename or hash)
+- Pagination support (50 files per page)
+- Individual file requeue buttons
+- Bulk requeue for selected files
+- Displays failure status for each file
+
+**Requeue Functionality**:
+- Single file requeue via button
+- Bulk requeue for selected files
+- Automatically sets status to "Queued" and submits to Celery
+- Validates files are actually in failed state before requeuing
+
+### 2. Implementation Details
+
+**A. Helper Functions** (`hidden_files.py`):
+
+```python
+def get_failed_files_count(db_session, case_id: int) -> int:
+    """Get count of failed files for a case (not hidden)"""
+    # Filters by: case_id, not deleted, not hidden, status not in known_statuses
+    known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
+    return db_session.query(CaseFile).filter(
+        CaseFile.case_id == case_id,
+        CaseFile.is_deleted == False,
+        CaseFile.is_hidden == False,
+        ~CaseFile.indexing_status.in_(known_statuses)
+    ).count()
+
+def get_failed_files(db_session, case_id: int, page: int = 1, per_page: int = 50, search_term: str = None):
+    """Get paginated list of failed files with optional search"""
+    # Same filtering logic as count, plus search by filename/hash
+    # Ordered by uploaded_at descending
+```
+
+**B. Routes** (`routes/files.py`):
+
+**View Failed Files** (`view_failed_files`):
+- Route: `/case/<int:case_id>/failed_files`
+- GET request with pagination and search support
+- Returns `failed_files.html` template
+
+**Requeue Single File** (`requeue_single_file`):
+- Route: `/case/<int:case_id>/file/<int:file_id>/requeue`
+- POST request
+- Validates file is in failed state
+- Submits to Celery with `process_file` task
+- Sets status to "Queued" and updates `celery_task_id`
+
+**Bulk Requeue Selected** (`bulk_requeue_selected`):
+- Route: `/case/<int:case_id>/bulk_requeue_selected`
+- POST request with `file_ids` form data
+- Processes multiple files in batch
+- Returns success/warning flash messages
+
+**C. Template** (`templates/failed_files.html`):
+
+**Structure**:
+- Header with case name and "Back to Files" button
+- Stats card showing total failed files count
+- Bulk actions bar (appears when files selected)
+- Search form (filename/hash)
+- Table with columns: checkbox, filename, type, size, status, uploaded, actions
+- Pagination controls
+- Empty state message
+
+**JavaScript Functions**:
+- `toggleSelectAll()` - Select/deselect all checkboxes
+- `updateSelectedCount()` - Update bulk actions bar visibility
+- `deselectAll()` - Clear all selections
+- `getSelectedFileIds()` - Get array of selected file IDs
+- `bulkRequeueSelected()` - Submit bulk requeue form
+
+**D. Dashboard Integration** (`templates/case_files.html`):
+
+**Updated Failed Stat**:
+```html
+<div class="stat-item">
+    <div class="text-secondary" style="font-size: 0.875rem; color: var(--color-error);">❌ Failed</div>
+    <a href="{{ url_for('files.view_failed_files', case_id=case.id) }}" style="text-decoration: none;">
+        <div style="color: var(--color-error); cursor: pointer;"><strong id="stat-failed">{{ files_failed }}</strong></div>
+    </a>
+</div>
+```
+
+### 3. Technical Details
+
+**Failed File Detection**:
+- Files with `indexing_status` NOT in: `['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']`
+- Excludes deleted files (`is_deleted=False`)
+- Excludes hidden files (`is_hidden=False`)
+- Typically includes statuses like: `'Failed: ...'`, `'Failed: Index missing after processing'`, etc.
+
+**Requeue Process**:
+1. Validate file exists and is in failed state
+2. Submit Celery task: `tasks.process_file` with `args=[file_id, 'full']`
+3. Update database: `indexing_status = 'Queued'`, `celery_task_id = task.id`
+4. Commit transaction
+5. Flash success message
+
+**Error Handling**:
+- Validates case exists
+- Validates file exists and belongs to case
+- Validates file is actually failed (not already queued/completed)
+- Catches Celery submission errors
+- Rolls back database on errors
+- Logs errors with file ID and exception details
+
+### 4. Use Cases
+
+**Troubleshooting**:
+- Quickly identify files that failed during processing
+- View failure reasons in status column
+- Investigate patterns (same error across multiple files)
+
+**Recovery**:
+- Requeue individual failed files after fixing issues
+- Bulk requeue multiple files after system fixes
+- Resume processing without manual intervention
+
+**Monitoring**:
+- Track failure rates over time
+- Identify problematic file types or sources
+- Monitor processing health
+
+### 5. Files Modified
+
+**Backend**:
+- `app/hidden_files.py`: Added `get_failed_files_count()` and `get_failed_files()` functions (lines 170-206)
+- `app/routes/files.py`: 
+  - Added `view_failed_files()` route (lines 220-244)
+  - Added `requeue_single_file()` route (lines 918-959)
+  - Added `bulk_requeue_selected()` route (lines 962-1027)
+
+**Frontend**:
+- `app/templates/case_files.html`: Made "Failed" stat clickable (lines 61-66)
+- `app/templates/failed_files.html`: New template (248 lines)
+
+**Documentation**:
+- `app/version.json`: Added v1.12.24 entry
+- `app/APP_MAP.md`: This entry
+
+### 6. Benefits
+
+✅ **Quick Access**: One-click navigation from dashboard to failed files  
+✅ **Visibility**: See all failed files in one place with search  
+✅ **Recovery**: Easy requeue without manual database updates  
+✅ **Bulk Operations**: Select and requeue multiple files at once  
+✅ **Consistency**: Follows same pattern as hidden files (modular design)  
+✅ **User-Friendly**: Clear status display and intuitive actions  
+
+### 7. Related Features
+
+- **Hidden Files Management** (v1.10.73): Similar pattern for 0-event files
+- **File Processing Status**: Failed files are part of processing pipeline
+- **Celery Task Management**: Requeue integrates with existing task system
+- **Case Files Dashboard**: Failed count displayed alongside other stats
 
 ---
 

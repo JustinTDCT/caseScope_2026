@@ -268,8 +268,20 @@ def process_file(self, file_id, operation='full'):
             # CHAINSAW ONLY
             elif operation == 'chainsaw_only':
                 from models import SigmaViolation
+                from bulk_operations import clear_file_sigma_flags_in_opensearch
+                
+                # Clear database violations
                 db.session.query(SigmaViolation).filter_by(file_id=file_id).delete()
                 db.session.commit()
+                
+                # CRITICAL: Clear OpenSearch SIGMA flags BEFORE re-running SIGMA
+                # This ensures old has_sigma flags and sigma_rule fields are removed
+                flags_cleared = clear_file_sigma_flags_in_opensearch(
+                    opensearch_client, 
+                    case_file.case_id, 
+                    case_file
+                )
+                logger.info(f"[TASK] Cleared SIGMA flags from {flags_cleared} events in {index_name} before re-running SIGMA")
                 
                 result = chainsaw_file(
                     db=db,
@@ -377,22 +389,26 @@ def bulk_reindex(self, case_id):
 
 @celery_app.task(bind=True, name='tasks.bulk_rechainsaw')
 def bulk_rechainsaw(self, case_id):
-    """Re-run SIGMA on all files in a case (clears old violations first)"""
-    from main import app, db
+    """Re-run SIGMA on all files in a case (clears old violations and OpenSearch flags first)"""
+    from main import app, db, opensearch_client
     from bulk_operations import (
-        get_case_files, clear_case_sigma_violations, queue_file_processing
+        get_case_files, clear_case_sigma_violations, clear_case_sigma_flags_in_opensearch, queue_file_processing
     )
     
     with app.app_context():
-        # Clear all existing SIGMA violations for this case
-        sigma_deleted = clear_case_sigma_violations(db, case_id)
-        
-        # Get indexed files only (exclude deleted and hidden files)
+        # Get indexed files first (needed for clearing OpenSearch flags)
         files = get_case_files(db, case_id, include_deleted=False, include_hidden=False)
         files = [f for f in files if f.is_indexed]
         
         if not files:
             return {'status': 'success', 'message': 'No indexed files to process', 'files_queued': 0}
+        
+        # Clear all existing SIGMA violations for this case (database)
+        sigma_deleted = clear_case_sigma_violations(db, case_id)
+        
+        # CRITICAL: Clear has_sigma flags and sigma_rule fields from OpenSearch indices
+        # This ensures old SIGMA flags don't persist after re-run
+        flags_cleared = clear_case_sigma_flags_in_opensearch(opensearch_client, case_id, files)
         
         # Reset violation_count and set status to Queued for all files
         for f in files:
@@ -406,7 +422,7 @@ def bulk_rechainsaw(self, case_id):
         # Queue re-chainsaw tasks
         queued = queue_file_processing(process_file, files, operation='chainsaw_only')
         
-        return {'status': 'success', 'files_queued': queued, 'violations_cleared': sigma_deleted}
+        return {'status': 'success', 'files_queued': queued, 'violations_cleared': sigma_deleted, 'flags_cleared': flags_cleared}
 
 
 @celery_app.task(bind=True, name='tasks.bulk_rehunt')

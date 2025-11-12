@@ -167,6 +167,45 @@ def bulk_delete_hidden_files(db_session, case_id: int, file_ids: List[int], user
         return {'success': False, 'error': str(e)}
 
 
+def get_failed_files_count(db_session, case_id: int) -> int:
+    """Get count of failed files for a case (not hidden)"""
+    from models import CaseFile
+    
+    known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
+    return db_session.query(CaseFile).filter(
+        CaseFile.case_id == case_id,
+        CaseFile.is_deleted == False,
+        CaseFile.is_hidden == False,
+        ~CaseFile.indexing_status.in_(known_statuses)
+    ).count()
+
+
+def get_failed_files(db_session, case_id: int, page: int = 1, per_page: int = 50, search_term: str = None):
+    """Get paginated list of failed files with optional search"""
+    from models import CaseFile
+    
+    known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
+    query = db_session.query(CaseFile).filter(
+        CaseFile.case_id == case_id,
+        CaseFile.is_deleted == False,
+        CaseFile.is_hidden == False,
+        ~CaseFile.indexing_status.in_(known_statuses)
+    )
+    
+    # Apply search filter if provided
+    if search_term:
+        search_pattern = f"%{search_term}%"
+        query = query.filter(
+            (CaseFile.original_filename.ilike(search_pattern)) |
+            (CaseFile.file_hash.ilike(search_pattern))
+        )
+    
+    query = query.order_by(CaseFile.uploaded_at.desc())
+    
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return pagination
+
+
 def get_file_stats_with_hidden(db_session, case_id: int) -> Dict:
     """Get file statistics including hidden count"""
     from models import CaseFile

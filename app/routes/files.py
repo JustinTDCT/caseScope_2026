@@ -217,6 +217,33 @@ def view_hidden_files(case_id):
                           search_term=search_term)
 
 
+@files_bp.route('/case/<int:case_id>/failed_files')
+@login_required
+def view_failed_files(case_id):
+    """View failed files with search support"""
+    from main import db, Case
+    from hidden_files import get_failed_files, get_failed_files_count
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    page = request.args.get('page', 1, type=int)
+    search_term = request.args.get('search', '', type=str).strip()
+    per_page = 50
+    
+    pagination = get_failed_files(db.session, case_id, page, per_page, search_term)
+    failed_count = get_failed_files_count(db.session, case_id)
+    
+    return render_template('failed_files.html',
+                          case=case,
+                          files=pagination.items,
+                          pagination=pagination,
+                          failed_count=failed_count,
+                          search_term=search_term)
+
+
 @files_bp.route('/case/<int:case_id>/file/<int:file_id>/toggle_hidden', methods=['POST'])
 @login_required
 def toggle_file_hidden(case_id, file_id):
@@ -447,9 +474,9 @@ def reindex_single_file(case_id, file_id):
 @files_bp.route('/case/<int:case_id>/file/<int:file_id>/rechainsaw', methods=['POST'])
 @login_required
 def rechainsaw_single_file(case_id, file_id):
-    """Re-run SIGMA on a single file"""
-    from main import db, CaseFile
-    from bulk_operations import clear_file_sigma_violations
+    """Re-run SIGMA on a single file (clears DB violations and OpenSearch flags first)"""
+    from main import db, CaseFile, opensearch_client
+    from bulk_operations import clear_file_sigma_violations, clear_file_sigma_flags_in_opensearch
     from file_processing import chainsaw_file
     from models import SigmaRule, SigmaViolation
     
@@ -463,15 +490,19 @@ def rechainsaw_single_file(case_id, file_id):
         flash('File must be indexed before SIGMA testing', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Clear existing violations
+    # Clear existing violations (database)
     clear_file_sigma_violations(db, file_id)
+    
+    # CRITICAL: Clear OpenSearch SIGMA flags BEFORE re-running SIGMA
+    flags_cleared = clear_file_sigma_flags_in_opensearch(opensearch_client, case_id, case_file)
+    logger.info(f"[RECHAINSAW SINGLE] Cleared SIGMA flags from {flags_cleared} events before re-running SIGMA")
+    
     case_file.violation_count = 0
     case_file.indexing_status = 'SIGMA Testing'
     db.session.commit()
     
     # Run chainsaw synchronously (fast operation)
     try:
-        from main import opensearch_client
         result = chainsaw_file(
             db=db,
             opensearch_client=opensearch_client,
@@ -573,9 +604,9 @@ def bulk_reindex_selected(case_id):
 @files_bp.route('/case/<int:case_id>/bulk_rechainsaw_selected', methods=['POST'])
 @login_required
 def bulk_rechainsaw_selected(case_id):
-    """Re-run SIGMA on selected files"""
-    from main import db, CaseFile
-    from bulk_operations import clear_file_sigma_violations, queue_file_processing
+    """Re-run SIGMA on selected files (clears DB violations and OpenSearch flags first)"""
+    from main import db, CaseFile, opensearch_client
+    from bulk_operations import clear_file_sigma_violations, clear_file_sigma_flags_in_opensearch, queue_file_processing
     from tasks import process_file
     from celery_health import check_workers_available
     
@@ -603,19 +634,27 @@ def bulk_rechainsaw_selected(case_id):
         flash('No valid indexed files found', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Clear SIGMA data for each file and set to Queued status
+    # Clear SIGMA data for each file (database and OpenSearch) and set to Queued status
+    total_flags_cleared = 0
     for file in files:
+        # Clear database violations
         clear_file_sigma_violations(db, file.id)
+        
+        # CRITICAL: Clear OpenSearch SIGMA flags BEFORE re-running SIGMA
+        flags_cleared = clear_file_sigma_flags_in_opensearch(opensearch_client, case_id, file)
+        total_flags_cleared += flags_cleared
+        
         file.violation_count = 0
         file.indexing_status = 'Queued'
         file.celery_task_id = None
     
     db.session.commit()
+    logger.info(f"[BULK RECHAINSAW SELECTED] Cleared SIGMA flags from {total_flags_cleared} events across {len(files)} files")
     
     # Queue for SIGMA reprocessing
     queue_file_processing(process_file, files, operation='chainsaw_only')
     
-    flash(f'SIGMA re-processing queued for {len(files)} selected file(s). Old violations will be cleared.', 'success')
+    flash(f'SIGMA re-processing queued for {len(files)} selected file(s). Old violations and flags cleared.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
 
@@ -874,6 +913,118 @@ def queue_status_case(case_id):
             'status': 'error',
             'message': f'Error: {str(e)}'
         }), 500
+
+
+@files_bp.route('/case/<int:case_id>/file/<int:file_id>/requeue', methods=['POST'])
+@login_required
+def requeue_single_file(case_id, file_id):
+    """Requeue a single failed file"""
+    from main import db, Case, CaseFile
+    from celery_app import celery_app
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('files.case_files', case_id=case_id))
+    
+    case_file = db.session.get(CaseFile, file_id)
+    if not case_file or case_file.case_id != case_id:
+        flash('File not found', 'error')
+        return redirect(url_for('files.view_failed_files', case_id=case_id))
+    
+    # Check if file is actually failed
+    known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
+    if case_file.indexing_status in known_statuses:
+        flash('File is not in a failed state', 'warning')
+        return redirect(url_for('files.view_failed_files', case_id=case_id))
+    
+    try:
+        # Submit task to Celery
+        task = celery_app.send_task(
+            'tasks.process_file',
+            args=[case_file.id, 'full']
+        )
+        
+        # Update database
+        case_file.indexing_status = 'Queued'
+        case_file.celery_task_id = task.id
+        db.session.commit()
+        
+        flash(f'✅ File "{case_file.original_filename}" requeued for processing', 'success')
+    except Exception as e:
+        logger.error(f"Error requeueing file {file_id}: {e}")
+        db.session.rollback()
+        flash(f'Error requeueing file: {str(e)}', 'error')
+    
+    return redirect(url_for('files.view_failed_files', case_id=case_id))
+
+
+@files_bp.route('/case/<int:case_id>/bulk_requeue_selected', methods=['POST'])
+@login_required
+def bulk_requeue_selected(case_id):
+    """Requeue selected failed files"""
+    from main import db, Case, CaseFile
+    from celery_app import celery_app
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('files.view_failed_files', case_id=case_id))
+    
+    file_ids = request.form.getlist('file_ids', type=int)
+    
+    if not file_ids:
+        flash('No files selected', 'warning')
+        return redirect(url_for('files.view_failed_files', case_id=case_id))
+    
+    try:
+        # Find selected files that are failed
+        known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
+        failed_files = db.session.query(CaseFile).filter(
+            CaseFile.id.in_(file_ids),
+            CaseFile.case_id == case_id,
+            CaseFile.is_deleted == False,
+            ~CaseFile.indexing_status.in_(known_statuses)
+        ).all()
+        
+        if not failed_files:
+            flash('No failed files found in selection', 'warning')
+            return redirect(url_for('files.view_failed_files', case_id=case_id))
+        
+        requeued = 0
+        errors = 0
+        
+        for case_file in failed_files:
+            try:
+                # Submit task to Celery
+                task = celery_app.send_task(
+                    'tasks.process_file',
+                    args=[case_file.id, 'full']
+                )
+                
+                # Update database
+                case_file.indexing_status = 'Queued'
+                case_file.celery_task_id = task.id
+                db.session.commit()
+                
+                requeued += 1
+                
+            except Exception as e:
+                errors += 1
+                logger.error(f"Error requeueing file {case_file.id}: {e}")
+                db.session.rollback()
+        
+        message = f'✅ Requeued {requeued} file(s)'
+        if errors > 0:
+            message += f' (⚠️ {errors} error(s))'
+        flash(message, 'success' if errors == 0 else 'warning')
+        
+    except Exception as e:
+        logger.error(f"Bulk requeue error (case {case_id}): {e}", exc_info=True)
+        db.session.rollback()
+        flash(f'Error requeueing files: {str(e)}', 'error')
+    
+    return redirect(url_for('files.view_failed_files', case_id=case_id))
 
 
 @files_bp.route('/case/<int:case_id>/queue/requeue-failed', methods=['POST'])

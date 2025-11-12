@@ -157,6 +157,130 @@ def clear_file_sigma_violations(db, file_id: int) -> int:
     return count
 
 
+def clear_case_sigma_flags_in_opensearch(opensearch_client, case_id: int, files: list) -> int:
+    """
+    Clear has_sigma flags and sigma_rule fields from all OpenSearch indices for a case
+    This ensures old SIGMA flags are removed before re-running SIGMA detection
+    
+    Args:
+        opensearch_client: OpenSearch client
+        case_id: Case ID
+        files: List of CaseFile objects
+    
+    Returns:
+        Number of events updated
+    """
+    total_updated = 0
+    
+    for case_file in files:
+        if not case_file.is_indexed or not case_file.opensearch_key:
+            continue
+        
+        # Generate index name from opensearch_key
+        # opensearch_key format: "case2_ATN76254_filename" or "case2_log_..."
+        # Need to remove the "case2_" prefix and convert to lowercase
+        # IMPORTANT: Also convert spaces to underscores (matches make_index_name logic)
+        opensearch_key_clean = case_file.opensearch_key
+        if opensearch_key_clean.lower().startswith(f'case{case_id}_'):
+            opensearch_key_clean = opensearch_key_clean[len(f'case{case_id}_'):]
+        
+        index_name = opensearch_key_clean.lower().replace('%4', '4').replace(' ', '_')
+        index_name = f"case_{case_id}_{index_name}"
+        
+        try:
+            # Check if index exists
+            if not opensearch_client.indices.exists(index=index_name):
+                continue
+            
+            # Clear has_sigma flag and sigma_rule field for all events in this index
+            update_body = {
+                "script": {
+                    "source": "ctx._source.remove('has_sigma'); ctx._source.remove('sigma_rule')",
+                    "lang": "painless"
+                },
+                "query": {
+                    "term": {"has_sigma": True}
+                }
+            }
+            
+            response = opensearch_client.update_by_query(
+                index=index_name,
+                body=update_body,
+                conflicts='proceed'
+            )
+            
+            updated = response.get('updated', 0)
+            total_updated += updated
+            
+            if updated > 0:
+                logger.info(f"[BULK OPS] Cleared has_sigma flags from {updated} events in {index_name}")
+        
+        except Exception as e:
+            logger.warning(f"[BULK OPS] Could not clear has_sigma flags in {index_name}: {e}")
+            continue
+    
+    logger.info(f"[BULK OPS] ✓ Cleared has_sigma flags from {total_updated} total events across all indices")
+    return total_updated
+
+
+def clear_file_sigma_flags_in_opensearch(opensearch_client, case_id: int, file_obj) -> int:
+    """
+    Clear has_sigma flags and sigma_rule fields from OpenSearch index for a specific file
+    This ensures old SIGMA flags are removed before re-running SIGMA detection
+    
+    Args:
+        opensearch_client: OpenSearch client
+        case_id: Case ID
+        file_obj: CaseFile object
+    
+    Returns:
+        Number of events updated
+    """
+    if not file_obj.is_indexed or not file_obj.opensearch_key:
+        return 0
+    
+    # Generate index name from opensearch_key
+    opensearch_key_clean = file_obj.opensearch_key
+    if opensearch_key_clean.lower().startswith(f'case{case_id}_'):
+        opensearch_key_clean = opensearch_key_clean[len(f'case{case_id}_'):]
+    
+    index_name = opensearch_key_clean.lower().replace('%4', '4').replace(' ', '_')
+    index_name = f"case_{case_id}_{index_name}"
+    
+    try:
+        # Check if index exists
+        if not opensearch_client.indices.exists(index=index_name):
+            return 0
+        
+        # Clear has_sigma flag and sigma_rule field for all events in this index
+        update_body = {
+            "script": {
+                "source": "ctx._source.remove('has_sigma'); ctx._source.remove('sigma_rule')",
+                "lang": "painless"
+            },
+            "query": {
+                "term": {"has_sigma": True}
+            }
+        }
+        
+        response = opensearch_client.update_by_query(
+            index=index_name,
+            body=update_body,
+            conflicts='proceed'
+        )
+        
+        updated = response.get('updated', 0)
+        
+        if updated > 0:
+            logger.info(f"[BULK OPS] Cleared has_sigma flags from {updated} events in {index_name}")
+        
+        return updated
+    
+    except Exception as e:
+        logger.warning(f"[BULK OPS] Could not clear has_sigma flags in {index_name}: {e}")
+        return 0
+
+
 def clear_file_ioc_matches(db, file_id: int) -> int:
     """
     Clear IOC matches for a specific file
