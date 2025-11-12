@@ -767,16 +767,8 @@ def bulk_import_directory(self, case_id):
             
             logger.info(f"[BULK IMPORT] Complete: {summary}")
             
-            # Update final state before returning
-            try:
-                self.update_state(state='PROGRESS', meta={
-                    'stage': 'Complete',
-                    'progress': 100,
-                    **summary
-                })
-            except:
-                pass
-            
+            # Don't update state to SUCCESS - let Celery mark it as SUCCESS when we return
+            # The frontend will detect SUCCESS state from Celery's result
             return summary
             
         except Exception as e:

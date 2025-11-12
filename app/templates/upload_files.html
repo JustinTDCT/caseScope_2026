@@ -385,14 +385,16 @@ async function checkBulkImportStatus() {
             console.log('Bulk import completed:', status.result);
         }
         
-        // Update progress bar
-        const progress = status.progress || 0;
-        document.getElementById('bulkProgressBar').style.width = progress + '%';
-        document.getElementById('bulkProgressPercent').textContent = progress + '%';
-        
-        // Update stage text
-        const stage = status.details?.stage || status.status || 'Processing...';
-        document.getElementById('bulkProgressText').textContent = stage;
+        // Update progress bar (only if not SUCCESS - SUCCESS handled separately)
+        if (status.state !== 'SUCCESS') {
+            const progress = status.progress || 0;
+            document.getElementById('bulkProgressBar').style.width = progress + '%';
+            document.getElementById('bulkProgressPercent').textContent = progress + '%';
+            
+            // Update stage text
+            const stage = status.details?.stage || status.status || 'Processing...';
+            document.getElementById('bulkProgressText').textContent = stage;
+        }
         
         // Update current file being processed
         const currentFile = status.details?.current_file;
@@ -457,6 +459,9 @@ async function checkBulkImportStatus() {
         // Check if complete
         if (status.state === 'SUCCESS') {
             clearInterval(bulkImportInterval);
+            bulkImportInterval = null;
+            
+            // Update progress bar to 100%
             document.getElementById('bulkProgressBar').style.background = 'var(--color-success)';
             document.getElementById('bulkProgressBar').style.width = '100%';
             document.getElementById('bulkProgressPercent').textContent = '100%';
@@ -489,24 +494,21 @@ async function checkBulkImportStatus() {
                     // Don't redirect - show stats
                     return;
                 }
+                
+                // Files were processed successfully - show completion message and redirect
+                document.getElementById('bulkProgressText').textContent = `Complete! ${r.valid_files || 0} files queued for processing. Redirecting...`;
+                
+                // Redirect after 2 seconds (reduced from 3)
+                setTimeout(() => {
+                    window.location.href = `/case/${CASE_ID}/files`;
+                }, 2000);
+            } else {
+                // No result data but task succeeded - still redirect
+                document.getElementById('bulkProgressText').textContent = 'Complete! Redirecting...';
+                setTimeout(() => {
+                    window.location.href = `/case/${CASE_ID}/files`;
+                }, 2000);
             }
-            
-            // Check if task completed too quickly (less than 2 seconds) - might be an error
-            const elapsed = bulkImportStartTime ? (Date.now() - bulkImportStartTime) : 0;
-            if (elapsed < 2000 && (!status.result || !status.result.valid_files || status.result.valid_files === 0)) {
-                console.warn('Bulk import completed very quickly - might be an issue');
-                document.getElementById('bulkProgressText').textContent = 'Complete - Check results above';
-                document.getElementById('bulkImportBtn').disabled = false;
-                // Don't redirect - let user see what happened
-                return;
-            }
-            
-            document.getElementById('bulkProgressText').textContent = 'Complete! Redirecting...';
-            
-            // Redirect to case files page (only if files were actually processed)
-            setTimeout(() => {
-                window.location.href = `/case/${CASE_ID}/files`;
-            }, 3000);
             
         } else if (status.state === 'FAILURE' || status.state === 'ERROR' || status.state === 'UNKNOWN') {
             // Stop polling

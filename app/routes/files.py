@@ -46,7 +46,11 @@ def global_files():
     # Global stats
     all_visible = db.session.query(CaseFile).filter_by(is_deleted=False, is_hidden=False)
     total_files = all_visible.count()
-    hidden_files = db.session.query(CaseFile).filter_by(is_deleted=False, is_hidden=True).count()
+    hidden_files = db.session.query(CaseFile).filter_by(
+        case_id=case_id,
+        is_deleted=False,
+        is_hidden=True
+    ).count()
     
     total_space_bytes = db.session.query(func.sum(CaseFile.file_size)).filter_by(
         is_deleted=False, is_hidden=False
