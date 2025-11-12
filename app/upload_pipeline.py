@@ -220,9 +220,23 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
         prefix: Filename prefix (e.g., "ParentZIP_")
     
     Returns:
-        dict: {files_extracted: int, nested_zips_found: int}
+        dict: {
+            'files_extracted': int,
+            'nested_zips_found': int,
+            'temp_files_skipped': int,
+            'expected_files': int,  # Expected EVTX/NDJSON files (excluding temp files)
+            'validation_passed': bool,  # True if extracted == expected
+            'validation_details': str  # Human-readable validation message
+        }
     """
-    stats = {'files_extracted': 0, 'nested_zips_found': 0}
+    stats = {
+        'files_extracted': 0,
+        'nested_zips_found': 0,
+        'temp_files_skipped': 0,
+        'expected_files': 0,
+        'validation_passed': True,
+        'validation_details': ''
+    }
     zip_name = os.path.splitext(os.path.basename(zip_path))[0]
     current_prefix = f"{prefix}{zip_name}_" if prefix else f"{zip_name}_"
     
@@ -230,6 +244,42 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
     os.makedirs(temp_extract_dir, exist_ok=True)
     
     try:
+        # STEP 1: Count expected files BEFORE extraction (for validation)
+        expected_evtx = 0
+        expected_ndjson = 0
+        expected_temp = 0
+        
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            for zip_info in zip_ref.infolist():
+                # Skip directories
+                if zip_info.is_dir():
+                    continue
+                
+                filename = os.path.basename(zip_info.filename)
+                file_lower = filename.lower()
+                
+                # Count expected files by type
+                if file_lower.endswith('.zip'):
+                    # Nested ZIPs handled separately
+                    continue
+                elif file_lower.endswith('.evtx'):
+                    if is_temp_file(filename):
+                        expected_temp += 1
+                    else:
+                        expected_evtx += 1
+                elif file_lower.endswith('.ndjson'):
+                    if is_temp_file(filename):
+                        expected_temp += 1
+                    else:
+                        expected_ndjson += 1
+        
+        stats['expected_files'] = expected_evtx + expected_ndjson
+        expected_total = stats['expected_files']
+        
+        logger.info(f"[EXTRACT] {zip_name}: Expected {expected_evtx} EVTX + {expected_ndjson} NDJSON = {expected_total} files"
+                   + (f" ({expected_temp} temp files will be skipped)" if expected_temp > 0 else ""))
+        
+        # STEP 2: Extract and process
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(temp_extract_dir)
         
@@ -246,6 +296,12 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
                     nested_stats = extract_single_zip(file_path, target_dir, current_prefix)
                     stats['files_extracted'] += nested_stats['files_extracted']
                     stats['nested_zips_found'] += nested_stats['nested_zips_found']
+                    stats['temp_files_skipped'] += nested_stats.get('temp_files_skipped', 0)
+                    # Aggregate expected files from nested ZIPs
+                    stats['expected_files'] += nested_stats.get('expected_files', 0)
+                    # If nested ZIP validation failed, mark parent as failed
+                    if not nested_stats.get('validation_passed', True):
+                        stats['validation_passed'] = False
                     os.remove(file_path)
                     
                 elif file_lower.endswith(('.evtx', '.ndjson')):
@@ -265,11 +321,30 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
                     stats['files_extracted'] += 1
                     logger.info(f"[EXTRACT]   → {prefixed_name}")
         
+        # STEP 3: Validate extraction results
+        extracted_count = stats['files_extracted']
+        temp_skipped = stats.get('temp_files_skipped', 0)
+        
+        if extracted_count == expected_total:
+            stats['validation_passed'] = True
+            stats['validation_details'] = f"✓ Validation PASSED: Extracted {extracted_count} files (expected {expected_total})"
+            logger.info(f"[EXTRACT] ✓ {zip_name}: Validation PASSED - {extracted_count}/{expected_total} files extracted")
+        else:
+            stats['validation_passed'] = False
+            missing = expected_total - extracted_count
+            stats['validation_details'] = f"⚠ Validation WARNING: Extracted {extracted_count} files, expected {expected_total} (missing {missing})"
+            logger.warning(f"[EXTRACT] ⚠ {zip_name}: Validation WARNING - Extracted {extracted_count}/{expected_total} files (missing {missing})")
+        
+        if temp_skipped > 0:
+            stats['validation_details'] += f", {temp_skipped} temp files skipped"
+        
         # Cleanup temp directory
         shutil.rmtree(temp_extract_dir, ignore_errors=True)
         
     except Exception as e:
         logger.error(f"[EXTRACT] Error extracting {os.path.basename(zip_path)}: {e}")
+        stats['validation_passed'] = False
+        stats['validation_details'] = f"✗ Validation FAILED: Extraction error - {str(e)}"
         shutil.rmtree(temp_extract_dir, ignore_errors=True)
     
     return stats
@@ -296,7 +371,9 @@ def extract_zips_in_staging(case_id: int) -> Dict:
         'files_extracted': 0,
         'nested_zips_found': 0,
         'temp_files_skipped': 0,
-        'zips_deleted': 0
+        'zips_deleted': 0,
+        'validation_passed': True,
+        'validation_warnings': []
     }
     
     logger.info("="*80)
@@ -324,15 +401,23 @@ def extract_zips_in_staging(case_id: int) -> Dict:
             stats['nested_zips_found'] += extract_stats['nested_zips_found']
             stats['temp_files_skipped'] += extract_stats.get('temp_files_skipped', 0)
             
+            # Track validation results
+            if not extract_stats.get('validation_passed', True):
+                stats['validation_passed'] = False
+                validation_msg = extract_stats.get('validation_details', 'Validation failed')
+                stats['validation_warnings'].append(f"{zip_filename}: {validation_msg}")
+            
             # Delete original ZIP
             os.remove(zip_path)
             stats['zips_deleted'] += 1
             stats['zips_processed'] += 1
             
             temp_skipped = extract_stats.get('temp_files_skipped', 0)
-            logger.info(f"[EXTRACT] ✓ {zip_filename}: {extract_stats['files_extracted']} files, "
+            validation_status = "✓" if extract_stats.get('validation_passed', True) else "⚠"
+            logger.info(f"[EXTRACT] {validation_status} {zip_filename}: {extract_stats['files_extracted']} files, "
                        f"{extract_stats['nested_zips_found']} nested ZIPs"
-                       + (f", {temp_skipped} temp files skipped" if temp_skipped > 0 else ""))
+                       + (f", {temp_skipped} temp files skipped" if temp_skipped > 0 else "")
+                       + (f" - {extract_stats.get('validation_details', '')}" if not extract_stats.get('validation_passed', True) else ""))
             
         except Exception as e:
             logger.error(f"[EXTRACT] Failed to process {zip_filename}: {e}")
@@ -342,6 +427,15 @@ def extract_zips_in_staging(case_id: int) -> Dict:
     logger.info(f"[EXTRACT] Complete: {stats['zips_processed']} ZIPs, "
                 f"{stats['files_extracted']} files, {stats['nested_zips_found']} nested ZIPs"
                 + (f", {stats['temp_files_skipped']} temp files skipped" if stats['temp_files_skipped'] > 0 else ""))
+    
+    # Log validation summary
+    if not stats['validation_passed']:
+        logger.warning(f"[EXTRACT] ⚠ VALIDATION WARNINGS:")
+        for warning in stats['validation_warnings']:
+            logger.warning(f"[EXTRACT]   - {warning}")
+    else:
+        logger.info(f"[EXTRACT] ✓ All ZIPs validated successfully")
+    
     logger.info("="*80)
     
     # Add alias for backward compatibility

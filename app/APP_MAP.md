@@ -1,8 +1,162 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.25  
-**Last Updated**: 2025-11-12 21:25 UTC  
+**Version**: 1.12.26  
+**Last Updated**: 2025-11-12 21:27 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.12.26 - FEATURE: ZIP Extraction Validation - Expected vs Actual File Count (2025-11-12 21:27 UTC)
+
+**Change**: Added validation to confirm that extracted files match expected counts. Before extraction, the system counts expected EVTX/NDJSON files (excluding temp files) and compares against actual extracted files after processing.
+
+### 1. Feature Overview
+
+**Validation Process**:
+1. **Pre-Extraction**: Scan ZIP file and count expected EVTX/NDJSON files (excluding temp files)
+2. **Extraction**: Extract and process files as normal
+3. **Post-Extraction**: Compare extracted count vs expected count
+4. **Reporting**: Log validation results with clear pass/warning messages
+
+**Benefits**:
+- Confirms all expected files were imported
+- Validates that temp files were properly filtered
+- Provides confidence in batch import integrity
+- Warns if files are missing or unexpected
+
+### 2. Implementation Details
+
+**Updated `extract_single_zip()` Function**:
+
+**Pre-Extraction Counting**:
+```python
+# STEP 1: Count expected files BEFORE extraction
+with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+    for zip_info in zip_ref.infolist():
+        filename = os.path.basename(zip_info.filename)
+        if filename.lower().endswith('.evtx'):
+            if is_temp_file(filename):
+                expected_temp += 1
+            else:
+                expected_evtx += 1
+        elif filename.lower().endswith('.ndjson'):
+            if is_temp_file(filename):
+                expected_temp += 1
+            else:
+                expected_ndjson += 1
+
+stats['expected_files'] = expected_evtx + expected_ndjson
+```
+
+**Post-Extraction Validation**:
+```python
+# STEP 3: Validate extraction results
+if extracted_count == expected_total:
+    stats['validation_passed'] = True
+    stats['validation_details'] = f"✓ Validation PASSED: Extracted {extracted_count} files (expected {expected_total})"
+else:
+    stats['validation_passed'] = False
+    missing = expected_total - extracted_count
+    stats['validation_details'] = f"⚠ Validation WARNING: Extracted {extracted_count} files, expected {expected_total} (missing {missing})"
+```
+
+**Return Values**:
+- `expected_files`: Number of expected EVTX/NDJSON files (excluding temp files)
+- `validation_passed`: Boolean indicating if extracted == expected
+- `validation_details`: Human-readable validation message
+
+**Nested ZIP Handling**:
+- Expected files from nested ZIPs are aggregated into parent ZIP's expected count
+- Validation failures in nested ZIPs mark parent ZIP as failed
+- Temp files skipped in nested ZIPs are tracked separately
+
+### 3. Logging Output
+
+**Example - Successful Validation**:
+```
+[EXTRACT] archive.zip: Expected 18 EVTX + 2 NDJSON = 20 files
+[EXTRACT] ✓ archive.zip: Validation PASSED - 20/20 files extracted
+[EXTRACT] ✓ All ZIPs validated successfully
+```
+
+**Example - Validation Warning**:
+```
+[EXTRACT] archive.zip: Expected 20 EVTX + 0 NDJSON = 20 files
+[EXTRACT] ⚠ archive.zip: Validation WARNING - Extracted 18/20 files (missing 2)
+[EXTRACT] ⚠ VALIDATION WARNINGS:
+[EXTRACT]   - archive.zip: ⚠ Validation WARNING: Extracted 18 files, expected 20 (missing 2), 2 temp files skipped
+```
+
+**Example - With Temp Files**:
+```
+[EXTRACT] archive.zip: Expected 20 EVTX + 0 NDJSON = 20 files (3 temp files will be skipped)
+[EXTRACT] ✓ archive.zip: Validation PASSED - 20/20 files extracted, 3 temp files skipped
+```
+
+### 4. Technical Details
+
+**Validation Logic**:
+- Counts files BEFORE extraction to establish baseline
+- Excludes temp files from expected count (they're counted separately)
+- Compares extracted count (after temp file filtering) vs expected count
+- Handles nested ZIPs recursively with aggregated validation
+
+**Stats Tracking**:
+- `extract_single_zip`: Returns validation results per ZIP
+- `extract_zips_in_staging`: Aggregates validation results across all ZIPs
+- `validation_passed`: Overall validation status (False if any ZIP fails)
+- `validation_warnings`: List of validation warnings for failed ZIPs
+
+**Edge Cases**:
+- Nested ZIPs: Expected files aggregated, validation failures propagate
+- Temp files: Counted separately, excluded from expected count
+- Extraction errors: Mark validation as failed with error message
+- Empty ZIPs: Expected count = 0, validation passes if extracted = 0
+
+### 5. Files Modified
+
+**Backend**:
+- `app/upload_pipeline.py`:
+  - Updated `extract_single_zip()` to count expected files and validate (lines 213-344)
+  - Updated `extract_zips_in_staging()` to track validation results (lines 347-438)
+  - Added validation logging and summary reporting
+
+**Documentation**:
+- `app/version.json`: Added v1.12.26 entry
+- `app/APP_MAP.md`: This entry
+
+### 6. Use Cases
+
+**Batch Import Verification**:
+- Upload ZIP with 20 EVTX files
+- System confirms: "✓ Validation PASSED: Extracted 20 files (expected 20)"
+- Confidence that all files were imported correctly
+
+**Temp File Detection**:
+- ZIP contains 20 EVTX + 3 temp files
+- System logs: "Expected 20 files (3 temp files will be skipped)"
+- After extraction: "✓ Validation PASSED: Extracted 20 files, 3 temp files skipped"
+- Confirms temp files were filtered and not counted
+
+**Missing File Detection**:
+- ZIP should contain 20 files but only 18 extracted
+- System warns: "⚠ Validation WARNING: Extracted 18 files, expected 20 (missing 2)"
+- Alerts user to investigate missing files
+
+### 7. Benefits
+
+✅ **Data Integrity**: Confirms all expected files were imported  
+✅ **Temp File Validation**: Verifies temp files were properly filtered  
+✅ **Missing File Detection**: Alerts when files are missing  
+✅ **Batch Confidence**: Provides assurance for bulk imports  
+✅ **Clear Reporting**: Human-readable validation messages  
+✅ **Nested ZIP Support**: Validates nested ZIPs recursively  
+
+### 8. Related Features
+
+- **Temp File Filtering** (v1.12.25): Validation confirms temp files were filtered
+- **ZIP Extraction** (v9.6.0): Validation integrated into extraction process
+- **Failed Files Management** (v1.12.24): Missing files may appear in failed files
 
 ---
 
