@@ -9,6 +9,7 @@ from werkzeug.security import check_password_hash
 from datetime import datetime
 
 from models import db, User
+from audit_logger import log_login, log_logout
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -29,8 +30,14 @@ def login():
             login_user(user)
             user.last_login = datetime.utcnow()
             db.session.commit()
+            
+            # Audit log successful login
+            log_login(username, success=True, details={'role': user.role})
+            
             return redirect(url_for('dashboard.index'))
         
+        # Audit log failed login attempt
+        log_login(username, success=False, details={'reason': 'Invalid credentials'})
         flash('Invalid username or password', 'error')
     
     return render_template_string('''
@@ -73,6 +80,11 @@ def login():
 @login_required
 def logout():
     """Logout"""
+    username = current_user.username
     logout_user()
+    
+    # Audit log logout
+    log_logout(username)
+    
     return redirect(url_for('auth.login'))
 

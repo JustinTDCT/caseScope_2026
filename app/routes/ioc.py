@@ -85,6 +85,15 @@ def add_ioc(case_id):
         # Store IOC ID for background processing
         ioc_id_for_background = ioc.id
         
+        # Audit log
+        from audit_logger import log_ioc_action
+        log_ioc_action('add_ioc', ioc.id, ioc_value, details={
+            'case_id': case_id,
+            'case_name': case.name,
+            'ioc_type': ioc_type,
+            'threat_level': threat_level
+        })
+        
         flash(f'IOC added: {ioc_value}', 'success')
         
         # Return success immediately, then do enrichment in background
@@ -168,12 +177,33 @@ def edit_ioc(case_id, ioc_id):
         return jsonify({'success': False, 'error': 'IOC not found'}), 404
     
     try:
+        old_value = ioc.ioc_value
+        old_type = ioc.ioc_type
+        old_threat = ioc.threat_level
+        
         ioc.ioc_type = request.form.get('ioc_type', ioc.ioc_type)
         ioc.ioc_value = request.form.get('ioc_value', ioc.ioc_value).strip()
         ioc.description = request.form.get('description', ioc.description).strip()
         ioc.threat_level = request.form.get('threat_level', ioc.threat_level)
         
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_ioc_action
+        from main import Case
+        case = db.session.get(Case, case_id)
+        changes = {}
+        if old_type != ioc.ioc_type:
+            changes['ioc_type'] = {'old': old_type, 'new': ioc.ioc_type}
+        if old_value != ioc.ioc_value:
+            changes['ioc_value'] = {'old': old_value, 'new': ioc.ioc_value}
+        if old_threat != ioc.threat_level:
+            changes['threat_level'] = {'old': old_threat, 'new': ioc.threat_level}
+        log_ioc_action('edit_ioc', ioc.id, ioc.ioc_value, details={
+            'case_id': case_id,
+            'case_name': case.name if case else None,
+            'changes': changes
+        })
         
         flash(f'IOC updated: {ioc.ioc_value}', 'success')
         return jsonify({'success': True})
@@ -199,8 +229,20 @@ def delete_ioc(case_id, ioc_id):
     
     try:
         ioc_value = ioc.ioc_value
+        ioc_type = ioc.ioc_type
+        from main import Case
+        case = db.session.get(Case, case_id)
+        
         db.session.delete(ioc)
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_ioc_action
+        log_ioc_action('delete_ioc', ioc_id, ioc_value, details={
+            'case_id': case_id,
+            'case_name': case.name if case else None,
+            'ioc_type': ioc_type
+        })
         
         flash(f'IOC deleted: {ioc_value}', 'success')
         return jsonify({'success': True})
@@ -225,8 +267,20 @@ def toggle_ioc(case_id, ioc_id):
         return jsonify({'success': False, 'error': 'IOC not found'}), 404
     
     try:
+        old_status = ioc.is_active
         ioc.is_active = not ioc.is_active
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_ioc_action
+        from main import Case
+        case = db.session.get(Case, case_id)
+        log_ioc_action('toggle_ioc', ioc.id, ioc.ioc_value, details={
+            'case_id': case_id,
+            'case_name': case.name if case else None,
+            'old_status': 'active' if old_status else 'inactive',
+            'new_status': 'active' if ioc.is_active else 'inactive'
+        })
         
         status = 'activated' if ioc.is_active else 'deactivated'
         flash(f'IOC {status}: {ioc.ioc_value}', 'success')
@@ -248,6 +302,16 @@ def enrich_ioc(case_id, ioc_id):
         return jsonify({'success': False, 'error': 'IOC not found'}), 404
     
     try:
+        # Audit log
+        from audit_logger import log_ioc_action
+        from main import Case
+        case = db.session.get(Case, case_id)
+        log_ioc_action('enrich_ioc', ioc.id, ioc.ioc_value, details={
+            'case_id': case_id,
+            'case_name': case.name if case else None,
+            'source': 'OpenCTI'
+        })
+        
         # Return success immediately, then do enrichment in background
         flash(f'Enriching IOC from OpenCTI: {ioc.ioc_value}', 'info')
         response = jsonify({'success': True, 'message': 'Enrichment started in background'})
@@ -291,6 +355,16 @@ def sync_ioc_to_iris(case_id, ioc_id):
         return jsonify({'success': False, 'error': 'IOC not found'}), 404
     
     try:
+        # Audit log
+        from audit_logger import log_ioc_action
+        from main import Case
+        case = db.session.get(Case, case_id)
+        log_ioc_action('sync_ioc_to_iris', ioc.id, ioc.ioc_value, details={
+            'case_id': case_id,
+            'case_name': case.name if case else None,
+            'destination': 'DFIR-IRIS'
+        })
+        
         # Return success immediately, then do sync in background
         flash(f'Syncing IOC to DFIR-IRIS: {ioc.ioc_value}', 'info')
         response = jsonify({'success': True, 'message': 'Sync started in background'})
@@ -504,6 +578,18 @@ def bulk_toggle_iocs(case_id):
         
         db.session.commit()
         
+        # Audit log
+        from audit_logger import log_action
+        log_action('bulk_toggle_iocs', resource_type='ioc', resource_id=None,
+                  resource_name=f'{processed_count} IOCs',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'action': action,
+                      'count': processed_count,
+                      'ioc_ids': ioc_ids[:10]  # Log first 10 IDs
+                  })
+        
         action_text = 'enabled' if new_status else 'disabled'
         flash(f'{processed_count} IOC(s) {action_text}', 'success')
         
@@ -549,6 +635,17 @@ def bulk_delete_iocs(case_id):
         
         db.session.commit()
         
+        # Audit log
+        from audit_logger import log_action
+        log_action('bulk_delete_iocs', resource_type='ioc', resource_id=None,
+                  resource_name=f'{deleted_count} IOCs',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'count': deleted_count,
+                      'ioc_ids': ioc_ids[:10]  # Log first 10 IDs
+                  })
+        
         flash(f'{deleted_count} IOC(s) deleted', 'success')
         
         return jsonify({
@@ -584,6 +681,17 @@ def bulk_enrich_iocs(case_id):
         return jsonify({'success': False, 'error': 'OpenCTI enrichment is not enabled'}), 400
     
     try:
+        # Audit log
+        from audit_logger import log_action
+        log_action('bulk_enrich_iocs', resource_type='ioc', resource_id=None,
+                  resource_name=f'{len(ioc_ids)} IOCs',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'count': len(ioc_ids),
+                      'source': 'OpenCTI'
+                  })
+        
         # Return success immediately, enrich in background
         flash(f'Enriching {len(ioc_ids)} IOC(s) from OpenCTI in background...', 'info')
         response = jsonify({
@@ -644,6 +752,16 @@ def export_iocs_csv(case_id):
     try:
         # Get all IOCs for this case
         iocs = IOC.query.filter_by(case_id=case_id).order_by(IOC.ioc_type, IOC.ioc_value).all()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('export_iocs_csv', resource_type='ioc', resource_id=None,
+                  resource_name=f'{len(iocs)} IOCs',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'count': len(iocs)
+                  })
         
         # Create CSV in memory
         output = io.StringIO()

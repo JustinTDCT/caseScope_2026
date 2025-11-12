@@ -225,6 +225,17 @@ def add_system(case_id):
         db.session.add(system)
         db.session.commit()
         
+        # Audit log
+        from audit_logger import log_action
+        log_action('add_system', resource_type='system', resource_id=system.id,
+                  resource_name=system_name,
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'system_type': system_type,
+                      'ip_address': ip_address
+                  })
+        
         # Check for OpenCTI enrichment
         from models import SystemSettings
         opencti_enabled = SystemSettings.query.filter_by(setting_key='opencti_enabled').first()
@@ -283,11 +294,34 @@ def edit_system(case_id, system_id):
         return jsonify({'success': False, 'error': 'System not found'}), 404
     
     try:
+        old_name = system.system_name
+        old_type = system.system_type
+        old_ip = system.ip_address
+        
         system.system_name = request.form.get('system_name', system.system_name).strip()
         system.ip_address = request.form.get('ip_address', '').strip() or None
         system.system_type = request.form.get('system_type', system.system_type)
         
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        from main import Case
+        case = db.session.get(Case, case_id)
+        changes = {}
+        if old_name != system.system_name:
+            changes['system_name'] = {'old': old_name, 'new': system.system_name}
+        if old_type != system.system_type:
+            changes['system_type'] = {'old': old_type, 'new': system.system_type}
+        if old_ip != system.ip_address:
+            changes['ip_address'] = {'old': old_ip, 'new': system.ip_address}
+        log_action('edit_system', resource_type='system', resource_id=system_id,
+                  resource_name=system.system_name,
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name if case else None,
+                      'changes': changes
+                  })
         
         flash(f'System updated: {system.system_name}', 'success')
         return jsonify({'success': True})
@@ -314,8 +348,22 @@ def delete_system(case_id, system_id):
     
     try:
         system_name = system.system_name
+        system_type = system.system_type
+        from main import Case
+        case = db.session.get(Case, case_id)
+        
         db.session.delete(system)
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('delete_system', resource_type='system', resource_id=system_id,
+                  resource_name=system_name,
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name if case else None,
+                      'system_type': system_type
+                  })
         
         flash(f'System deleted: {system_name}', 'success')
         return jsonify({'success': True})
@@ -341,8 +389,22 @@ def toggle_hidden(case_id, system_id):
         return jsonify({'success': False, 'error': 'System not found'}), 404
     
     try:
+        old_hidden = system.hidden
         system.hidden = not system.hidden
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        from main import Case
+        case = db.session.get(Case, case_id)
+        log_action('toggle_system_hidden', resource_type='system', resource_id=system_id,
+                  resource_name=system.system_name,
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name if case else None,
+                      'old_status': 'hidden' if old_hidden else 'visible',
+                      'new_status': 'hidden' if system.hidden else 'visible'
+                  })
         
         status = 'hidden' if system.hidden else 'visible'
         flash(f'System {status}: {system.system_name}', 'success')
@@ -530,6 +592,18 @@ def scan_systems(case_id):
         
         db.session.commit()
         
+        # Audit log
+        from audit_logger import log_action
+        log_action('scan_systems', resource_type='system', resource_id=None,
+                  resource_name=f'{new_systems} new, {updated_systems} updated',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'new_systems': new_systems,
+                      'updated_systems': updated_systems,
+                      'total_discovered': len(discovered_systems)
+                  })
+        
         message = f"System scan complete: {new_systems} new systems found, {updated_systems} already existed"
         logger.info(f"[Systems] {message}")
         flash(message, 'success')
@@ -561,6 +635,18 @@ def enrich_system(case_id, system_id):
         return jsonify({'success': False, 'error': 'System not found'}), 404
     
     try:
+        # Audit log
+        from audit_logger import log_action
+        from main import Case
+        case = db.session.get(Case, case_id)
+        log_action('enrich_system', resource_type='system', resource_id=system_id,
+                  resource_name=system.system_name,
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name if case else None,
+                      'source': 'OpenCTI'
+                  })
+        
         result = enrich_from_opencti(system)
         if result:
             flash(f'System enriched from OpenCTI: {system.system_name}', 'success')
@@ -586,6 +672,18 @@ def sync_system_to_iris(case_id, system_id):
         return jsonify({'success': False, 'error': 'System not found'}), 404
     
     try:
+        # Audit log
+        from audit_logger import log_action
+        from main import Case
+        case = db.session.get(Case, case_id)
+        log_action('sync_system_to_iris', resource_type='system', resource_id=system_id,
+                  resource_name=system.system_name,
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name if case else None,
+                      'destination': 'DFIR-IRIS'
+                  })
+        
         result = sync_to_dfir_iris(system)
         if result:
             flash(f'System synced to DFIR-IRIS: {system.system_name}', 'success')

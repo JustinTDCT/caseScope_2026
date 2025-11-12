@@ -139,8 +139,16 @@ def toggle_case_status(case_id):
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     # Toggle status
+    old_status = case.status
     case.status = 'closed' if case.status == 'active' else 'active'
     db.session.commit()
+    
+    # Audit log
+    from audit_logger import log_case_action
+    log_case_action('toggle_case_status', case_id, case.name, details={
+        'old_status': old_status,
+        'new_status': case.status
+    })
     
     return jsonify({'success': True, 'status': case.status})
 
@@ -158,6 +166,13 @@ def delete_case(case_id):
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     try:
+        # Audit log
+        from audit_logger import log_case_action
+        log_case_action('delete_case', case_id, case.name, details={
+            'task_id': None,  # Will be updated after task creation
+            'async': True
+        })
+        
         # Start async deletion task
         task = delete_case_async.delay(case_id)
         

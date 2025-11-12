@@ -84,6 +84,20 @@ def handle_http_upload_v96(app, db, Case, CaseFile, SkippedFile, celery_app, cur
         
         db.session.commit()
         
+        # Audit log file upload
+        from audit_logger import log_action
+        log_action('upload_files', resource_type='file', resource_id=None,
+                  resource_name=f'{len(filter_stats["filtered_queue"])} files',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'files_uploaded': len(filter_stats['filtered_queue']),
+                      'files_staged': len(staged_files),
+                      'files_extracted': extract_stats.get('files_extracted', 0),
+                      'files_queued': len(filter_stats['filtered_queue']),
+                      'files_skipped': queue_stats.get('duplicates_skipped', 0) + filter_stats.get('zero_event_files_skipped', 0)
+                  })
+        
         return jsonify({
             'success': True,
             'message': f'Upload complete: {filter_stats["valid_files"]} files queued',

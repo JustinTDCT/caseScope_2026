@@ -254,6 +254,18 @@ def toggle_file_hidden(case_id, file_id):
     result = toggle_file_visibility(db.session, file_id, current_user.id)
     
     if result['success']:
+        # Audit log
+        from audit_logger import log_file_action
+        from main import CaseFile
+        case_file = db.session.get(CaseFile, file_id)
+        if case_file:
+            log_file_action('toggle_file_hidden', file_id, case_file.original_filename, details={
+                'case_id': case_id,
+                'case_name': case_file.case.name if case_file.case else None,
+                'action': result['action'],
+                'is_hidden': case_file.is_hidden
+            })
+        
         flash(f"File marked as {result['action']}", 'success')
     else:
         flash(result['error'], 'error')
@@ -512,6 +524,15 @@ def rechainsaw_single_file(case_id, file_id):
             file_id=file_id
         )
         
+        # Audit log
+        from audit_logger import log_file_action
+        log_file_action('rechainsaw_file', file_id, case_file.original_filename, details={
+            'case_id': case_id,
+            'case_name': case_file.case.name,
+            'violations_found': result.get('violations_found', 0) if result.get('status') == 'success' else None,
+            'flags_cleared': flags_cleared
+        })
+        
         if result['status'] == 'success':
             flash(f'SIGMA re-processing complete for "{case_file.original_filename}". Found {result.get("violations_found", 0)} violations.', 'success')
         else:
@@ -597,6 +618,19 @@ def bulk_reindex_selected(case_id):
     # Queue for full reprocessing
     queue_file_processing(process_file, files, operation='full')
     
+    # Audit log
+    from audit_logger import log_action
+    from main import Case
+    case = db.session.get(Case, case_id)
+    log_action('bulk_reindex_files', resource_type='file', resource_id=None,
+              resource_name=f'{len(files)} files',
+              details={
+                  'case_id': case_id,
+                  'case_name': case.name if case else None,
+                  'file_count': len(files),
+                  'file_ids': [f.id for f in files[:10]]  # Log first 10 IDs
+              })
+    
     flash(f'Re-indexing queued for {len(files)} selected file(s). All data will be cleared and rebuilt.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
@@ -654,6 +688,20 @@ def bulk_rechainsaw_selected(case_id):
     # Queue for SIGMA reprocessing
     queue_file_processing(process_file, files, operation='chainsaw_only')
     
+    # Audit log
+    from audit_logger import log_action
+    from main import Case
+    case = db.session.get(Case, case_id)
+    log_action('bulk_rechainsaw_files', resource_type='file', resource_id=None,
+              resource_name=f'{len(files)} files',
+              details={
+                  'case_id': case_id,
+                  'case_name': case.name if case else None,
+                  'file_count': len(files),
+                  'flags_cleared': total_flags_cleared,
+                  'file_ids': [f.id for f in files[:10]]  # Log first 10 IDs
+              })
+    
     flash(f'SIGMA re-processing queued for {len(files)} selected file(s). Old violations and flags cleared.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
@@ -703,6 +751,19 @@ def bulk_rehunt_selected(case_id):
     # Queue for IOC reprocessing
     queue_file_processing(process_file, files, operation='ioc_only')
     
+    # Audit log
+    from audit_logger import log_action
+    from main import Case
+    case = db.session.get(Case, case_id)
+    log_action('bulk_rehunt_iocs', resource_type='file', resource_id=None,
+              resource_name=f'{len(files)} files',
+              details={
+                  'case_id': case_id,
+                  'case_name': case.name if case else None,
+                  'file_count': len(files),
+                  'file_ids': [f.id for f in files[:10]]  # Log first 10 IDs
+              })
+    
     flash(f'IOC re-hunting queued for {len(files)} selected file(s). Old matches will be cleared.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
 
@@ -735,6 +796,19 @@ def bulk_hide_selected(case_id):
         file.is_hidden = True
     
     db.session.commit()
+    
+    # Audit log
+    from audit_logger import log_action
+    from main import Case
+    case = db.session.get(Case, case_id)
+    log_action('bulk_hide_files', resource_type='file', resource_id=None,
+              resource_name=f'{len(files)} files',
+              details={
+                  'case_id': case_id,
+                  'case_name': case.name if case else None,
+                  'file_count': len(files),
+                  'file_ids': [f.id for f in files[:10]]  # Log first 10 IDs
+              })
     
     flash(f'Hidden {len(files)} selected file(s). View them on the Hidden Files page.', 'success')
     return redirect(url_for('files.case_files', case_id=case_id))
@@ -950,6 +1024,15 @@ def requeue_single_file(case_id, file_id):
         case_file.celery_task_id = task.id
         db.session.commit()
         
+        # Audit log
+        from audit_logger import log_file_action
+        log_file_action('requeue_file', file_id, case_file.original_filename, details={
+            'case_id': case_id,
+            'case_name': case.name,
+            'task_id': task.id,
+            'previous_status': case_file.indexing_status
+        })
+        
         flash(f'✅ File "{case_file.original_filename}" requeued for processing', 'success')
     except Exception as e:
         logger.error(f"Error requeueing file {file_id}: {e}")
@@ -1013,6 +1096,18 @@ def bulk_requeue_selected(case_id):
                 errors += 1
                 logger.error(f"Error requeueing file {case_file.id}: {e}")
                 db.session.rollback()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('bulk_requeue_files', resource_type='file', resource_id=None,
+                  resource_name=f'{requeued} files',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'requeued_count': requeued,
+                      'errors': errors,
+                      'file_ids': [f.id for f in failed_files[:10]]  # Log first 10 IDs
+                  })
         
         message = f'✅ Requeued {requeued} file(s)'
         if errors > 0:

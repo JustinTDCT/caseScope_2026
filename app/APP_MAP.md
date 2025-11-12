@@ -1,8 +1,165 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.26  
-**Last Updated**: 2025-11-12 21:27 UTC  
+**Version**: 1.12.27  
+**Last Updated**: 2025-11-12 22:30 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🔒 v1.12.27 - CRITICAL: Comprehensive Audit Logging Enhancement (2025-11-12 22:30 UTC)
+
+**Change**: Fixed IP address detection and added comprehensive audit logging to all data manipulation operations throughout the application.
+
+### 1. Problem
+
+**Issues Identified**:
+1. **IP Address Detection**: Audit logs showed `127.0.0.1` instead of actual client IP addresses when behind proxies
+2. **Missing Audit Logs**: Many data manipulation operations were not being logged
+3. **Incomplete Coverage**: Login/logout, bulk operations, exports, and system settings changes lacked audit trails
+
+### 2. Solution
+
+**IP Address Detection Fix**:
+- Updated `audit_logger.py` to check proxy headers (`X-Forwarded-For`, `X-Real-IP`) before falling back to `request.remote_addr`
+- Extracts first IP from `X-Forwarded-For` header (handles comma-separated proxy chains)
+- Falls back to `X-Real-IP` if `X-Forwarded-For` not present
+- Only uses `request.remote_addr` as last resort
+
+**Comprehensive Audit Logging Added**:
+
+**Authentication** (`routes/auth.py`):
+- ✅ Successful login (with role)
+- ✅ Failed login attempts (with reason)
+- ✅ Logout
+
+**IOC Management** (`routes/ioc.py`):
+- ✅ Add IOC (with type, threat level, case info)
+- ✅ Edit IOC (with change tracking)
+- ✅ Delete IOC
+- ✅ Toggle IOC active/inactive (with status change)
+- ✅ Enrich IOC from OpenCTI
+- ✅ Sync IOC to DFIR-IRIS
+- ✅ Bulk toggle IOCs (with count and IDs)
+- ✅ Bulk delete IOCs (admin only, with count)
+- ✅ Bulk enrich IOCs (with count and source)
+- ✅ Export IOCs to CSV (with count)
+
+**Known Users** (`routes/known_users.py`):
+- ✅ Add known user (with type, compromised status)
+- ✅ Update known user (with change tracking)
+- ✅ Delete known user (admin only)
+- ✅ Upload CSV (with added/skipped counts, filename, errors)
+- ✅ Export CSV (with count)
+
+**Systems Management** (`routes/systems.py`):
+- ✅ Add system (with type, IP address)
+- ✅ Edit system (with change tracking)
+- ✅ Delete system (admin only)
+- ✅ Toggle system hidden/visible (with status change)
+- ✅ Scan systems (with new/updated counts)
+- ✅ Enrich system from OpenCTI
+- ✅ Sync system to DFIR-IRIS
+- ✅ Export systems to CSV (with count)
+
+**Case Management** (`routes/cases.py`):
+- ✅ Edit case (already had logging, verified)
+- ✅ Toggle case status (with old/new status)
+- ✅ Delete case (with async task info)
+
+**File Operations** (`routes/files.py`, `upload_integration.py`):
+- ✅ Upload files (with counts: staged, extracted, queued, skipped)
+- ✅ Re-index file (with case info)
+- ✅ Re-chainsaw file (with violations found, flags cleared)
+- ✅ Bulk re-index files (with count and file IDs)
+- ✅ Bulk re-chainsaw files (with count, flags cleared, file IDs)
+- ✅ Bulk re-hunt IOCs (with count and file IDs)
+- ✅ Toggle file hidden/visible (with action and status)
+- ✅ Bulk hide files (with count and file IDs)
+- ✅ Requeue single file (with task ID, previous status)
+- ✅ Bulk requeue files (with count, errors, file IDs)
+
+**Settings** (`routes/settings.py`):
+- ✅ Update settings (already had logging, verified - includes all settings)
+
+### 3. Technical Details
+
+**IP Address Detection Logic**:
+```python
+# Check X-Forwarded-For header (most common proxy header)
+forwarded_for = request.headers.get('X-Forwarded-For', '')
+if forwarded_for:
+    # Take the first IP (original client)
+    ip_address = forwarded_for.split(',')[0].strip()
+else:
+    # Check X-Real-IP header (alternative proxy header)
+    ip_address = request.headers.get('X-Real-IP', None)
+
+# Fallback to remote_addr if no proxy headers found
+if not ip_address:
+    ip_address = request.remote_addr
+```
+
+**Audit Log Structure**:
+- `user_id`: ID of user performing action
+- `username`: Username of user performing action
+- `action`: Action performed (e.g., 'add_ioc', 'bulk_reindex_files')
+- `resource_type`: Type of resource ('ioc', 'file', 'case', 'user', 'system', 'known_user', 'settings')
+- `resource_id`: ID of affected resource (null for bulk operations)
+- `resource_name`: Name/description of resource
+- `details`: JSON object with action-specific details
+- `ip_address`: Real client IP address (from proxy headers or direct)
+- `user_agent`: Browser user agent
+- `status`: 'success', 'failed', or 'error'
+- `created_at`: Timestamp
+
+**Change Tracking**:
+- Edit operations log before/after values for changed fields
+- Bulk operations log counts and sample IDs (first 10)
+- Export operations log record counts
+
+### 4. Files Modified
+
+**Core**:
+- `app/audit_logger.py`: Fixed IP address detection (lines 37-56)
+
+**Routes**:
+- `app/routes/auth.py`: Added login/logout logging (lines 12, 35-40, 87)
+- `app/routes/ioc.py`: Added logging to all 10 operations (add, edit, delete, toggle, enrich, sync, bulk_toggle, bulk_delete, bulk_enrich, export_csv)
+- `app/routes/known_users.py`: Added logging to all 5 operations (add, update, delete, upload_csv, export_csv)
+- `app/routes/systems.py`: Added logging to all 9 operations (add, edit, delete, toggle_hidden, scan, enrich, sync, export_csv)
+- `app/routes/cases.py`: Added logging to toggle_status and delete_case (lines 147-151, 169-174)
+- `app/routes/files.py`: Added logging to rechainsaw, bulk operations, toggle_hidden, requeue operations
+- `app/upload_integration.py`: Added logging to file upload (lines 87-99)
+
+**Documentation**:
+- `app/version.json`: Added v1.12.27 entry
+- `app/APP_MAP.md`: This entry
+
+### 5. Benefits
+
+✅ **Compliance**: Complete audit trail for all data manipulation  
+✅ **Security**: Track who did what, when, and from where  
+✅ **Forensics**: Investigate incidents with complete action history  
+✅ **Accountability**: Clear attribution of all changes  
+✅ **Real IP Tracking**: Correct client IP addresses even behind proxies  
+✅ **Comprehensive**: Covers all CRUD operations, bulk actions, exports, and settings  
+
+### 6. Testing Recommendations
+
+1. **IP Address Testing**:
+   - Test behind reverse proxy (nginx/Apache)
+   - Verify `X-Forwarded-For` header extraction
+   - Test direct connections (no proxy)
+
+2. **Audit Log Verification**:
+   - Perform operations in each module
+   - Verify audit logs appear in database
+   - Check IP addresses are correct (not 127.0.0.1)
+   - Verify details JSON contains expected information
+
+3. **Bulk Operations**:
+   - Test bulk operations with 100+ items
+   - Verify counts and sample IDs are logged correctly
 
 ---
 

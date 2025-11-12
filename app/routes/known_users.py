@@ -107,6 +107,17 @@ def add_known_user(case_id):
         db.session.add(known_user)
         db.session.commit()
         
+        # Audit log
+        from audit_logger import log_action
+        log_action('add_known_user', resource_type='known_user', resource_id=known_user.id,
+                  resource_name=username,
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'user_type': user_type,
+                      'compromised': compromised
+                  })
+        
         flash(f'Known user added: {username}', 'success')
         return jsonify({'success': True, 'user_id': known_user.id})
     
@@ -157,10 +168,33 @@ def update_known_user(case_id, user_id):
             if user_type in ['domain', 'local', '-']:
                 known_user.user_type = user_type
         
+        old_username = known_user.username
+        old_type = known_user.user_type
+        old_compromised = known_user.compromised
+        
         if 'compromised' in request.form:
             known_user.compromised = request.form['compromised'] == 'true'
         
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        from main import Case
+        case = db.session.get(Case, case_id)
+        changes = {}
+        if old_username != known_user.username:
+            changes['username'] = {'old': old_username, 'new': known_user.username}
+        if old_type != known_user.user_type:
+            changes['user_type'] = {'old': old_type, 'new': known_user.user_type}
+        if old_compromised != known_user.compromised:
+            changes['compromised'] = {'old': old_compromised, 'new': known_user.compromised}
+        log_action('update_known_user', resource_type='known_user', resource_id=user_id,
+                  resource_name=known_user.username,
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name if case else None,
+                      'changes': changes
+                  })
         
         flash(f'Known user updated: {known_user.username}', 'success')
         return jsonify({'success': True})
@@ -191,8 +225,22 @@ def delete_known_user(case_id, user_id):
             return jsonify({'success': False, 'error': 'User does not belong to this case'}), 403
         
         username = known_user.username
+        user_type = known_user.user_type
+        from main import Case
+        case = db.session.get(Case, case_id)
+        
         db.session.delete(known_user)
         db.session.commit()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('delete_known_user', resource_type='known_user', resource_id=user_id,
+                  resource_name=username,
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name if case else None,
+                      'user_type': user_type
+                  })
         
         flash(f'Known user deleted: {username}', 'success')
         return jsonify({'success': True})
@@ -293,6 +341,19 @@ def upload_csv(case_id):
         
         db.session.commit()
         
+        # Audit log
+        from audit_logger import log_action
+        log_action('upload_known_users_csv', resource_type='known_user', resource_id=None,
+                  resource_name=f'{added_count} users from CSV',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'added_count': added_count,
+                      'skipped_count': skipped_count,
+                      'filename': file.filename,
+                      'errors': errors[:5] if errors else []  # Log first 5 errors
+                  })
+        
         # Build result message
         message = f'CSV import complete: {added_count} users added'
         if skipped_count > 0:
@@ -330,6 +391,16 @@ def export_csv(case_id):
     try:
         # Get all known users for this case
         known_users = KnownUser.query.filter_by(case_id=case_id).order_by(KnownUser.username).all()
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('export_known_users_csv', resource_type='known_user', resource_id=None,
+                  resource_name=f'{len(known_users)} users',
+                  details={
+                      'case_id': case_id,
+                      'case_name': case.name,
+                      'count': len(known_users)
+                  })
         
         # Create CSV in memory
         output = io.StringIO()

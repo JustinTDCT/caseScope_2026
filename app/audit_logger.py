@@ -34,9 +34,26 @@ def log_action(action, resource_type=None, resource_id=None, resource_name=None,
         user_id = current_user.id if current_user.is_authenticated else None
         username = current_user.username if current_user.is_authenticated else 'anonymous'
         
-        # Get request info
-        ip_address = request.remote_addr if request else None
-        user_agent = request.headers.get('User-Agent', '')[:500] if request else None
+        # Get request info - check for proxy headers first
+        ip_address = None
+        if request:
+            # Check X-Forwarded-For header (most common proxy header)
+            # Format: "client_ip, proxy1_ip, proxy2_ip"
+            forwarded_for = request.headers.get('X-Forwarded-For', '')
+            if forwarded_for:
+                # Take the first IP (original client)
+                ip_address = forwarded_for.split(',')[0].strip()
+            else:
+                # Check X-Real-IP header (alternative proxy header)
+                ip_address = request.headers.get('X-Real-IP', None)
+            
+            # Fallback to remote_addr if no proxy headers found
+            if not ip_address:
+                ip_address = request.remote_addr
+            
+            user_agent = request.headers.get('User-Agent', '')[:500]
+        else:
+            user_agent = None
         
         # Serialize details if dict
         if isinstance(details, dict):
