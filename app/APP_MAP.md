@@ -1,8 +1,65 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.29  
-**Last Updated**: 2025-11-12 23:50 UTC  
+**Version**: 1.12.30  
+**Last Updated**: 2025-11-13 00:30 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.12.30 - FIXES: Bulk Import Progress/Redirect + Global Files Route (2025-11-13 00:30 UTC)
+
+**Change**: Fixed bulk import progress bar not updating to 100% on completion, redirect not happening, and accidental case_id filter in global files route.
+
+### 1. Problems
+
+**Issue 1**: Bulk import progress bar stuck at 32% (during ZIP extraction) and not updating to 100% when complete
+- Progress bar was being updated even during SUCCESS state, overwriting the 100% update
+- Frontend wasn't properly detecting SUCCESS state
+
+**Issue 2**: Bulk import not redirecting after completion
+- Redirect logic had too many conditions that could prevent redirect
+- "Completed too quickly" check was blocking redirects even when files were processed
+
+**Issue 3**: Accidental case_id filter in global_files route
+- Added case_id filter to global_files route which doesn't have case_id parameter
+- Would cause errors when accessing global files page
+
+### 2. Solutions
+
+**Progress Bar Fix**:
+- Only update progress bar if state is NOT SUCCESS (SUCCESS handled separately)
+- On SUCCESS, immediately set progress bar to 100% with green background
+- Prevents progress bar from being overwritten during state transitions
+
+**Redirect Fix**:
+- Simplified redirect logic - always redirects after SUCCESS if files were processed
+- Removed "completed too quickly" check that was blocking redirects
+- Shows completion message with file count, then redirects after 2 seconds
+- Only prevents redirect if no files were found/processed
+
+**Global Files Route Fix**:
+- Removed accidental case_id filter from global_files route
+- Global files route correctly shows all files across all cases
+
+### 3. Files Modified
+
+**Frontend**:
+- `app/templates/upload_files.html`: 
+  - Fixed progress bar update logic (line 388-396) - only updates if not SUCCESS
+  - Fixed SUCCESS state handling (line 457-509) - sets 100%, shows stats, redirects after 2 seconds
+  - Simplified redirect conditions - removed blocking checks
+
+**Backend**:
+- `app/routes/files.py`: Removed accidental case_id filter from global_files route (line 49)
+- `app/tasks.py`: Removed unnecessary state update before return (line 770-772) - let Celery mark as SUCCESS naturally
+
+### 4. Verification
+
+- ✅ Progress bar updates correctly during processing
+- ✅ Progress bar jumps to 100% when complete
+- ✅ Redirect happens automatically after 2 seconds if files were processed
+- ✅ Global files route works correctly without errors
+- ✅ No impact on existing functionality
 
 ---
 
