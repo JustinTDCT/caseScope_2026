@@ -31,3 +31,8 @@ training_data/*.jsonl
 lora_training/models/*/
 .triton/
 .nv/
+
+# Data directories
+bulk_import/
+local_uploads/
+data/
