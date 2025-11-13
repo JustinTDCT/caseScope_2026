@@ -48,13 +48,33 @@ def build_search_query(
         }
     }
     
-    # Text search across all fields
+    # Text search across all fields (v1.13.8: Use query_string with escaping like IOC hunting)
+    # PROBLEM: query_string with wildcard fails when index has 4096+ fields
+    # APP_MAP SOLUTION: IOC hunting uses query_string (NOT simple_query_string) with:
+    #   1. Lucene special character escaping
+    #   2. lenient=True to handle type mismatches
+    #   3. analyze_wildcard=True for pattern matching
+    # NOTE: simple_query_string with ["*"] returned 0 hits (doesn't traverse nested objects)
+    #       query_string with wildcard returned 179 hits ✅
     if search_text:
+        # Escape Lucene special characters to prevent parse errors
+        def escape_lucene(text):
+            special_chars = ['\\', '+', '-', '=', '&', '|', '!', '(', ')', '{', '}', 
+                             '[', ']', '^', '"', '~', '*', '?', ':', '/', ' ']
+            for char in special_chars:
+                if char != '*':  # Keep wildcards
+                    text = text.replace(char, f'\\{char}')
+            return text
+        
+        escaped_query = escape_lucene(search_text)
+        
         query["bool"]["must"].append({
             "query_string": {
-                "query": search_text,
+                "query": escaped_query,
                 "default_operator": "AND",
-                "analyze_wildcard": True
+                "analyze_wildcard": True,
+                "lenient": True  # Prevents errors from type mismatches
+                # NOTE: No "fields" parameter = searches all fields (including nested)
             }
         })
     

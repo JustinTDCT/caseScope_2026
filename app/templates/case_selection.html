@@ -21,15 +21,38 @@
 </div>
 
 <div class="card">
-    <div class="card-header">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--spacing-md);">
         <h2 class="card-title">📁 Active Cases</h2>
+        <form method="GET" action="{{ url_for('case_selection') }}" style="display: inline-flex; gap: var(--spacing-xs);">
+            <input type="text" 
+                   id="caseSearch" 
+                   name="search"
+                   value="{{ search_term }}"
+                   placeholder="🔍 Search cases by name, company, or description..." 
+                   class="form-input" 
+                   style="width: 400px;">
+            <button type="submit" class="btn btn-primary" style="padding: 0.5rem 1rem;">
+                <span>🔎</span>
+            </button>
+            {% if search_term %}
+            <a href="{{ url_for('case_selection') }}" class="btn btn-secondary" style="padding: 0.5rem 1rem;" title="Clear search">
+                <span>✕</span>
+            </a>
+            {% endif %}
+        </form>
     </div>
     <div class="card-body" style="padding: 0;">
         {% if case_stats %}
+        {% if search_term %}
+        <div style="padding: var(--spacing-md); background: var(--color-bg-tertiary); border-bottom: 1px solid var(--color-border); color: var(--color-text-secondary); font-size: 0.875rem;">
+            Found {{ case_stats|length }} case(s) matching "{{ search_term }}"
+        </div>
+        {% endif %}
         <div class="table-container">
             <table>
                 <thead>
                     <tr>
+                        <th style="width: 80px;">ID</th>
                         <th>Case Name</th>
                         <th>Company</th>
                         <th>Files</th>
@@ -42,6 +65,11 @@
                 <tbody>
                     {% for stat in case_stats %}
                     <tr class="clickable-row" onclick="selectCase({{ stat.case.id }})" style="cursor: pointer;">
+                        <td>
+                            <span class="status-badge" style="background: rgba(139, 92, 246, 0.1); color: var(--color-info); font-weight: 600;">
+                                {{ stat.case.id }}
+                            </span>
+                        </td>
                         <td>
                             <strong style="color: var(--color-primary);">{{ stat.case.name }}</strong>
                             {% if stat.case.description %}
@@ -72,8 +100,8 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if stat.case.assigned_to %}
-                            <span class="text-muted">User #{{ stat.case.assigned_to }}</span>
+                            {% if stat.assigned_user %}
+                            <span class="text-muted">{{ stat.assigned_user.full_name or stat.assigned_user.username }}</span>
                             {% else %}
                             <span class="text-muted">Unassigned</span>
                             {% endif %}
@@ -83,8 +111,8 @@
                             <br><span class="text-muted" style="font-size: 0.75rem;">{{ stat.case.created_at.strftime('%H:%M') }}</span>
                         </td>
                         <td>
-                            {% if stat.case.created_by %}
-                            <span class="text-muted">User #{{ stat.case.created_by }}</span>
+                            {% if stat.created_by_user %}
+                            <span class="text-muted">{{ stat.created_by_user.full_name or stat.created_by_user.username }}</span>
                             {% else %}
                             <span class="text-muted">—</span>
                             {% endif %}
@@ -97,12 +125,21 @@
         {% else %}
         <div style="text-align: center; padding: var(--spacing-2xl); color: var(--color-text-muted);">
             <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📁</div>
+            {% if search_term %}
+            <h3>No cases found</h3>
+            <p style="margin-bottom: var(--spacing-lg);">No cases match your search "{{ search_term }}"</p>
+            <a href="{{ url_for('case_selection') }}" class="btn btn-secondary">
+                <span>✕</span>
+                <span>Clear Search</span>
+            </a>
+            {% else %}
             <h3>No active cases</h3>
             <p style="margin-bottom: var(--spacing-lg);">Create your first case to get started</p>
             <a href="{{ url_for('create_case') }}" class="btn btn-primary">
                 <span>➕</span>
                 <span>Create New Case</span>
             </a>
+            {% endif %}
         </div>
         {% endif %}
     </div>

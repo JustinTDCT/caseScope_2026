@@ -45,12 +45,17 @@ def normalize_event_structure(event):
     - Event A: {"Data": 123}                          ← numeric
     - Event B: {"Data": "300 Eastern Standard Time"}  ← string
     
-    Both cause mapping conflicts in consolidated indices (v1.13.1: 1 index per case).
+    Problem 3 (v1.13.8): UserData fields have same issue as EventData:
+    - Event A: {"UserData": {"Parameter0": 123}}      ← numeric
+    - Event B: {"UserData": {"Parameter0": "servicing"}}  ← string
+    
+    All cause mapping conflicts in consolidated indices (v1.13.1: 1 index per case).
     First file sets mapping, subsequent files with different types fail.
     
     Solution: 
     1. Flatten XML structures (extract #text if present)
-    2. Convert ALL EventData values to strings for consistent mapping
+    2. Convert ALL EventData AND UserData values to strings for consistent mapping
+    3. Flatten nested objects/lists to JSON strings
     
     Args:
         event: Event dictionary from EVTX/JSON parsing
@@ -69,29 +74,34 @@ def normalize_event_structure(event):
             if '#text' in value:
                 # Extract the actual value from #text
                 normalized[key] = value['#text']
-            elif key == 'EventData':
+            elif key in ['EventData', 'UserData']:
                 # v1.13.5: Convert all EventData field values to strings
-                # EventData fields (Data, Operation, etc.) have inconsistent types across event types
-                eventdata_normalized = {}
-                for ed_key, ed_value in value.items():
-                    if isinstance(ed_value, dict):
-                        # Recursively normalize nested EventData
-                        eventdata_normalized[ed_key] = normalize_event_structure(ed_value)
-                    elif isinstance(ed_value, list):
-                        # Convert list items to strings
-                        eventdata_normalized[ed_key] = [str(item) if not isinstance(item, dict) else normalize_event_structure(item) for item in ed_value]
+                # v1.13.8: Also applies to UserData (same dynamic structure issue)
+                # v1.13.8: Also flatten nested objects to JSON strings (fixes Parameter-as-object conflicts)
+                # EventData/UserData fields have inconsistent types across event types
+                import json
+                data_normalized = {}
+                for data_key, data_value in value.items():
+                    if isinstance(data_value, dict):
+                        # v1.13.8 FIX: Flatten nested objects to JSON strings
+                        # Problem: Parameter0 can be object in file A, simple value in file B
+                        # Solution: Always convert objects to JSON strings
+                        data_normalized[data_key] = json.dumps(data_value, sort_keys=True)
+                    elif isinstance(data_value, list):
+                        # v1.13.8 FIX: Flatten lists to JSON strings for consistency
+                        data_normalized[data_key] = json.dumps(data_value, sort_keys=True)
                     else:
                         # Convert all scalar values to strings
-                        eventdata_normalized[ed_key] = str(ed_value) if ed_value is not None else None
-                normalized[key] = eventdata_normalized
+                        data_normalized[data_key] = str(data_value) if data_value is not None else None
+                normalized[key] = data_normalized
             else:
-                # Recursively normalize nested dicts (not EventData)
+                # Recursively normalize nested dicts (not EventData/UserData)
                 normalized[key] = normalize_event_structure(value)
         elif isinstance(value, list):
             # Recursively normalize list items
             normalized[key] = [normalize_event_structure(item) for item in value]
         else:
-            # Keep simple values as-is (except in EventData, handled above)
+            # Keep simple values as-is (except in EventData/UserData, handled above)
             normalized[key] = value
     
     return normalized
@@ -495,6 +505,20 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     
                     # Convert CSV row to event dictionary
                     event = dict(row)
+                    
+                    # CRITICAL: Rename CSV fields that conflict with EVTX object structures (v1.13.8)
+                    # EVTX uses 'Event' as an object: {System: {...}, EventData: {...}}
+                    # CSV files (SonicWall, firewalls, etc.) use 'Event' as a string field
+                    # This causes mapping conflicts in consolidated indices (1 index per case)
+                    field_renames = {
+                        'Event': 'CSV_Event',  # SonicWall: "Geo IP Responder Blocked"
+                        'System': 'CSV_System', # Potential conflict with EVTX System object
+                        'EventData': 'CSV_EventData'  # Potential conflict with EVTX EventData object
+                    }
+                    
+                    for old_name, new_name in field_renames.items():
+                        if old_name in event:
+                            event[new_name] = event.pop(old_name)
                     
                     # Add metadata
                     event['opensearch_key'] = opensearch_key
@@ -1247,7 +1271,7 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
         IOC: IOC model class
         IOCMatch: IOCMatch model class
         file_id: CaseFile ID
-        index_name: OpenSearch index name (single file, e.g., "case2_file123")
+        index_name: OpenSearch index name (consolidated case index, e.g., "case_9" - v1.13.1)
         celery_task: Celery task instance for progress updates (optional)
     
     Returns:
@@ -1258,9 +1282,9 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
         }
     """
     logger.info("="*80)
-    logger.info("[HUNT IOCS] Starting IOC hunting (PER-FILE)")
+    logger.info("[HUNT IOCS] Starting IOC hunting (v1.13.1: consolidated indices)")
     logger.info(f"[HUNT IOCS] file_id={file_id}, index={index_name}")
-    logger.info(f"[HUNT IOCS] This searches ONLY ONE file's index!")
+    logger.info(f"[HUNT IOCS] Query filters by file_id within case index")
     logger.info("="*80)
     
     # Get file record
@@ -1353,12 +1377,22 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                     
                     search_terms = ' AND '.join(distinctive_words[:5])
                     
+                    # v1.13.1 FIX: Add file_id filter for consolidated case indices
                     query = {
                         "query": {
-                            "query_string": {
-                                "query": search_terms,
-                                "default_operator": "AND",
-                                "lenient": True
+                            "bool": {
+                                "must": [
+                                    {
+                                        "query_string": {
+                                            "query": search_terms,
+                                            "default_operator": "AND",
+                                            "lenient": True
+                                        }
+                                    }
+                                ],
+                                "filter": [
+                                    {"term": {"file_id": file_id}}  # CRITICAL: Search only this file's events
+                                ]
                             }
                         }
                     }
@@ -1367,27 +1401,47 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                     # Simple IOC - use simple_query_string for phrase matching (no wildcards)
                     # This searches for the exact phrase across all fields
                     # More precise than query_string with wildcards which breaks into terms
+                    # v1.13.1 FIX: Add file_id filter for consolidated case indices
                     query = {
                         "query": {
-                            "simple_query_string": {
-                                "query": f'"{ioc.ioc_value}"',  # Quote for phrase matching
-                                "fields": ["*"],
-                                "default_operator": "and",
-                                "lenient": True
+                            "bool": {
+                                "must": [
+                                    {
+                                        "simple_query_string": {
+                                            "query": f'"{ioc.ioc_value}"',  # Quote for phrase matching
+                                            "fields": ["*"],
+                                            "default_operator": "and",
+                                            "lenient": True
+                                        }
+                                    }
+                                ],
+                                "filter": [
+                                    {"term": {"file_id": file_id}}  # CRITICAL: Search only this file's events
+                                ]
                             }
                         }
                     }
                     logger.info(f"[HUNT IOCS] Using simple_query_string with phrase matching for simple IOC")
             else:
                 # Targeted field search - use simple_query_string
+                # v1.13.1 FIX: Add file_id filter for consolidated case indices
                 query = {
                     "query": {
-                        "simple_query_string": {
-                            "query": ioc.ioc_value,
-                            "fields": search_fields,
-                            "default_operator": "and",
-                            "lenient": True,
-                            "analyze_wildcard": False
+                        "bool": {
+                            "must": [
+                                {
+                                    "simple_query_string": {
+                                        "query": ioc.ioc_value,
+                                        "fields": search_fields,
+                                        "default_operator": "and",
+                                        "lenient": True,
+                                        "analyze_wildcard": False
+                                    }
+                                }
+                            ],
+                            "filter": [
+                                {"term": {"file_id": file_id}}  # CRITICAL: Search only this file's events
+                            ]
                         }
                     }
                 }

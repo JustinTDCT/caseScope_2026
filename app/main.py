@@ -539,9 +539,24 @@ def queue_health_check():
 @app.route('/cases')
 @login_required
 def case_selection():
-    """Case Selection Page - List all active cases"""
-    # Get all active cases, ordered by most recent first
-    cases = db.session.query(Case).filter_by(status='active').order_by(Case.created_at.desc()).all()
+    """Case Selection Page - List all active cases (alphabetically sorted with search)"""
+    # Get search term from query parameter
+    search_term = request.args.get('search', '', type=str).strip()
+    
+    # Build query for active cases, ordered alphabetically by name
+    query = db.session.query(Case).filter_by(status='active')
+    
+    # Apply search filter if provided
+    if search_term:
+        search_pattern = f"%{search_term}%"
+        query = query.filter(
+            (Case.name.ilike(search_pattern)) |
+            (Case.description.ilike(search_pattern)) |
+            (Case.company.ilike(search_pattern))
+        )
+    
+    # Order alphabetically by case name
+    cases = query.order_by(Case.name.asc()).all()
     
     # Get file counts and other stats for each case
     case_stats = []
@@ -558,13 +573,25 @@ def case_selection():
             is_hidden=False
         ).with_entities(db.func.sum(CaseFile.event_count)).scalar() or 0
         
+        # Get assigned to user info
+        assigned_user = None
+        if case.assigned_to:
+            assigned_user = db.session.get(User, case.assigned_to)
+        
+        # Get created by user info
+        created_by_user = None
+        if case.created_by:
+            created_by_user = db.session.get(User, case.created_by)
+        
         case_stats.append({
             'case': case,
             'file_count': file_count,
-            'total_events': total_events
+            'total_events': total_events,
+            'assigned_user': assigned_user,
+            'created_by_user': created_by_user
         })
     
-    return render_template('case_selection.html', case_stats=case_stats)
+    return render_template('case_selection.html', case_stats=case_stats, search_term=search_term)
 
 
 @app.route('/case/create', methods=['GET', 'POST'])
