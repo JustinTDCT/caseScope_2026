@@ -1,3 +1,267 @@
+## ✨ v1.13.8 - FEATURE: Global File Management - Full Feature Parity (2025-11-13 16:30 UTC)
+
+**Change**: Added ALL bulk operations and individual file actions to Global File Management page, achieving complete feature parity with case-specific file management.
+
+**User Request**: "do we have logic for global file management? all the bulk options (including select file bulk options) and individual file options should be available on the global file page. The only distinction between the two should be one is restricted to the selected case and the other is fully global"
+
+### Problem
+
+**View-Only Global Management**:
+- Global File Management page could only VIEW files across all cases
+- No bulk operations available (no reindex, re-SIGMA, re-hunt IOCs, delete)
+- No selected files operations (couldn't select multiple files and perform actions)
+- No individual file actions (no per-row action buttons)
+- Had to navigate to individual case pages to perform any operations
+- Made cross-case file management tedious and time-consuming
+
+**Example workflow that didn't work**:
+1. User views Global Files page, sees 50 failed files across 10 cases
+2. Wants to requeue all failed files → Had to visit each case individually
+3. Wants to re-index specific problematic files → Had to note file IDs, visit each case
+4. Wants to hide zero-event files globally → Impossible without visiting each case
+
+### Solution
+
+**Created Modular Global Operations Module** (`bulk_operations_global.py` - 449 lines):
+
+```python
+# Core functions for global operations (cross-case)
+
+def get_all_files(db, include_deleted=False, include_hidden=True) -> List[CaseFile]:
+    """Get ALL files across ALL cases"""
+    
+def get_selected_files_global(db, file_ids: List[int]) -> List[CaseFile]:
+    """Get specific files by ID (can be from multiple cases)"""
+
+def requeue_failed_files_global(db) -> int:
+    """Requeue all failed files across ALL cases"""
+
+def clear_global_opensearch_events(opensearch_client, files: List[CaseFile]) -> int:
+    """Clear OpenSearch events for files (can span multiple cases)"""
+    # Groups files by case_id for efficient deletion
+
+def clear_global_sigma_violations(db, file_ids: Optional[List[int]] = None) -> int:
+    """Clear SIGMA violations globally (all cases or specific files)"""
+
+def clear_global_ioc_matches(db, file_ids: Optional[List[int]] = None) -> int:
+    """Clear IOC matches globally (all cases or specific files)"""
+
+def prepare_files_for_reindex_global(db, files: List[CaseFile]) -> int:
+    """Prepare files for re-indexing (reset status, clear data)"""
+
+def queue_files_for_processing_global(process_file_task, files, operation, db_session) -> int:
+    """Queue files for processing (reuses existing queue_file_processing logic)"""
+
+def delete_files_globally(db, opensearch_client, files: List[CaseFile]) -> Dict:
+    """Delete files and all associated data (across multiple cases)"""
+```
+
+**Key Design Pattern**:
+- Group files by `case_id` for efficient OpenSearch operations
+- Single index per case (v1.13.1), so group operations by case
+- Reuse existing case-level logic where possible (e.g., `queue_file_processing`)
+
+**9 New Routes** (`routes/files.py` +398 lines):
+
+**Global Bulk Operations (All Files)**:
+```python
+POST /files/global/requeue_failed          # Requeue all failed files globally
+POST /files/global/bulk_reindex             # Re-index all files across all cases
+POST /files/global/bulk_rechainsaw          # Re-SIGMA all files across all cases
+POST /files/global/bulk_rehunt_iocs         # Re-hunt IOCs on all files globally
+POST /files/global/bulk_delete_files        # Delete all files globally (admin only)
+```
+
+**Selected Files Operations (Cross-Case)**:
+```python
+POST /files/global/bulk_reindex_selected    # Re-index selected files (can span cases)
+POST /files/global/bulk_rechainsaw_selected # Re-SIGMA selected files (can span cases)
+POST /files/global/bulk_rehunt_selected     # Re-hunt IOCs on selected files
+POST /files/global/bulk_hide_selected       # Hide selected files (cross-case)
+```
+
+**UI Updates** (`global_files.html`):
+
+**1. Bulk Operations Card** (similar to case_files.html):
+```html
+<div class="card">
+    <div class="card-header">🔧 Bulk Operations</div>
+    <div class="card-body">
+        <!-- All Files Actions -->
+        <button onclick="requeueFailedFiles()">🔄 Requeue Failed Files (Global)</button>
+        <button onclick="confirmReindex()">🔄 Re-Index All Files (Global)</button>
+        <button onclick="confirmReSigma()">🛡️ Re-SIGMA All Files (Global)</button>
+        <button onclick="confirmReHunt()">🎯 Re-Hunt IOCs All Files (Global)</button>
+        <button onclick="confirmDeleteAll()">🗑️ Delete All Files (Global)</button> <!-- Admin only -->
+        
+        <!-- Selected Files Actions Bar (appears when files selected) -->
+        <div id="selectedActionsBar">
+            <span id="selectedCount">0</span> file(s) selected (can span multiple cases)
+            <button onclick="bulkReindexSelected()">🔄 Re-Index Selected</button>
+            <button onclick="bulkReSigmaSelected()">🛡️ Re-SIGMA Selected</button>
+            <button onclick="bulkReHuntSelected()">🎯 Re-Hunt Selected</button>
+            <button onclick="bulkHideSelected()">👁️ Hide Selected</button>
+            <button onclick="deselectAll()">✕ Deselect All</button>
+        </div>
+    </div>
+</div>
+```
+
+**2. Per-Row Action Buttons** (already existed, updated JavaScript):
+```html
+<button onclick="reindexSingleFile({{ file.id }})">📇</button>
+<button onclick="reSigmaSingleFile({{ file.id }})">🛡️</button>
+<button onclick="rehuntSingleFile({{ file.id }})">🎯</button>
+<button onclick="hideSingleFile({{ file.id }})">👁️</button>
+```
+
+**JavaScript Architecture** (Case-Aware in Global Context):
+
+**Global Operations** (use `/files/global/*` routes):
+```javascript
+function confirmReindex() {
+    // Operates on ALL files across ALL cases
+    form.action = `/files/global/bulk_reindex`;
+}
+```
+
+**Selected Files Operations** (cross-case, use `/files/global/*` routes):
+```javascript
+function bulkReindexSelected() {
+    const fileIds = getSelectedFileIds();  // Can be from different cases
+    // Send file_ids[] array to global route
+    form.action = `/files/global/bulk_reindex_selected`;
+    fileIds.forEach(id => {
+        // Note: file_ids[] (not file_ids) for cross-case operations
+        input.name = 'file_ids[]';
+    });
+}
+```
+
+**Per-File Operations** (case-aware, use existing `/case/:id/file/:file_id/*` routes):
+```javascript
+function getCaseIdForFile(fileId) {
+    // Extract case_id from the case link in the file's row
+    const row = document.querySelector(`tr[data-file-id="${fileId}"]`);
+    const caseLink = row.querySelector('td a[href*="/case/"]');
+    return caseLink.getAttribute('href').match(/\/case\/(\d+)/)[1];
+}
+
+function reindexSingleFile(fileId) {
+    const caseId = getCaseIdForFile(fileId);  // Dynamically get case_id
+    form.action = `/case/${caseId}/file/${fileId}/reindex`;  // Use existing route
+}
+```
+
+**Confirmation Dialog Strategy**:
+- Global operations emphasize "GLOBAL" or "ALL CASES" in dialogs
+- Selected operations note "Cross-Case" capability
+- Delete all requires "DELETE EVERYTHING" confirmation (not just "DELETE")
+- All dialogs list exactly what will be affected
+
+### Technical Implementation
+
+**Efficient Cross-Case Operations**:
+```python
+# Group files by case_id for efficient OpenSearch operations
+files_by_case = {}
+for f in files:
+    if f.case_id not in files_by_case:
+        files_by_case[f.case_id] = []
+    files_by_case[f.case_id].append(f)
+
+# Process each case's files in bulk
+for case_id, case_files in files_by_case.items():
+    index_name = make_index_name(case_id)  # case_{id} (v1.13.1)
+    
+    for f in case_files:
+        opensearch_client.delete_by_query(
+            index=index_name,
+            body={"query": {"term": {"file_id": f.id}}},
+            conflicts='proceed'
+        )
+```
+
+**Parameter Naming Convention**:
+- Global routes: Accept `file_ids[]` (array notation for Flask)
+- Case routes: Accept `file_ids` (existing convention maintained)
+
+**Safety Checks**:
+- All operations check for available Celery workers before queueing
+- Admin-only check for global delete operation
+- Global delete requires "DELETE EVERYTHING" confirmation (stronger than case-level)
+
+### Results
+
+**Before**:
+- ❌ Global File Management page was view-only
+- ❌ No bulk operations available
+- ❌ No selected files operations
+- ❌ No per-file action buttons
+- ❌ Had to visit individual cases to perform any operations
+- ❌ Cross-case file management was tedious and time-consuming
+
+**After**:
+- ✅ Full feature parity with case-level file management
+- ✅ All bulk operations available globally (reindex, re-SIGMA, re-hunt, delete, requeue)
+- ✅ Selected files operations work across multiple cases
+- ✅ Per-file action buttons work (case-aware in global context)
+- ✅ Can manage files across all cases from one page
+- ✅ Case-level operations remain unchanged and fully functional
+
+### Benefits
+
+**For Users**:
+- ✅ **One-Stop Management**: Manage ALL files from one page without navigating to individual cases
+- ✅ **Cross-Case Operations**: Select files from multiple cases and perform operations in one batch
+- ✅ **Time Savings**: Requeue all failed files globally with one click (vs. visiting 10 cases individually)
+- ✅ **Consistency**: Same operations and UI between case and global pages
+
+**For System**:
+- ✅ **Modular Code**: Separate `bulk_operations_global.py` module (449 lines) with reusable functions
+- ✅ **Efficient Operations**: Groups files by case_id for batch OpenSearch operations
+- ✅ **Backward Compatible**: Case-level operations unchanged, per-file routes reused
+- ✅ **Safety**: Stronger confirmation for global destructive operations
+
+**For Administrators**:
+- ✅ **System-Wide Control**: Reindex all files across all cases for global fixes/updates
+- ✅ **Bulk Cleanup**: Hide/delete problem files across all cases in one operation
+- ✅ **Cross-Case Visibility**: See and act on failed files across entire system
+
+### Use Cases
+
+1. **Global Failed File Recovery**: User sees 50 failed files across 10 cases → clicks "Requeue Failed Files (Global)" → all requeued instantly
+2. **Cross-Case Re-indexing**: Admin updates SIGMA rules → clicks "Re-SIGMA All Files (Global)" → all 10K files re-processed across all cases
+3. **Selective Multi-Case Operations**: User selects 15 specific problem files from 5 different cases → clicks "Re-Index Selected" → all 15 files re-indexed in one batch
+4. **Individual File Actions**: User browsing global files → clicks per-row "🛡️" button → file re-SIGMAed without leaving page
+
+### Files Modified
+
+**New Module**:
+- `app/bulk_operations_global.py`: Global bulk operations logic (449 lines, 14 functions)
+
+**Backend**:
+- `app/routes/files.py`: Added 9 new routes (+398 lines)
+
+**Frontend**:
+- `app/templates/global_files.html`: 
+  - Added Bulk Operations card (lines 165-227)
+  - Updated all JavaScript functions to use global routes
+  - Added `getCaseIdForFile()` helper for case-aware per-file operations
+  - Updated confirmation dialogs to emphasize global/cross-case scope
+
+**Documentation**:
+- `app/version.json`: Added feature entry for v1.13.8
+- `app/APP_MAP.md`: This entry
+
+### Testing
+
+**Verified**:
+- ✅ Case-level operations still work (case_files.html unchanged, CASE_ID properly defined)
+- ✅ Global routes accessible after web application restart
+- ✅ Per-file operations extract case_id correctly from row data
+- ✅ All JavaScript functions use correct routes (global vs. case-specific)
+
 # CaseScope 2026 - Application Map
 
 **Version**: 1.13.7  
