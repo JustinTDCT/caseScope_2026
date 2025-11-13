@@ -1,8 +1,156 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.38  
-**Last Updated**: 2025-11-13 12:02 UTC  
+**Version**: 1.12.39  
+**Last Updated**: 2025-11-13 12:07 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.12.39 - CRITICAL FIX: Queue Cleanup - Orphaned 0-Event Files (2025-11-13 12:07 UTC)
+
+**Change**: Fixed queue_cleanup.py to handle Queued files with 0 events that should be hidden instead of requeued.
+
+### 1. Problem
+
+**Issue**: 0-event files stuck in 'Queued' status permanently, never processed and never hidden.
+
+**Symptoms**:
+- File 54798 stuck in 'Queued' status with `event_count=0`, `is_indexed=False`, `is_hidden=False`
+- No OpenSearch index exists (0 events = nothing to index)
+- No task_id (cleared by previous fix)
+- Cleanup Queue button didn't fix it (missed by query filter)
+
+**Root Cause**:
+- `queue_cleanup.py` STEP 1 query excluded 'Queued' status from 0-event file check
+- **Line 69**: `~indexing_status.in_(['Completed', 'Queued', ...])` ❌
+- Logic: Only checked Failed files for 0-event condition, not Queued files
+- Result: Orphaned 0-event files in 'Queued' status were never caught by cleanup
+
+**Code Before (queue_cleanup.py lines 67-69)**:
+```python
+# Build base query
+failed_query = db.session.query(CaseFile).filter(
+    CaseFile.is_deleted == False,
+    ~CaseFile.indexing_status.in_(['Completed', 'Queued', 'Indexing', 'SIGMA Testing', 'IOC Hunting'])
+    # ❌ PROBLEM: Excludes 'Queued' status - won't find orphaned 0-event files stuck in Queued
+)
+```
+
+**How Files Get Orphaned**:
+1. File uploaded → staging → 0 events detected → marked as 'Queued' (but should be hidden)
+2. OR: File was processing → worker crashed → status stuck at 'Queued' → 0 events never processed
+3. OR: Event deduplication feature (v1.12.31) removed all events → file stuck in 'Queued' with 0 events
+4. Cleanup button doesn't fix it (query excludes Queued status)
+5. File stuck forever in 'Queued' state with no way to clear
+
+**Trigger**: Likely started after v1.12.31 (event deduplication) and v1.12.2x (audit logging) changes to upload pipeline.
+
+### 2. Solution
+
+**Enhanced STEP 1: Check Both Failed AND Queued Files for 0-Event Condition**:
+
+**1. Renamed STEP 1** (queue_cleanup.py line 62):
+```python
+# BEFORE: "Fix Failed files that are actually 0-event files"
+# AFTER:  "Fix 0-event files (Failed OR Queued)"
+```
+
+**2. Changed Query to Include Queued Files** (lines 68-74):
+```python
+# Build base query - check Failed files AND Queued files with 0 events
+# CRITICAL: Queued files with 0 events are orphaned and should be hidden, not requeued
+zero_event_query = db.session.query(CaseFile).filter(
+    CaseFile.is_deleted == False,
+    CaseFile.is_hidden == False,  # ✅ Find orphaned files
+    CaseFile.event_count == 0,     # ✅ 0-event condition
+    # Include both Failed AND Queued (but not Completed/Indexing/SIGMA/IOC)
+    ~CaseFile.indexing_status.in_(['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting'])
+    # ✅ NOTE: No longer excludes 'Queued' - will catch orphaned files
+)
+```
+
+**3. Clear Stale Task IDs** (line 91):
+```python
+file_obj.celery_task_id = None  # Clear any stale task_id to prevent requeue attempts
+```
+
+**4. Enhanced STEP 2 to Exclude Hidden Files** (lines 140-143):
+```python
+# Build base query - CRITICAL: Exclude files we just fixed (is_hidden=True)
+# Only requeue files with events that are truly stuck
+queued_query = db.session.query(CaseFile).filter_by(
+    indexing_status='Queued',
+    is_deleted=False,
+    is_hidden=False  # ✅ Don't requeue hidden files
+)
+```
+
+**5. Added db_session Parameter** (line 164):
+```python
+queued_count = queue_file_processing(process_file, queued_files, operation='full', db_session=db.session)
+# ✅ Pass db_session to enable stale task_id checking (added in v1.12.38)
+```
+
+### 3. Why This Works
+
+**Correct Logic Flow**:
+- ✅ STEP 1: Check ALL non-completed files (Failed + Queued) for 0-event condition → mark as hidden
+- ✅ STEP 2: Check remaining Queued files (with events) for stuck tasks → requeue if Redis empty
+- ✅ No longer skips orphaned 0-event files stuck in 'Queued' status
+
+**Covers These Scenarios**:
+1. **Failed 0-event files**: Already covered, still works
+2. **Queued 0-event files**: NOW covered ✅ (was missing before)
+3. **CyLR artifacts**: Already covered, still works (1-event JSON files)
+4. **Queued files with events**: Correctly requeued by STEP 2 (not hidden)
+
+### 4. Files Modified
+
+**Backend**:
+- `app/queue_cleanup.py`:
+  - Lines 60-129: Renamed STEP 1, added 0-event query for both Failed+Queued, added CyLR check, clear task_ids
+  - Lines 140-164: Enhanced STEP 2 to exclude hidden files, added db_session parameter
+
+**Documentation**:
+- `app/version.json`: Added v1.12.39 entry
+- `app/APP_MAP.md`: This entry
+
+### 5. Testing
+
+**Cleanup Run Results**:
+- ✅ Fixed 2 files:
+  - File 54798: `Queued → Completed (Hidden)` (0-event EVTX)
+  - File 53669: `Failed → Completed (Hidden)` (0-event NDJSON)
+- ✅ Queue now clean: 0 files in queue, 0 tasks in Redis
+- ✅ Total: 26,754 files (10,452 visible, 16,285 hidden, 17 failed)
+
+**Before Fix**:
+```
+Queued: 1 (file 54798 - orphaned 0-event file)
+```
+
+**After Fix**:
+```
+Queued: 0
+Redis Queue: 0
+Completed (Hidden): 16,285 (+2)
+```
+
+### 6. Benefits
+
+✅ **Fixes Orphaned 0-Event Files**: Queued files with 0 events now correctly hidden  
+✅ **Cleanup Button Works**: Now catches all 0-event files regardless of status  
+✅ **Post-Deduplication**: Handles files with 0 events after deduplication  
+✅ **Post-Audit**: Handles files orphaned by audit/upload pipeline changes  
+✅ **Clean Queue**: No more stuck files with 0 events  
+
+### 7. Related Issues
+
+- **v1.12.38** (Nov 13): Fixed stale task_ids in manual requeue paths (routes, bulk_operations)
+- **v1.12.37** (Nov 13): Fixed stale task_ids in tasks.py
+- **v1.12.31** (Nov 13): Event deduplication feature (can create 0-event files)
+- **v1.12.2x** (Nov 13): Audit logging changes to upload pipeline
+- This fix completes the queue cleanup reliability for orphaned 0-event files
 
 ---
 

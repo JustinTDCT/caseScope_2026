@@ -57,56 +57,76 @@ def cleanup_queue(db, CaseFile, case_id: Optional[int] = None) -> Dict:
         result['redis_queue_size'] = r.llen('celery')
         
         # ============================================================================
-        # STEP 1: Fix "Failed" files that are actually 0-event files
+        # STEP 1: Fix 0-event files (Failed OR Queued)
         # ============================================================================
         logger.info("="*80)
-        logger.info("[QUEUE CLEANUP] Checking for misclassified failed files")
+        logger.info("[QUEUE CLEANUP] Checking for 0-event files that should be hidden")
         logger.info("="*80)
         
-        # Build base query
-        failed_query = db.session.query(CaseFile).filter(
+        # Build base query - check Failed files AND Queued files with 0 events
+        # CRITICAL: Queued files with 0 events are orphaned and should be hidden, not requeued
+        zero_event_query = db.session.query(CaseFile).filter(
             CaseFile.is_deleted == False,
-            ~CaseFile.indexing_status.in_(['Completed', 'Queued', 'Indexing', 'SIGMA Testing', 'IOC Hunting'])
+            CaseFile.is_hidden == False,
+            CaseFile.event_count == 0,
+            # Include both Failed AND Queued (but not Completed/Indexing/SIGMA/IOC)
+            ~CaseFile.indexing_status.in_(['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting'])
         )
         
         # Add case filter if specified
         if case_id is not None:
-            failed_query = failed_query.filter(CaseFile.case_id == case_id)
+            zero_event_query = zero_event_query.filter(CaseFile.case_id == case_id)
         
-        failed_files = failed_query.all()
+        zero_event_files = zero_event_query.all()
         
-        logger.info(f"[QUEUE CLEANUP] Found {len(failed_files)} failed files")
+        logger.info(f"[QUEUE CLEANUP] Found {len(zero_event_files)} files with 0 events")
         
-        for file_obj in failed_files:
-            # Check if it's a 0-event file or CyLR artifact
-            if file_obj.event_count == 0:
-                logger.info(f"[QUEUE CLEANUP] Fixing file {file_obj.id}: {file_obj.original_filename}")
-                logger.info(f"[QUEUE CLEANUP]   Status: {file_obj.indexing_status} → Completed (Hidden)")
-                
-                file_obj.is_hidden = True
-                file_obj.is_indexed = True
-                file_obj.indexing_status = 'Completed'
-                
-                result['failed_fixed'] += 1
-                result['failed_fixed_files'].append(file_obj.id)
-            elif (file_obj.event_count == 1 and 
-                  file_obj.file_type == 'JSON' and 
-                  not file_obj.original_filename.lower().endswith('.evtx')):
-                # CyLR artifact with 1 event
+        for file_obj in zero_event_files:
+            logger.info(f"[QUEUE CLEANUP] Fixing 0-event file {file_obj.id}: {file_obj.original_filename}")
+            logger.info(f"[QUEUE CLEANUP]   Status: {file_obj.indexing_status} → Completed (Hidden)")
+            
+            file_obj.is_hidden = True
+            file_obj.is_indexed = True
+            file_obj.indexing_status = 'Completed'
+            file_obj.celery_task_id = None  # Clear any stale task_id
+            
+            result['failed_fixed'] += 1
+            result['failed_fixed_files'].append(file_obj.id)
+        
+        # Also check for CyLR artifacts (1-event JSON files)
+        cylr_query = db.session.query(CaseFile).filter(
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False,
+            CaseFile.event_count == 1,
+            CaseFile.file_type == 'JSON',
+            ~CaseFile.original_filename.like('%.evtx'),
+            ~CaseFile.indexing_status.in_(['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting'])
+        )
+        
+        if case_id is not None:
+            cylr_query = cylr_query.filter(CaseFile.case_id == case_id)
+        
+        cylr_files = cylr_query.all()
+        
+        if cylr_files:
+            logger.info(f"[QUEUE CLEANUP] Found {len(cylr_files)} CyLR artifacts (1-event JSON files)")
+            
+            for file_obj in cylr_files:
                 logger.info(f"[QUEUE CLEANUP] Fixing CyLR artifact {file_obj.id}: {file_obj.original_filename}")
                 logger.info(f"[QUEUE CLEANUP]   Status: {file_obj.indexing_status} → Completed (Hidden)")
                 
                 file_obj.is_hidden = True
                 file_obj.is_indexed = True
                 file_obj.indexing_status = 'Completed'
+                file_obj.celery_task_id = None  # Clear any stale task_id
                 
                 result['failed_fixed'] += 1
                 result['failed_fixed_files'].append(file_obj.id)
         
-        # Commit failed file fixes
+        # Commit 0-event file fixes
         if result['failed_fixed'] > 0:
             db.session.commit()
-            logger.info(f"[QUEUE CLEANUP] ✓ Fixed {result['failed_fixed']} misclassified failed files")
+            logger.info(f"[QUEUE CLEANUP] ✓ Fixed {result['failed_fixed']} 0-event/CyLR files (now hidden)")
         
         # ============================================================================
         # STEP 2: Requeue "Queued" files that aren't actually in Redis queue
@@ -115,10 +135,12 @@ def cleanup_queue(db, CaseFile, case_id: Optional[int] = None) -> Dict:
         logger.info("[QUEUE CLEANUP] Checking for stuck queued files")
         logger.info("="*80)
         
-        # Build base query
+        # Build base query - CRITICAL: Exclude files we just fixed (is_hidden=True)
+        # Only requeue files with events that are truly stuck
         queued_query = db.session.query(CaseFile).filter_by(
             indexing_status='Queued',
-            is_deleted=False
+            is_deleted=False,
+            is_hidden=False  # CRITICAL: Don't requeue hidden files
         )
         
         # Add case filter if specified
@@ -128,7 +150,7 @@ def cleanup_queue(db, CaseFile, case_id: Optional[int] = None) -> Dict:
         queued_files = queued_query.all()
         
         result['queued_stuck'] = len(queued_files)
-        logger.info(f"[QUEUE CLEANUP] Found {len(queued_files)} queued files")
+        logger.info(f"[QUEUE CLEANUP] Found {len(queued_files)} queued files (excluding hidden)")
         
         if len(queued_files) > 0 and result['redis_queue_size'] == 0:
             # Files are queued but Redis queue is empty - definitely stuck
@@ -139,7 +161,7 @@ def cleanup_queue(db, CaseFile, case_id: Optional[int] = None) -> Dict:
             from bulk_operations import queue_file_processing
             from tasks import process_file
             
-            queued_count = queue_file_processing(process_file, queued_files, operation='full')
+            queued_count = queue_file_processing(process_file, queued_files, operation='full', db_session=db.session)
             
             result['queued_requeued'] = queued_count
             result['queued_files'] = [f.id for f in queued_files]
