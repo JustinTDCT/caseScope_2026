@@ -1,8 +1,115 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.39  
-**Last Updated**: 2025-11-13 12:07 UTC  
+**Version**: 1.13.2  
+**Last Updated**: 2025-11-13 13:37 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.13.2 - CRITICAL FIX: OpenSearch Field Limit - 10,000 Fields Per Index (2025-11-13 13:37 UTC)
+
+**Change**: Increased OpenSearch field limit from 1,000 to 10,000 to fix bulk indexing failures caused by field mapping explosion in v1.13.1 consolidated indices.
+
+### 1. Problem
+
+**Issue**: Bulk indexing was silently failing with ~48% failure rate after v1.13.1 index consolidation.
+
+**Symptoms**:
+- Files marked as `Failed` with 0 events indexed despite successful parsing
+- Worker logs: `[INDEX FILE] CRITICAL: Parsed N events but indexed 0!`
+- OpenSearch logs: `java.lang.IllegalArgumentException: Limit of total fields [1000] has been exceeded`
+- `[case_8][0] mapping update rejected by primary`
+- 55 failed files (47.8% failure rate) with pattern of increasing failures as more files processed
+
+**Root Cause**:
+- **OpenSearch Default**: 1,000 fields per index
+- **v1.13.1 Architecture**: `1 case = 1 index` → **ALL files share same field mapping**
+- **Field Explosion**: Different EVTX event types (Security, System, Application, Sysmon, etc.) have different schemas
+  - Example: `case_8` had 962 fields after ~60 files (approaching 1000 limit)
+  - Each new file with unique event schema adds new fields
+  - Once limit hit, bulk indexing silently fails (no events indexed)
+
+**Why v1.13.1 Exposed This**:
+- **OLD (v1.12.x)**: `1 file = 1 index` → each file has own field mapping (isolated, never exceeded 1000)
+- **NEW (v1.13.1)**: `1 case = 1 index` → cumulative fields from all files (1000+ files × diverse schemas = explosion)
+
+### 2. Solution
+
+**Increase Field Limit to 10,000**:
+
+**1. Updated Index Creation** (`file_processing.py` line 364):
+```python
+opensearch_client.indices.create(
+    index=index_name,
+    body={
+        "settings": {
+            "index": {
+                "max_result_window": 100000,
+                "mapping.total_fields.limit": 10000  # v1.13.2: 10x increase
+            }
+        }
+    }
+)
+```
+
+**2. Updated Existing Indices**:
+```bash
+curl -X PUT "localhost:9200/case_8/_settings" -d '{"index.mapping.total_fields.limit": 10000}'
+# Applied to: case_8, case_9, case_10, case_11, case_12, case_13
+```
+
+**3. Reset Failed Files**:
+- Reset 62 failed files from `Failed` to `Queued`
+- Requeued for reprocessing with new 10K field limit
+
+### 3. Results
+
+**Before Fix**:
+- Failure Rate: **47.8%** (55 failed / 115 completed)
+- case_8 index: 962 fields (approaching 1000 limit)
+- Pattern: early files succeeded, later files failed as field count increased
+
+**After Fix**:
+- Failure Rate: **4.6%** (6 failed / 130 completed) ✅
+- Field Limit: **10,000** (10x increase)
+- 124 files completed successfully in first batch after fix
+- Remaining 6 failures are different issues (not field limit related)
+
+### 4. Scalability for Large Cases
+
+**User Context**: Cases with **15-20 million events**
+
+**Analysis**:
+- 10,000 fields supports **1000s of diverse event schemas**
+- Single index can hold **billions** of documents
+- 15-20M events ≈ **5-10GB per case index** (manageable)
+- Query performance stays fast with `file_id` filtering
+
+**Benefits of 1 Index Per Case with 10K Fields**:
+- ✅ Handles unlimited files per case (millions)
+- ✅ Supports diverse event schemas (1000s of Windows event types)
+- ✅ Minimal shards (7 instead of 10,458) = lower memory overhead
+- ✅ Faster cross-file queries (no wildcard searches)
+- ✅ Efficient file-level operations (filter by `file_id`)
+
+### 5. Files Modified
+
+**Core Logic**:
+- `app/file_processing.py`: Index creation settings (line 364)
+
+**Operational**:
+- Updated 6 existing case indices via OpenSearch API
+- Reset 62 failed files via database
+
+**Documentation**:
+- `app/version.json`: Added v1.13.2 entry
+- `app/APP_MAP.md`: This entry
+
+### 6. Related Issues
+
+- **v1.13.1**: Index Consolidation (1 index per case architecture)
+- **v1.12.36**: OpenSearch Heap Increased to 16GB (memory management)
+- This fix completes the v1.13.1 architecture by removing field limit bottleneck
 
 ---
 

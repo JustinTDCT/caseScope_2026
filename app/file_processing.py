@@ -360,12 +360,13 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     body={
                         "settings": {
                             "index": {
-                                "max_result_window": 100000  # Allow deep pagination
+                                "max_result_window": 100000,  # Allow deep pagination
+                                "mapping.total_fields.limit": 10000  # v1.13.1: 1 index per case = many event types = many fields
                             }
                         }
                     }
                 )
-                logger.info(f"[INDEX FILE] Created index {index_name} with max_result_window=100000")
+                logger.info(f"[INDEX FILE] Created index {index_name} with max_result_window=100000, field_limit=10000")
             else:
                 logger.info(f"[INDEX FILE] Index {index_name} already exists")
         except Exception as e:
