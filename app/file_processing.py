@@ -78,17 +78,19 @@ def normalize_event_structure(event):
                 # v1.13.5: Convert all EventData field values to strings
                 # v1.13.8: Also applies to UserData (same dynamic structure issue)
                 # v1.13.8: Also flatten nested objects to JSON strings (fixes Parameter-as-object conflicts)
+                # v1.13.9: ALWAYS keep UserData/EventData as objects (dict), but flatten complex children
                 # EventData/UserData fields have inconsistent types across event types
                 import json
+                
                 data_normalized = {}
                 for data_key, data_value in value.items():
                     if isinstance(data_value, dict):
-                        # v1.13.8 FIX: Flatten nested objects to JSON strings
-                        # Problem: Parameter0 can be object in file A, simple value in file B
-                        # Solution: Always convert objects to JSON strings
+                        # v1.13.9 FIX: Flatten ALL nested objects to JSON strings
+                        # Problem: VmlEventLog can be object in file A, string in file B
+                        # Solution: Always convert nested objects to JSON strings (preserves searchability)
                         data_normalized[data_key] = json.dumps(data_value, sort_keys=True)
                     elif isinstance(data_value, list):
-                        # v1.13.8 FIX: Flatten lists to JSON strings for consistency
+                        # v1.13.9 FIX: Flatten ALL lists to JSON strings for consistency
                         data_normalized[data_key] = json.dumps(data_value, sort_keys=True)
                     else:
                         # Convert all scalar values to strings
