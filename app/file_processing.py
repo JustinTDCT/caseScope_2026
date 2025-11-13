@@ -30,6 +30,53 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# EVENT NORMALIZATION (v1.13.4: Fix mapping conflicts)
+# ============================================================================
+
+def normalize_event_structure(event):
+    """
+    Normalize event structure to prevent OpenSearch mapping conflicts.
+    
+    Problem: EVTX files can have different representations of the same field:
+    - File A: {"EventID": 4624}                       ← simple value
+    - File B: {"EventID": {"#text": 4624, "#attributes": {...}}}  ← XML object
+    
+    This causes mapping conflicts in consolidated indices (v1.13.1: 1 index per case).
+    First file sets mapping, subsequent files with different structure fail.
+    
+    Solution: Normalize ALL events to use simple values (extract #text if present).
+    
+    Args:
+        event: Event dictionary from EVTX/JSON parsing
+        
+    Returns:
+        Normalized event dictionary with XML structures flattened
+    """
+    if not isinstance(event, dict):
+        return event
+    
+    normalized = {}
+    
+    for key, value in event.items():
+        if isinstance(value, dict):
+            # Check for XML structure: {"#text": value, "#attributes": {...}}
+            if '#text' in value:
+                # Extract the actual value from #text
+                normalized[key] = value['#text']
+            else:
+                # Recursively normalize nested dicts
+                normalized[key] = normalize_event_structure(value)
+        elif isinstance(value, list):
+            # Recursively normalize list items
+            normalized[key] = [normalize_event_structure(item) for item in value]
+        else:
+            # Keep simple values as-is
+            normalized[key] = value
+    
+    return normalized
+
+
+# ============================================================================
 # FUNCTION 1: DUPLICATE CHECK
 # ============================================================================
 
@@ -433,6 +480,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     event['source_file_type'] = 'CSV'
                     event['row_number'] = row_num
                     
+                    # CRITICAL: Normalize event structure to prevent mapping conflicts (v1.13.4)
+                    event = normalize_event_structure(event)
+                    
                     # CRITICAL: Add source_file and file_id for filtering (1 index per case)
                     event['source_file'] = filename
                     event['file_id'] = file_id
@@ -461,6 +511,14 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                             indexed_count += success
                             if errors:
                                 logger.warning(f"[INDEX FILE] {len(errors)} events failed to index in batch")
+                                # Log first error for debugging (v1.13.4)
+                                if len(errors) > 0:
+                                    first_error = errors[0]
+                                    if isinstance(first_error, dict):
+                                        error_detail = first_error.get('index', {}).get('error', {})
+                                        error_type = error_detail.get('type', 'unknown')
+                                        error_reason = error_detail.get('reason', 'unknown')
+                                        logger.error(f"[INDEX FILE] First bulk error: {error_type} - {error_reason}")
                         except Exception as e:
                             logger.error(f"[INDEX FILE] Bulk index error: {e}")
                         bulk_data = []
@@ -553,6 +611,9 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                                 # Don't fail indexing if description lookup fails
                                 logger.warning(f"[INDEX FILE] Could not add event description: {e}")
                         
+                        # CRITICAL: Normalize event structure to prevent mapping conflicts (v1.13.4)
+                        event = normalize_event_structure(event)
+                        
                         # CRITICAL: Add source_file and file_id for filtering (1 index per case)
                         event['source_file'] = filename
                         event['file_id'] = file_id
@@ -577,6 +638,14 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                                 indexed_count += success
                                 if errors:
                                     logger.warning(f"[INDEX FILE] {len(errors)} events failed to index in batch")
+                                    # Log first error for debugging (v1.13.4)
+                                    if len(errors) > 0:
+                                        first_error = errors[0]
+                                        if isinstance(first_error, dict):
+                                            error_detail = first_error.get('index', {}).get('error', {})
+                                            error_type = error_detail.get('type', 'unknown')
+                                            error_reason = error_detail.get('reason', 'unknown')
+                                            logger.error(f"[INDEX FILE] First bulk error: {error_type} - {error_reason}")
                             except Exception as e:
                                 logger.error(f"[INDEX FILE] Bulk index error: {e}")
                             bulk_data = []
@@ -605,6 +674,14 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 indexed_count += success
                 if errors:
                     logger.warning(f"[INDEX FILE] {len(errors)} events failed to index in final batch")
+                    # Log first error for debugging (v1.13.4)
+                    if len(errors) > 0:
+                        first_error = errors[0]
+                        if isinstance(first_error, dict):
+                            error_detail = first_error.get('index', {}).get('error', {})
+                            error_type = error_detail.get('type', 'unknown')
+                            error_reason = error_detail.get('reason', 'unknown')
+                            logger.error(f"[INDEX FILE] First bulk error: {error_type} - {error_reason}")
             except Exception as e:
                 logger.error(f"[INDEX FILE] Final bulk index error: {e}")
         
