@@ -779,7 +779,8 @@ def extract_event_fields(event_source: Dict[str, Any]) -> Dict[str, Any]:
             'has_sigma', 'has_ioc', 'ioc_count',  # Skip IOC metadata fields
             'is_hidden', 'hidden_by', 'hidden_at',  # Skip hidden metadata fields
             'normalized_timestamp', 'normalized_computer', 'normalized_event_id',  # Skip normalized fields
-            'source_file_type'  # Skip this metadata field
+            'source_file_type',  # Skip this metadata field
+            'source_file', 'file_id'  # CRITICAL (v1.13.7): Skip v1.13.1 consolidated index metadata fields
         }
         meaningful = []
         for key, val in event_source.items():

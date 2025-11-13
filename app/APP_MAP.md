@@ -6,11 +6,11 @@
 
 ---
 
-## 🐛 v1.13.7 - CRITICAL FIX: Index Existence Checks for All Login Analysis Routes (2025-11-13 15:06 UTC)
+## 🐛 v1.13.7 - CRITICAL FIX: Index Existence Checks & Description Field Fix (2025-11-13 15:10 UTC)
 
-**Change**: Added index existence validation to prevent raw OpenSearch errors when indices are still being built after recovery.
+**Change**: (1) Added index existence validation to prevent raw OpenSearch errors when indices are rebuilding, (2) Fixed event descriptions showing source_file metadata instead of actual event info.
 
-### Problem
+### Problem 1: Raw OpenSearch Errors for Missing Indices
 
 **User Report**: "This is what I was talking about hours ago - we need to make SURE ALL PAGES use the new case index"
 
@@ -77,35 +77,116 @@ if not index_exists(case_id):
 - `show_vpn_authentications()` - lines 2695-2704
 - `show_failed_vpn_attempts()` - lines 2777-2786
 
+---
+
+### Problem 2: Event Descriptions Showing source_file Metadata
+
+**User Report**: "also now the descriptions are wrong this is likely due to flattening - check app_map for how this used to work and ensure we fix it RIGHT"
+
+**Issue**: Event search results DESCRIPTION column showed:
+```
+source_file=CM-DC01_Microsoft-Windows-TerminalServices-RemoteConnectionManager%4Operational.evtx, fi...
+```
+
+Instead of actual event descriptions like:
+```
+Channel: TerminalServices-RemoteConnectionManager | Task: 1
+```
+
+**Root Cause**:
+- v1.13.1 added `source_file` and `file_id` fields to EVERY event for consolidated index filtering
+- `search_utils.py` `extract_event_fields()` function has "last resort" description logic (lines 775-792)
+- When no description found in standard fields, it grabs first 3 "meaningful" fields from event
+- `source_file` was NOT in `skip_fields` set → picked up as "meaningful" field
+- Result: `source_file=...` appeared in DESCRIPTION column instead of actual event info
+
+**Example Event** (ID 1149 - RDP Connection):
+```python
+{
+  "Event": {"System": {"EventID": 1149, "Channel": "..."}},
+  "source_file": "CM-DC01_Microsoft-Windows-TerminalServices-RemoteConnectionManager%4Operational.evtx",  # v1.13.1 metadata
+  "file_id": 12345  # v1.13.1 metadata
+}
+```
+
+**Old skip_fields Set** (line 777):
+```python
+skip_fields = {
+    'opensearch_key', '_id', '_index', '_score', 
+    'has_sigma', 'has_ioc', 'ioc_count',
+    'is_hidden', 'hidden_by', 'hidden_at',
+    'normalized_timestamp', 'normalized_computer', 'normalized_event_id',
+    'source_file_type'
+    # ❌ Missing: 'source_file', 'file_id'
+}
+```
+
+### Solution 2: Skip v1.13.1 Metadata Fields in Description Fallback
+
+**Fix** (`search_utils.py` line 783):
+```python
+skip_fields = {
+    'opensearch_key', '_id', '_index', '_score', 
+    'has_sigma', 'has_ioc', 'ioc_count',
+    'is_hidden', 'hidden_by', 'hidden_at',
+    'normalized_timestamp', 'normalized_computer', 'normalized_event_id',
+    'source_file_type',
+    'source_file', 'file_id'  # ✅ CRITICAL (v1.13.7): Skip v1.13.1 consolidated index metadata
+}
+```
+
+**Result**:
+- Event descriptions now show proper EVTX info (Channel, Provider, Task, EventData fields)
+- Metadata fields (`source_file`, `file_id`) excluded from display
+- Consistent with other metadata fields already being skipped
+
+---
+
 ### Results
 
-**Before Fix**:
+**Before Fix 1** (Index Checks):
 - ❌ Raw OpenSearch error: `NotFoundError(404, 'index_not_found_exception', 'no such index [case_13]')`
 - ❌ User confusion: Technical error message exposed
 - ❌ Bad UX: Unclear why feature doesn't work
 
-**After Fix**:
+**After Fix 1**:
 - ✅ User-friendly message: "No data available yet. Files are still being processed and indexed. Please try again in a few minutes."
 - ✅ Modal displays gracefully with empty table and clear explanation
 - ✅ Professional UX: Users understand system is processing files
-- ✅ No technical errors exposed
+
+**Before Fix 2** (Description Field):
+- ❌ Event descriptions showed: `source_file=CM-DC01_Microsoft-Windows-TerminalServices...evtx, fi...`
+- ❌ Raw metadata instead of meaningful event info
+- ❌ Event ID 1149 (RDP Connections) and others affected
+
+**After Fix 2**:
+- ✅ Event descriptions show proper EVTX info: `Channel: TerminalServices-RemoteConnectionManager | Task: 1`
+- ✅ Metadata fields excluded from description display
+- ✅ All event types show meaningful descriptions
 
 ### Benefits
 
-**Operational**:
+**Fix 1 (Index Checks)**:
 - ✅ **Handles Recovery Gracefully**: v1.13.4/v1.13.5 recoveries don't confuse users
 - ✅ **Prevents Raw Errors**: OpenSearch exceptions never reach frontend
 - ✅ **Clear User Communication**: Users know to wait for processing
+- ✅ **Reusable Pattern**: index_exists() can be used in other routes
+
+**Fix 2 (Description Field)**:
+- ✅ **Proper Event Context**: Users see meaningful event info, not metadata
+- ✅ **Compatible with v1.13.1**: source_file/file_id metadata properly hidden
+- ✅ **Consistent UX**: Description field works as expected across all event types
 
 **Architectural**:
-- ✅ **Compatible with v1.13.1**: Works with consolidated index architecture
-- ✅ **Defensive Coding**: Checks index existence before every query
-- ✅ **Reusable Pattern**: index_exists() can be used in other routes
+- ✅ **Compatible with v1.13.1**: Both fixes work seamlessly with consolidated index architecture
+- ✅ **Defensive Coding**: Checks index existence AND skips metadata fields
+- ✅ **Future-Proof**: New metadata fields should be added to skip_fields set
 
 ### Files Modified
 
 - `app/main.py`: Added index_exists() helper (lines 30-43), added checks to 6 routes (2399-2408, 2473-2482, 2525-2534, 2610-2619, 2695-2704, 2777-2786)
-- `app/version.json`: Added v1.13.7 entry
+- `app/search_utils.py`: Added source_file and file_id to skip_fields (line 783)
+- `app/version.json`: Added v1.13.7 entries (2 fixes)
 - `app/APP_MAP.md`: This entry
 
 ---
