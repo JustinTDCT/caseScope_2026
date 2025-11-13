@@ -75,27 +75,14 @@ def normalize_event_structure(event):
                 # Extract the actual value from #text
                 normalized[key] = value['#text']
             elif key in ['EventData', 'UserData']:
-                # v1.13.5: Convert all EventData field values to strings
-                # v1.13.8: Also applies to UserData (same dynamic structure issue)
-                # v1.13.8: Also flatten nested objects to JSON strings (fixes Parameter-as-object conflicts)
-                # v1.13.9: ALWAYS keep UserData/EventData as objects (dict), but flatten complex children
-                # EventData/UserData fields have inconsistent types across event types
+                # v1.13.9 FINAL FIX: Convert ENTIRE UserData/EventData to JSON string
+                # OpenSearch can map UserData as TEXT or OBJECT depending on first file indexed
+                # Converting to string ensures consistency and prevents mapping conflicts
                 import json
                 
-                data_normalized = {}
-                for data_key, data_value in value.items():
-                    if isinstance(data_value, dict):
-                        # v1.13.9 FIX: Flatten ALL nested objects to JSON strings
-                        # Problem: VmlEventLog can be object in file A, string in file B
-                        # Solution: Always convert nested objects to JSON strings (preserves searchability)
-                        data_normalized[data_key] = json.dumps(data_value, sort_keys=True)
-                    elif isinstance(data_value, list):
-                        # v1.13.9 FIX: Flatten ALL lists to JSON strings for consistency
-                        data_normalized[data_key] = json.dumps(data_value, sort_keys=True)
-                    else:
-                        # Convert all scalar values to strings
-                        data_normalized[data_key] = str(data_value) if data_value is not None else None
-                normalized[key] = data_normalized
+                # Convert the entire UserData/EventData block to a JSON string
+                # This prevents mapping conflicts and preserves searchability
+                normalized[key] = json.dumps(value, sort_keys=True)
             else:
                 # Recursively normalize nested dicts (not EventData/UserData)
                 normalized[key] = normalize_event_structure(value)
