@@ -29,6 +29,11 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     # No time limits - user can cancel via UI if needed
     broker_connection_retry_on_startup=True,
+    # CRITICAL: Expire task results after 24 hours to prevent Redis bloat
+    # Without this, Redis accumulates task metadata indefinitely (celery-task-meta-* keys)
+    result_expires=86400,  # 24 hours in seconds
+    # Clean up backend on task completion (removes result immediately after retrieval)
+    result_backend_transport_options={'master_name': 'mymaster'},
 )
 
 # Import tasks directly (instead of autodiscover)

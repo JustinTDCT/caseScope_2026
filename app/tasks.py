@@ -124,8 +124,24 @@ def process_file(self, file_id, operation='full'):
             # CRITICAL: Prevent duplicate processing (but allow intentional re-index)
             # Check if file is already being processed by another task
             if case_file.celery_task_id and case_file.celery_task_id != self.request.id:
-                logger.warning(f"[TASK] File {file_id} already has task_id {case_file.celery_task_id}, skipping duplicate")
-                return {'status': 'skipped', 'message': 'File already being processed by another task'}
+                # Check if the old task is still active
+                from celery.result import AsyncResult
+                old_task = AsyncResult(case_file.celery_task_id, app=celery_app)
+                
+                # If old task is finished (SUCCESS/FAILURE), clear the task_id and continue
+                if old_task.state in ['SUCCESS', 'FAILURE', 'REVOKED']:
+                    logger.warning(f"[TASK] File {file_id} has stale task_id {case_file.celery_task_id} (state: {old_task.state}), clearing and continuing")
+                    case_file.celery_task_id = None
+                    db.session.commit()
+                # If old task is still pending/running, skip this task
+                elif old_task.state in ['PENDING', 'STARTED', 'RETRY']:
+                    logger.warning(f"[TASK] File {file_id} already being processed by task {case_file.celery_task_id} (state: {old_task.state}), skipping duplicate")
+                    return {'status': 'skipped', 'message': f'File already being processed by another task ({old_task.state})'}
+                # Unknown state - clear and continue
+                else:
+                    logger.warning(f"[TASK] File {file_id} has task_id {case_file.celery_task_id} with unknown state {old_task.state}, clearing and continuing")
+                    case_file.celery_task_id = None
+                    db.session.commit()
             
             # For 'full' operation: Skip if file is already indexed (prevent duplicate processing)
             # For 'reindex' operation: Allow re-indexing even if already indexed (intentional)
