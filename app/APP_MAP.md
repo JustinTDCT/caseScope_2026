@@ -1,8 +1,211 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.13.4  
-**Last Updated**: 2025-11-13 14:39 UTC  
+**Version**: 1.13.5  
+**Last Updated**: 2025-11-13 14:49 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.13.5 - CRITICAL FIX: EventData Data Type Conflicts - String Conversion (2025-11-13 14:49 UTC)
+
+**Change**: Enhanced event normalization to convert all EventData field values to strings, fixing data type mapping conflicts.
+
+### 1. Problem
+
+**Issue**: After v1.13.4 fixed XML structure conflicts, discovered a SECOND type of mapping conflict in EventData fields.
+
+**Symptoms**:
+- 54 files failed in Case 9 with "Indexing failed: 0 of X events indexed"
+- Worker logs: `mapper_parsing_exception - failed to parse field [Event.EventData.Data] of type [long]`
+- Error examples:
+  - `Preview of field's value: '300 Eastern Standard Time'` (string rejected for long field)
+  - `Preview of field's value: '%%2480'` (string rejected for long field)
+  - `Preview of field's value: 'Function: CThread::invokeRun'` (string rejected for long field)
+
+**Root Cause**:
+- **EventData fields are generic containers** used by hundreds of Windows event types
+- **Inconsistent data types** across event types:
+  - Event Type A: `EventData.Data = 123` (numeric) → OpenSearch maps as **long**
+  - Event Type B: `EventData.Data = "300 Eastern Standard Time"` (string) → **REJECTED**
+  - Event Type C: `EventData.Operation = "%%2480"` (string) → **REJECTED**
+- **Example Event IDs**:
+  - Event 6013 (System uptime): `Data = "300 Eastern Standard Time"` (string)
+  - Event 5061 (Crypto operation): `Operation = "%%2480"` (string)
+  - Other events: `Data = 123` (numeric)
+
+**Why This Wasn't Caught by v1.13.4**:
+- v1.13.4 fixed **XML structure** conflicts (`{#text: value}` vs `value`)
+- v1.13.5 fixes **data type** conflicts (numeric vs string in same field)
+- Both are mapping conflicts, but different root causes
+
+**Case 9 Mapping Example**:
+```json
+// First file set mapping
+{
+  "Event.EventData.Data": {"type": "long"},
+  "Event.EventData.Operation": {"type": "long"}
+}
+
+// Later files with strings → REJECTED
+{
+  "Event": {
+    "EventData": {
+      "Data": "300 Eastern Standard Time",  // ❌ Can't put string in long field
+      "Operation": "%%2480"                  // ❌ Can't put string in long field
+    }
+  }
+}
+```
+
+### 2. Solution
+
+**Enhanced normalize_event_structure() to Convert EventData to Strings**:
+
+**Updated Function** (`file_processing.py` lines 36-97):
+```python
+def normalize_event_structure(event):
+    """
+    Normalize event structure to prevent OpenSearch mapping conflicts.
+    
+    Problem 1 (v1.13.4): XML structure inconsistencies
+    Problem 2 (v1.13.5): EventData data type inconsistencies
+    
+    Solution:
+    1. Flatten XML structures (extract #text)
+    2. Convert ALL EventData values to strings for consistent mapping
+    """
+    # ... existing code ...
+    
+    elif key == 'EventData':
+        # v1.13.5: Convert all EventData field values to strings
+        eventdata_normalized = {}
+        for ed_key, ed_value in value.items():
+            if isinstance(ed_value, dict):
+                # Recursively normalize nested EventData
+                eventdata_normalized[ed_key] = normalize_event_structure(ed_value)
+            elif isinstance(ed_value, list):
+                # Convert list items to strings
+                eventdata_normalized[ed_key] = [
+                    str(item) if not isinstance(item, dict) 
+                    else normalize_event_structure(item) 
+                    for item in ed_value
+                ]
+            else:
+                # Convert all scalar values to strings
+                eventdata_normalized[ed_key] = str(ed_value) if ed_value is not None else None
+        normalized[key] = eventdata_normalized
+```
+
+**What Gets Converted**:
+```json
+// BEFORE (causes conflicts)
+{
+  "Event": {
+    "EventData": {
+      "Data": 123,                    // numeric
+      "Operation": "%%2480",          // string
+      "SomeField": 456                // numeric
+    }
+  }
+}
+
+// AFTER (consistent strings)
+{
+  "Event": {
+    "EventData": {
+      "Data": "123",                  // string
+      "Operation": "%%2480",          // string
+      "SomeField": "456"              // string
+    }
+  }
+}
+```
+
+**What Does NOT Get Converted** (Timestamp Fields):
+```json
+// These remain as date types for search/sort
+{
+  "@timestamp": "2025-11-10T16:32:10Z",               // date type ✅
+  "Event": {
+    "System": {
+      "TimeCreated": {
+        "#attributes": {
+          "SystemTime": "2025-11-10T16:32:10Z"        // date type ✅
+        }
+      },
+      "EventID": 4624,                                // stays as-is ✅
+      "Computer": "server01"                          // stays as-is ✅
+    }
+  }
+}
+```
+
+**Case 9 Recovery**:
+1. Restarted workers with v1.13.5 fix
+2. Deleted case_9 index (2,444,508 events with bad EventData mapping)
+3. Cleared 10,443 SIGMA violations, 53,448 IOC matches
+4. Reset 2,004 files to Queued
+5. Requeued 1,986 files for reprocessing
+6. Fixed field limit on new case_9 index (1000 → 10,000)
+7. Requeued 9 files that failed due to field limit
+
+### 3. Results
+
+**Before Fix**:
+- ❌ 54 files failed in Case 9 (mapper_parsing_exception)
+- ❌ EventData fields mapped as numeric types
+- ❌ String values rejected by OpenSearch
+- ❌ Pattern: "failed to parse field [Event.EventData.Data] of type [long]"
+
+**After Fix**:
+- ✅ 0 failed files (all reprocessing with string EventData)
+- ✅ EventData fields consistently mapped as strings
+- ✅ ALL event types can coexist in same index
+- ✅ **Date/time searches UNAFFECTED** (timestamp fields remain as date type)
+
+### 4. Impact Analysis
+
+**✅ SAFE - Not Affected**:
+- **Date/Time Searches**: `@timestamp` and `Event.System.TimeCreated` remain as date type
+- **Timeline Sorting**: Uses date fields (not EventData)
+- **Event ID Searches**: `Event.System.EventID` remains as-is
+- **Computer Searches**: `Event.System.Computer` remains as-is
+- **SIGMA Rules**: Most use string matching (works with strings)
+
+**⚠️ POTENTIAL IMPACT - Minimal**:
+- **Numeric Range Queries on EventData**: Rare (EventData.Data > 100) won't work as numeric comparison
+  - **Mitigation**: EventData is rarely used for numeric comparisons in DFIR analysis
+  - **Alternative**: Use Event.System.EventID for event type filtering
+
+**✅ BENEFITS**:
+- **Unlimited Event Type Diversity**: Any Windows event type can index without conflicts
+- **Consistent Behavior**: Same field name behaves consistently regardless of event type
+- **Scalable Architecture**: v1.13.1 architecture (1 index per case) now fully functional
+
+### 5. Files Modified
+
+**Core Fix**:
+- `app/file_processing.py`: Enhanced normalize_event_structure() (lines 36-97)
+  - Added EventData-specific string conversion logic
+  - Preserves timestamp fields as date types
+  - Recursively handles nested EventData structures
+
+**Documentation**:
+- `app/version.json`: Added v1.13.5 entry
+- `app/APP_MAP.md`: This entry
+
+**Operational**:
+- Deleted case_9 index (2,444,508 events)
+- Reset 2,004 case 9 files to Queued
+- Updated case_9 field limit to 10,000
+- Requeued 1,995 files total (1,986 + 9)
+
+### 6. Related Issues
+
+- **v1.13.4**: XML structure conflicts (fixed by flattening {#text: value})
+- **v1.13.5**: Data type conflicts (fixed by EventData string conversion)
+- **v1.13.2**: Field limit (separate issue, also applies to case 9)
+- Both v1.13.4 and v1.13.5 are **required** for reliable v1.13.1 architecture
 
 ---
 

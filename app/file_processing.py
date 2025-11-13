@@ -37,20 +37,26 @@ def normalize_event_structure(event):
     """
     Normalize event structure to prevent OpenSearch mapping conflicts.
     
-    Problem: EVTX files can have different representations of the same field:
+    Problem 1 (v1.13.4): EVTX files can have different representations of the same field:
     - File A: {"EventID": 4624}                       ← simple value
     - File B: {"EventID": {"#text": 4624, "#attributes": {...}}}  ← XML object
     
-    This causes mapping conflicts in consolidated indices (v1.13.1: 1 index per case).
-    First file sets mapping, subsequent files with different structure fail.
+    Problem 2 (v1.13.5): EventData fields have inconsistent data types:
+    - Event A: {"Data": 123}                          ← numeric
+    - Event B: {"Data": "300 Eastern Standard Time"}  ← string
     
-    Solution: Normalize ALL events to use simple values (extract #text if present).
+    Both cause mapping conflicts in consolidated indices (v1.13.1: 1 index per case).
+    First file sets mapping, subsequent files with different types fail.
+    
+    Solution: 
+    1. Flatten XML structures (extract #text if present)
+    2. Convert ALL EventData values to strings for consistent mapping
     
     Args:
         event: Event dictionary from EVTX/JSON parsing
         
     Returns:
-        Normalized event dictionary with XML structures flattened
+        Normalized event dictionary with XML structures flattened and consistent types
     """
     if not isinstance(event, dict):
         return event
@@ -63,14 +69,29 @@ def normalize_event_structure(event):
             if '#text' in value:
                 # Extract the actual value from #text
                 normalized[key] = value['#text']
+            elif key == 'EventData':
+                # v1.13.5: Convert all EventData field values to strings
+                # EventData fields (Data, Operation, etc.) have inconsistent types across event types
+                eventdata_normalized = {}
+                for ed_key, ed_value in value.items():
+                    if isinstance(ed_value, dict):
+                        # Recursively normalize nested EventData
+                        eventdata_normalized[ed_key] = normalize_event_structure(ed_value)
+                    elif isinstance(ed_value, list):
+                        # Convert list items to strings
+                        eventdata_normalized[ed_key] = [str(item) if not isinstance(item, dict) else normalize_event_structure(item) for item in ed_value]
+                    else:
+                        # Convert all scalar values to strings
+                        eventdata_normalized[ed_key] = str(ed_value) if ed_value is not None else None
+                normalized[key] = eventdata_normalized
             else:
-                # Recursively normalize nested dicts
+                # Recursively normalize nested dicts (not EventData)
                 normalized[key] = normalize_event_structure(value)
         elif isinstance(value, list):
             # Recursively normalize list items
             normalized[key] = [normalize_event_structure(item) for item in value]
         else:
-            # Keep simple values as-is
+            # Keep simple values as-is (except in EventData, handled above)
             normalized[key] = value
     
     return normalized
