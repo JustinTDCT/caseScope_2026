@@ -35,20 +35,27 @@ def sanitize_filename(filename):
     return name
 
 
-def make_index_name(case_id, filename):
+def make_index_name(case_id, filename=None):
     """
-    Create OpenSearch index name from case ID and filename
+    Create OpenSearch index name - ONE INDEX PER CASE (not per file)
     
-    Format: case_{case_id}_{sanitized_filename}
-    Example: case_1_desktop-pc_security.evtx
+    OLD: case_{case_id}_{filename} → 10,458 indices = 10,458 shards
+    NEW: case_{case_id} → 7 indices = 7 shards
+    
+    This fixes scaling issues:
+    - Reduces shard count from 10K+ to <100
+    - Reduces heap from 16GB+ to 2-4GB
+    - Allows millions of files per case
+    - Filter by source_file field instead of index name
+    
+    Format: case_{case_id}
+    Example: case_1, case_2, case_3
+    
+    Args:
+        case_id: Case ID
+        filename: IGNORED (kept for backward compatibility)
     """
-    sanitized = sanitize_filename(filename)
-    
-    # Remove file extension for index name
-    if '.' in sanitized:
-        sanitized = sanitized.rsplit('.', 1)[0]
-    
-    return f"case_{case_id}_{sanitized}"
+    return f"case_{case_id}"
 
 
 def hash_file(file_path, algorithm='sha256'):

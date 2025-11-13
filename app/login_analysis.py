@@ -48,7 +48,7 @@ def get_logins_by_event_id(opensearch_client, case_id: int, event_id: str,
         Dict with 'logins' list and 'total_events' count
     """
     try:
-        index_pattern = f"case_{case_id}_*"
+        index_pattern = f"case_{case_id}"
         
         # Build date filter
         date_filter = None
@@ -231,7 +231,7 @@ def get_console_logins(opensearch_client, case_id: int, date_range: str = 'all',
     Returns distinct username/computer combinations
     """
     try:
-        index_pattern = f"case_{case_id}_*"
+        index_pattern = f"case_{case_id}"
         
         # Build date filter (same logic as other login functions)
         date_filter = None
@@ -392,7 +392,7 @@ def get_rdp_connections(opensearch_client, case_id: int, date_range: str = 'all'
     Note: Uses different field for username (Event.UserData.EventXML.Param1)
     """
     try:
-        index_pattern = f"case_{case_id}_*"
+        index_pattern = f"case_{case_id}"
         
         # Build date filter (same logic as other login functions)
         date_filter = None
@@ -651,7 +651,7 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
         Dict with 'authentications' list (ALL events, no deduplication)
     """
     try:
-        index_pattern = f"case_{case_id}_*"
+        index_pattern = f"case_{case_id}"
         
         # Build date filter
         date_filter = None
@@ -852,7 +852,7 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
         Dict with 'attempts' list (ALL events, no deduplication)
     """
     try:
-        index_pattern = f"case_{case_id}_*"
+        index_pattern = f"case_{case_id}"
         
         # Build date filter
         date_filter = None

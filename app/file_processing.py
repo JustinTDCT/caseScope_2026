@@ -430,6 +430,10 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                     event['source_file_type'] = 'CSV'
                     event['row_number'] = row_num
                     
+                    # CRITICAL: Add source_file and file_id for filtering (1 index per case)
+                    event['source_file'] = filename
+                    event['file_id'] = file_id
+                    
                     # Normalize event fields for consistent search
                     from event_normalization import normalize_event
                     event = normalize_event(event)
@@ -545,6 +549,10 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                             except Exception as e:
                                 # Don't fail indexing if description lookup fails
                                 logger.warning(f"[INDEX FILE] Could not add event description: {e}")
+                        
+                        # CRITICAL: Add source_file and file_id for filtering (1 index per case)
+                        event['source_file'] = filename
+                        event['file_id'] = file_id
                         
                         # Add deterministic document ID for deduplication if enabled
                         bulk_doc = {

@@ -1437,8 +1437,8 @@ def search_events(case_id):
         'event_id', 'timestamp', 'description', 'computer_name', 'source_file'
     ])
     
-    # Build index pattern for case (search ALL indices for this case)
-    index_pattern = f"case_{case_id}_*"
+    # Build index name for case (1 index per case in v1.13.1+)
+    index_pattern = f"case_{case_id}"
     
     # Get latest event timestamp for relative date filters (24h, 7d, 30d)
     latest_event_timestamp = None
@@ -1673,8 +1673,8 @@ def export_search_results(case_id):
         tagged_events = TimelineTag.query.filter_by(case_id=case_id).all()
         tagged_event_ids = [tag.event_id for tag in tagged_events]
     
-    # Build index pattern
-    index_pattern = f"case_{case_id}_*"
+    # Build index name for case (1 index per case in v1.13.1+)
+    index_pattern = f"case_{case_id}"
     
     # Get latest event timestamp for relative date filters (24h, 7d, 30d)
     latest_event_timestamp = None
@@ -2405,7 +2405,7 @@ def show_logins_ok(case_id):
     latest_event_timestamp = None
     if date_range in ['24h', '7d', '30d']:
         try:
-            index_pattern = f"case_{case_id}_*"
+            index_pattern = f"case_{case_id}"
             latest_query = {
                 "size": 1,
                 "sort": [{"normalized_timestamp": {"order": "desc"}}],
@@ -2468,7 +2468,7 @@ def show_logins_failed(case_id):
     latest_event_timestamp = None
     if date_range in ['24h', '7d', '30d']:
         try:
-            index_pattern = f"case_{case_id}_*"
+            index_pattern = f"case_{case_id}"
             latest_query = {
                 "size": 1,
                 "sort": [{"normalized_timestamp": {"order": "desc"}}],
@@ -2531,7 +2531,7 @@ def show_rdp_connections(case_id):
     latest_event_timestamp = None
     if date_range in ['24h', '7d', '30d']:
         try:
-            index_pattern = f"case_{case_id}_*"
+            index_pattern = f"case_{case_id}"
             latest_query = {
                 "size": 1,
                 "sort": [{"normalized_timestamp": {"order": "desc"}}],
@@ -2594,7 +2594,7 @@ def show_console_logins(case_id):
     latest_event_timestamp = None
     if date_range in ['24h', '7d', '30d']:
         try:
-            index_pattern = f"case_{case_id}_*"
+            index_pattern = f"case_{case_id}"
             latest_query = {
                 "size": 1,
                 "sort": [{"normalized_timestamp": {"order": "desc"}}],
@@ -2664,7 +2664,7 @@ def show_vpn_authentications(case_id):
     latest_event_timestamp = None
     if date_range in ['24h', '7d', '30d']:
         try:
-            index_pattern = f"case_{case_id}_*"
+            index_pattern = f"case_{case_id}"
             latest_query = {
                 "size": 1,
                 "sort": [{"normalized_timestamp": {"order": "desc"}}],
@@ -2735,7 +2735,7 @@ def show_failed_vpn_attempts(case_id):
     latest_event_timestamp = None
     if date_range in ['24h', '7d', '30d']:
         try:
-            index_pattern = f"case_{case_id}_*"
+            index_pattern = f"case_{case_id}"
             latest_query = {
                 "size": 1,
                 "sort": [{"normalized_timestamp": {"order": "desc"}}],

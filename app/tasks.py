@@ -1262,30 +1262,29 @@ def delete_case_async(self, case_id):
             # Step 4: Delete OpenSearch indices (20% - 50%) - OPTIMIZED with wildcard pattern
             update_progress('Deleting Indices', 20, f'Deleting OpenSearch indices for case {case_id}...')
             
-            # Use wildcard pattern to delete ALL indices for this case in ONE API call
-            # Pattern: case_{case_id}_* (ensures we ONLY delete THIS case's indices)
-            index_pattern = f"case_{case_id}_*"
+            # Delete case index (v1.13.1+: 1 index per case, not per file)
+            # Old: case_{case_id}_* wildcard (deleted 1000+ indices)
+            # New: case_{case_id} single index (delete 1 index)
+            index_name = f"case_{case_id}"
             deleted_indices = 0
             
             try:
-                # Get list of matching indices first (for count)
-                matching_indices = opensearch_client.cat.indices(index=index_pattern, format='json')
-                deleted_indices = len(matching_indices)
-                
-                update_progress('Deleting Indices', 30, f'Found {deleted_indices} indices matching pattern: {index_pattern}')
-                logger.info(f"[DELETE_CASE] Deleting {deleted_indices} indices with pattern: {index_pattern}")
-                
-                # Delete all matching indices in ONE call
-                if deleted_indices > 0:
-                    opensearch_client.indices.delete(index=index_pattern)
-                    update_progress('Deleting Indices', 50, f'✅ Deleted {deleted_indices} indices in single operation')
-                    logger.info(f"[DELETE_CASE] ✅ Deleted {deleted_indices} indices using wildcard pattern")
+                # Check if index exists
+                if opensearch_client.indices.exists(index=index_name):
+                    deleted_indices = 1
+                    update_progress('Deleting Indices', 30, f'Deleting index: {index_name}')
+                    logger.info(f"[DELETE_CASE] Deleting index: {index_name}")
+                    
+                    # Delete index
+                    opensearch_client.indices.delete(index=index_name)
+                    update_progress('Deleting Indices', 50, f'✅ Deleted index {index_name}')
+                    logger.info(f"[DELETE_CASE] ✅ Deleted index {index_name}")
                 else:
                     update_progress('Deleting Indices', 50, 'No indices to delete')
-                    logger.info(f"[DELETE_CASE] No indices found for case {case_id}")
+                    logger.info(f"[DELETE_CASE] No index found for case {case_id}")
                     
             except Exception as e:
-                logger.warning(f"[DELETE_CASE] Failed to delete indices with pattern {index_pattern}: {e}")
+                logger.warning(f"[DELETE_CASE] Failed to delete index {index_name}: {e}")
                 # Fallback: try individual deletion if wildcard fails
                 logger.info(f"[DELETE_CASE] Falling back to individual index deletion...")
                 deleted_indices = 0

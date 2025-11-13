@@ -470,8 +470,8 @@ def scan_systems(case_id):
         if not files:
             return jsonify({'success': False, 'error': 'No indexed files found for this case'}), 400
         
-        # Use wildcard pattern for all case indices (like in tasks.py)
-        index_pattern = f"case_{case_id}_*"
+        # Use consolidated index for case (v1.13.1+: 1 index per case)
+        index_pattern = f"case_{case_id}"
         
         logger.info(f"[Systems] Starting system scan for case {case_id}, pattern: {index_pattern}")
         
