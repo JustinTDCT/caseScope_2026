@@ -156,7 +156,7 @@ def duplicate_check(db, CaseFile, SkippedFile, case_id: int, filename: str,
 def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: str,
               file_path: str, file_hash: str, file_size: int, uploader_id: int,
               upload_type: str = 'http', file_id: int = None, celery_task=None, 
-              use_event_descriptions: bool = True) -> dict:
+              use_event_descriptions: bool = True, force_reindex: bool = False) -> dict:
     """
     Convert EVTX→JSON, count events, index to OpenSearch, update/create DB record.
     
@@ -264,14 +264,29 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                 'event_count': 0,
                 'index_name': None
             }
+        
+        # CRITICAL: Prevent duplicate indexing (unless force_reindex=True for intentional re-index)
+        if case_file.is_indexed and not force_reindex:
+            logger.info(f"[INDEX FILE] File {file_id} already indexed (is_indexed=True), skipping to prevent duplicate indexing")
+            logger.info(f"[INDEX FILE] Use force_reindex=True or operation='reindex' to intentionally re-index")
+            return {
+                'status': 'success',
+                'message': 'File already indexed (skipped to prevent duplicate)',
+                'file_id': file_id,
+                'event_count': case_file.event_count,
+                'index_name': make_index_name(case_id, filename)
+            }
+        
         # Update existing record
         case_file.file_size = file_size
         case_file.size_mb = size_mb
         case_file.file_hash = file_hash
         case_file.file_type = file_type
         case_file.indexing_status = 'Indexing'
-        case_file.is_indexed = False
+        case_file.is_indexed = False  # Will be set to True after successful indexing
         case_file.opensearch_key = opensearch_key
+        if force_reindex:
+            logger.info(f"[INDEX FILE] Force re-index enabled, re-indexing file {file_id}")
         logger.info(f"[INDEX FILE] Updated existing CaseFile record: file_id={file_id}")
     else:
         # Create new CaseFile record (status: Indexing)

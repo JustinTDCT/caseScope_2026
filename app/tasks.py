@@ -121,6 +121,24 @@ def process_file(self, file_id, operation='full'):
             if not case:
                 return {'status': 'error', 'message': 'Case not found'}
             
+            # CRITICAL: Prevent duplicate processing (but allow intentional re-index)
+            # Check if file is already being processed by another task
+            if case_file.celery_task_id and case_file.celery_task_id != self.request.id:
+                logger.warning(f"[TASK] File {file_id} already has task_id {case_file.celery_task_id}, skipping duplicate")
+                return {'status': 'skipped', 'message': 'File already being processed by another task'}
+            
+            # For 'full' operation: Skip if file is already indexed (prevent duplicate processing)
+            # For 'reindex' operation: Allow re-indexing even if already indexed (intentional)
+            if operation == 'full' and case_file.is_indexed:
+                logger.info(f"[TASK] File {file_id} already indexed (is_indexed=True), skipping 'full' operation to prevent duplicate processing")
+                case_file.celery_task_id = None  # Clear task ID since we're skipping
+                db.session.commit()
+                return {
+                    'status': 'skipped',
+                    'message': 'File already indexed (use re-index operation to re-process)',
+                    'file_id': file_id
+                }
+            
             case_file.celery_task_id = self.request.id
             db.session.commit()
             

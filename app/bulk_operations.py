@@ -373,15 +373,30 @@ def queue_file_processing(process_file_task, files: List[Any], operation: str = 
     Args:
         process_file_task: Celery task (process_file)
         files: List of CaseFile objects
-        operation: Operation type ('full', 'sigma', 'ioc')
+        operation: Operation type ('full', 'chainsaw_only', 'ioc_only')
     
     Returns:
         Number of tasks queued
     """
     queued_count = 0
+    skipped_count = 0
     errors = []
     
     for f in files:
+        # CRITICAL: Prevent duplicate queuing for 'full' operation
+        # Skip files that are already indexed (unless they've been reset for re-index)
+        # Re-index operations call reset_file_metadata() first, which sets is_indexed=False
+        if operation == 'full' and f.is_indexed:
+            logger.debug(f"[BULK OPS] Skipping file {f.id} (already indexed, use re-index to re-process)")
+            skipped_count += 1
+            continue
+        
+        # Skip files that are already queued/processing
+        if f.celery_task_id:
+            logger.debug(f"[BULK OPS] Skipping file {f.id} (already queued: {f.celery_task_id})")
+            skipped_count += 1
+            continue
+        
         try:
             result = process_file_task.delay(f.id, operation=operation)
             # Store task ID in database for tracking
@@ -396,11 +411,14 @@ def queue_file_processing(process_file_task, files: List[Any], operation: str = 
             # Continue with other files even if one fails
     
     if errors:
-        logger.warning(f"[BULK OPS] Queued {queued_count}/{len(files)} files successfully. {len(errors)} errors occurred.")
+        logger.warning(f"[BULK OPS] Queued {queued_count}/{len(files)} files successfully. {len(errors)} errors occurred, {skipped_count} skipped.")
         for error in errors[:10]:  # Log first 10 errors
             logger.warning(f"[BULK OPS]   - {error}")
     else:
-        logger.info(f"[BULK OPS] Successfully queued {operation} processing for {queued_count} file(s)")
+        if skipped_count > 0:
+            logger.info(f"[BULK OPS] Successfully queued {operation} processing for {queued_count} file(s), skipped {skipped_count} already-indexed/queued files")
+        else:
+            logger.info(f"[BULK OPS] Successfully queued {operation} processing for {queued_count} file(s)")
     
     return queued_count
 
