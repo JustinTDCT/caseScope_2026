@@ -102,29 +102,28 @@ def clear_case_ioc_flags_in_opensearch(opensearch_client, case_id: int, files: l
             continue
         
         # Generate index name from opensearch_key
-        # opensearch_key format: "case2_ATN76254_filename" or "case2_log_..."
-        # Need to remove the "case2_" prefix and convert to lowercase
-        # IMPORTANT: Also convert spaces to underscores (matches make_index_name logic)
-        opensearch_key_clean = case_file.opensearch_key
-        if opensearch_key_clean.lower().startswith(f'case{case_id}_'):
-            opensearch_key_clean = opensearch_key_clean[len(f'case{case_id}_'):]
-        
-        index_name = opensearch_key_clean.lower().replace('%4', '4').replace(' ', '_')
-        index_name = f"case_{case_id}_{index_name}"
+        # v1.13.1: Use consolidated case index and filter by file_id
+        from utils import make_index_name
+        index_name = make_index_name(case_id)
         
         try:
             # Check if index exists
             if not opensearch_client.indices.exists(index=index_name):
                 continue
             
-            # Clear has_ioc flag and ioc_count for all events in this index
+            # Clear has_ioc flag and ioc_count for all events in THIS FILE
             update_body = {
                 "script": {
                     "source": "ctx._source.remove('has_ioc'); ctx._source.remove('ioc_count')",
                     "lang": "painless"
                 },
                 "query": {
-                    "term": {"has_ioc": True}
+                    "bool": {
+                        "must": [
+                            {"term": {"file_id": case_file.id}},
+                            {"term": {"has_ioc": True}}
+                        ]
+                    }
                 }
             }
             
@@ -188,27 +187,28 @@ def clear_case_sigma_flags_in_opensearch(opensearch_client, case_id: int, files:
         # Generate index name from opensearch_key
         # opensearch_key format: "case2_ATN76254_filename" or "case2_log_..."
         # Need to remove the "case2_" prefix and convert to lowercase
-        # IMPORTANT: Also convert spaces to underscores (matches make_index_name logic)
-        opensearch_key_clean = case_file.opensearch_key
-        if opensearch_key_clean.lower().startswith(f'case{case_id}_'):
-            opensearch_key_clean = opensearch_key_clean[len(f'case{case_id}_'):]
-        
-        index_name = opensearch_key_clean.lower().replace('%4', '4').replace(' ', '_')
-        index_name = f"case_{case_id}_{index_name}"
+        # v1.13.1: Use consolidated case index and filter by file_id
+        from utils import make_index_name
+        index_name = make_index_name(case_id)
         
         try:
             # Check if index exists
             if not opensearch_client.indices.exists(index=index_name):
                 continue
             
-            # Clear has_sigma flag and sigma_rule field for all events in this index
+            # Clear has_sigma flag and sigma_rule field for all events in THIS FILE
             update_body = {
                 "script": {
                     "source": "ctx._source.remove('has_sigma'); ctx._source.remove('sigma_rule')",
                     "lang": "painless"
                 },
                 "query": {
-                    "term": {"has_sigma": True}
+                    "bool": {
+                        "must": [
+                            {"term": {"file_id": case_file.id}},
+                            {"term": {"has_sigma": True}}
+                        ]
+                    }
                 }
             }
             
@@ -248,27 +248,28 @@ def clear_file_sigma_flags_in_opensearch(opensearch_client, case_id: int, file_o
     if not file_obj.is_indexed or not file_obj.opensearch_key:
         return 0
     
-    # Generate index name from opensearch_key
-    opensearch_key_clean = file_obj.opensearch_key
-    if opensearch_key_clean.lower().startswith(f'case{case_id}_'):
-        opensearch_key_clean = opensearch_key_clean[len(f'case{case_id}_'):]
-    
-    index_name = opensearch_key_clean.lower().replace('%4', '4').replace(' ', '_')
-    index_name = f"case_{case_id}_{index_name}"
+    # v1.13.1: Use consolidated case index and filter by file_id
+    from utils import make_index_name
+    index_name = make_index_name(case_id)
     
     try:
         # Check if index exists
         if not opensearch_client.indices.exists(index=index_name):
             return 0
         
-        # Clear has_sigma flag and sigma_rule field for all events in this index
+        # Clear has_sigma flag and sigma_rule field for all events in THIS FILE
         update_body = {
             "script": {
                 "source": "ctx._source.remove('has_sigma'); ctx._source.remove('sigma_rule')",
                 "lang": "painless"
             },
             "query": {
-                "term": {"has_sigma": True}
+                "bool": {
+                    "must": [
+                        {"term": {"file_id": file_obj.id}},
+                        {"term": {"has_sigma": True}}
+                    ]
+                }
             }
         }
         

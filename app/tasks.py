@@ -941,8 +941,8 @@ def generate_ai_report(self, report_id):
                     
                     # Fetch full event data from OpenSearch (no limit - send ALL tagged events to AI)
                     if len(tagged_event_ids) > 0:
-                        # Build index pattern
-                        index_pattern = f"case_{case.id}_*"
+                        # Build index name (v1.13.1: consolidated index)
+                        index_pattern = f"case_{case.id}"
                         
                         search_body = {
                             "query": {

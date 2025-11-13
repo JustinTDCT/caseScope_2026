@@ -119,15 +119,22 @@ def bulk_delete_hidden_files(db_session, case_id: int, file_ids: List[int], user
         
         for file in files:
             try:
-                # Delete OpenSearch index
+                # Delete OpenSearch events for this file (v1.13.1: delete by file_id)
                 if file.opensearch_key:
-                    index_name = file.opensearch_key
                     try:
-                        if os_client.indices.exists(index=index_name):
-                            os_client.indices.delete(index=index_name)
-                            logger.info(f"[DELETE HIDDEN] Deleted OpenSearch index: {index_name}")
+                        from utils import make_index_name
+                        index_name = make_index_name(file.case_id)
+                        
+                        # Delete events by file_id (not entire index - it's shared)
+                        os_client.delete_by_query(
+                            index=index_name,
+                            body={"query": {"term": {"file_id": file.id}}},
+                            conflicts='proceed',
+                            ignore=[404]
+                        )
+                        logger.info(f"[DELETE HIDDEN] Deleted events for file {file.id} from index {index_name}")
                     except Exception as e:
-                        logger.warning(f"[DELETE HIDDEN] Failed to delete index {index_name}: {e}")
+                        logger.warning(f"[DELETE HIDDEN] Failed to delete events for file {file.id}: {e}")
                 
                 # Delete SIGMA violations
                 db_session.query(SigmaViolation).filter_by(file_id=file.id).delete()

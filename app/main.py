@@ -1004,7 +1004,7 @@ def ai_report_chat(report_id):
     tagged_event_ids = [tag.event_id for tag in TimelineTag.query.filter_by(case_id=case.id).all()]
     tagged_events = []
     if tagged_event_ids:
-        case_index = f"case_{case.id}_*"
+        case_index = f"case_{case.id}"  # v1.13.1: consolidated index
         try:
             result = es.search(
                 index=case_index,
