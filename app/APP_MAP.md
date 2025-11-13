@@ -1,8 +1,30 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.13.5  
-**Last Updated**: 2025-11-13 14:49 UTC  
+**Version**: 1.13.6  
+**Last Updated**: 2025-11-13 14:59 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.13.6 - UX IMPROVEMENT: Added Defender & RDP Event IDs to Search Reference (2025-11-13 14:59 UTC)
+
+**Change**: Added 4 critical Windows Defender and RDP event IDs to Common Event IDs reference on search page with proper spacing.
+
+### Event IDs Added:
+- **1149**: Remote Desktop Connection (RDP sessions)
+- **1006/1116**: Malware Found By Defender (threat detection)
+- **1015**: Suspicious Behavior Detected by Defender (behavioral analysis)
+- **5012/5010/5001**: Defender Items Disabled (security bypass attempts)
+
+### Spacing Fix:
+- Fixed alignment issue where compound event IDs (1006/1116, 5012/5010/5001) had no spacing before descriptions
+- Increased `min-width` from 60px to 120px for new items to ensure uniform spacing
+- All event IDs now align consistently
+
+### Files Modified:
+- `app/templates/search_events.html`: Added 4 new event ID entries (lines 60-75), fixed spacing
+- `app/version.json`: Added v1.13.6 entry
+- `app/APP_MAP.md`: This entry
 
 ---
 
