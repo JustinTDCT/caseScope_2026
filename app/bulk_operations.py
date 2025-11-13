@@ -23,16 +23,25 @@ def clear_case_opensearch_indices(opensearch_client, case_id: int, files: List[A
     """
     from utils import make_index_name
     
+    # v1.13.1: Delete events by file_id (not entire index - it's shared by all files in case)
+    index_name = make_index_name(case_id)  # Gets case index
     deleted_count = 0
+    
     for f in files:
         if f.opensearch_key:
             try:
-                index_name = make_index_name(case_id, f.original_filename)
-                opensearch_client.indices.delete(index=index_name, ignore=[404])
-                logger.info(f"[BULK OPS] Deleted OpenSearch index: {index_name}")
+                # Delete events for this file only
+                result = opensearch_client.delete_by_query(
+                    index=index_name,
+                    body={"query": {"term": {"file_id": f.id}}},
+                    conflicts='proceed',
+                    ignore=[404]
+                )
+                event_count = result.get('deleted', 0) if isinstance(result, dict) else 0
+                logger.info(f"[BULK OPS] Deleted {event_count} events for file {f.id}")
                 deleted_count += 1
             except Exception as e:
-                logger.warning(f"[BULK OPS] Could not delete index for file {f.id}: {e}")
+                logger.warning(f"[BULK OPS] Could not delete events for file {f.id}: {e}")
     
     return deleted_count
 

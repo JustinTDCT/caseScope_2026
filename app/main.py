@@ -2878,20 +2878,18 @@ def clear_all_files(case_id):
     
     for file in files:
         try:
-            # 1. Delete from OpenSearch
+            # 1. Delete from OpenSearch (v1.13.1: delete by file_id from case index)
             if file.opensearch_key:
                 try:
-                    # Generate the index name from case_id and original filename
-                    index_name = make_index_name(case_id, file.original_filename)
+                    # Get case index (shared by all files)
+                    index_name = make_index_name(case_id)
                     
-                    # Try to delete by opensearch_key
+                    # Delete events by file_id (more reliable than opensearch_key)
                     opensearch_client.delete_by_query(
                         index=index_name,
                         body={
                             "query": {
-                                "term": {
-                                    "opensearch_key.keyword": file.opensearch_key
-                                }
+                                "term": {"file_id": file.id}
                             }
                         },
                         conflicts='proceed',

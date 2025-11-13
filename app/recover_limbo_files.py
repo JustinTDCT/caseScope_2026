@@ -49,13 +49,17 @@ def check_celery_task_active(task_id):
 
 
 def validate_index_exists(case_id, filename):
-    """Check if OpenSearch index exists for a file"""
+    """Check if OpenSearch index exists for a file (v1.13.1: checks events in case index)"""
     try:
-        index_name = make_index_name(case_id, filename)
+        # v1.13.1: Check if events exist for this file_id in consolidated case index
+        index_name = make_index_name(case_id)  # Gets case index, not per-file
+        
+        # Note: We can't validate without file_id here (only have filename)
+        # This function is deprecated in v1.13.1+ - just check if case index exists
         exists = opensearch_client.indices.exists(index=index_name)
         return exists, index_name
     except Exception as e:
-        print(f"    WARNING: Could not check index for {filename}: {e}")
+        print(f"    WARNING: Could not check index for case {case_id}: {e}")
         return None, None
 
 

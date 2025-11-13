@@ -509,17 +509,27 @@ def reindex_single_file(case_id, file_id):
         flash('File not found', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Clear OpenSearch index for this file
+    # Clear OpenSearch events for this file (v1.13.1: delete by file_id, not entire index)
     if case_file.opensearch_key:
         try:
-            # IMPORTANT: Use make_index_name() to ensure consistent index name generation
-            # (handles lowercase, spaces->underscores, etc.)
             from utils import make_index_name
-            index_name = make_index_name(case_id, case_file.original_filename)
-            opensearch_client.indices.delete(index=index_name, ignore=[400, 404])
-            logger.info(f"[REINDEX SINGLE] Deleted index {index_name}")
+            index_name = make_index_name(case_id)  # Gets case index (not per-file)
+            
+            # Delete events by file_id (not entire index - it's shared by all files)
+            result = opensearch_client.delete_by_query(
+                index=index_name,
+                body={
+                    "query": {
+                        "term": {"file_id": file_id}
+                    }
+                },
+                conflicts='proceed',
+                ignore=[404]
+            )
+            deleted_count = result.get('deleted', 0) if isinstance(result, dict) else 0
+            logger.info(f"[REINDEX SINGLE] Deleted {deleted_count} events for file {file_id} from index {index_name}")
         except Exception as e:
-            logger.warning(f"[REINDEX SINGLE] Could not delete index: {e}")
+            logger.warning(f"[REINDEX SINGLE] Could not delete events: {e}")
     
     # Clear SIGMA and IOC data
     clear_file_sigma_violations(db, file_id)
@@ -660,16 +670,22 @@ def bulk_reindex_selected(case_id):
         return redirect(url_for('files.case_files', case_id=case_id))
     
     # Process each file
+    from utils import make_index_name
+    index_name = make_index_name(case_id)  # Gets case index (shared by all files)
+    
     for file in files:
-        # Clear OpenSearch index
+        # Clear OpenSearch events for this file (v1.13.1: delete by file_id)
         if file.opensearch_key:
             try:
-                # IMPORTANT: Use make_index_name() to ensure consistent index name generation
-                from utils import make_index_name
-                index_name = make_index_name(case_id, file.original_filename)
-                opensearch_client.indices.delete(index=index_name, ignore=[400, 404])
+                # Delete events by file_id (not entire index - it's shared)
+                opensearch_client.delete_by_query(
+                    index=index_name,
+                    body={"query": {"term": {"file_id": file.id}}},
+                    conflicts='proceed',
+                    ignore=[404]
+                )
             except Exception as e:
-                logger.warning(f"[BULK REINDEX SELECTED] Could not delete index for file {file.id}: {e}")
+                logger.warning(f"[BULK REINDEX SELECTED] Could not delete events for file {file.id}: {e}")
         
         # Clear SIGMA and IOC data
         clear_file_sigma_violations(db, file.id)
