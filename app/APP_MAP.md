@@ -16688,3 +16688,166 @@ Displays actual installed versions (not requirements):
 ---
 
 **This map will be updated as refactoring progresses.**
+
+---
+
+## 🐛 v1.13.9 - UserData/EventData Mapping Conflicts + Statistics Fix (2025-11-13)
+
+### **Problem 1: OpenSearch Mapping Conflicts**
+
+**Symptoms:**
+- 40+ files in Case 13 failing with "Indexing failed: 0 of X events indexed"
+- Hyper-V, SMB, WMI event logs consistently failing
+- Error: `mapper_parsing_exception - failed to parse field [Event.UserData] of type [text]`
+
+**Root Cause:**
+OpenSearch dynamically maps fields based on the first document indexed:
+1. **First file processed**: Simple UserData structure → mapped as TEXT (string)
+2. **Later files**: Complex nested UserData (Hyper-V VmlEventLog, SMB EventData) → sends OBJECT
+3. **Conflict**: Can't send object when field is mapped as text → all events rejected
+
+**Example Error:**
+```
+mapper_parsing_exception - failed to parse field [Event.UserData] of type [text]
+Preview: '{VmlEventLog={"#attributes": {"xmlns": "..."}, "VmId": "...", "VmName": "..."}}'
+```
+
+**Solution Attempts:**
+1. **v1.13.9 Attempt 1** (FAILED): Flatten nested children, keep parent as dict
+   - Problem: Parent type (dict vs string) still varied
+   - Result: Still got mapping conflicts
+   
+2. **v1.13.9 FINAL** (SUCCESS): Convert entire UserData/EventData to JSON string
+   ```python
+   # app/file_processing.py lines 77-85
+   elif key in ['EventData', 'UserData']:
+       import json
+       normalized[key] = json.dumps(value, sort_keys=True)
+   ```
+
+**Why This Works:**
+- ✅ Consistent data type (always string) - no mapping conflicts
+- ✅ Fully searchable (OpenSearch indexes JSON string content)
+- ✅ Works with any structure complexity
+- ✅ Date operations unaffected (use `System.TimeCreated`, not UserData)
+
+**Testing:**
+- **Case 13 Reset #1** (22:14): Failed - old code still in place
+- **Case 13 Reset #2** (22:30): SUCCESS
+  - After 20 seconds: 81 files completed, 0 failures
+  - 187,252 events indexed cleanly
+  - Error rate: 0%
+
+---
+
+### **Problem 2: Race Condition in Index Creation**
+
+**Symptoms:**
+- 6 files in Case 10 failing with `resource_already_exists_exception`
+- Error: "Failed to create index" but index actually exists
+- Happened during concurrent processing of same case
+
+**Root Cause:**
+With consolidated indices (v1.13.1):
+- Multiple workers process different files from same case simultaneously
+- Worker A: Check if `case_10` exists → No → Create it → Success
+- Worker B: Check if `case_10` exists → No (same time) → Try to create → ERROR
+
+**Solution:**
+```python
+# app/file_processing.py lines 437-487
+opensearch_client.indices.create(
+    index=index_name,
+    body={...},
+    ignore=[400]  # Ignore "already exists" errors
+)
+
+# Enhanced error handling
+if 'resource_already_exists_exception' in error_str:
+    logger.warning("Race condition - another worker created index, continuing...")
+    # Don't fail - the index exists, proceed to indexing
+```
+
+**Result:**
+- Workers no longer fail when another worker creates the index first
+- Files process successfully regardless of race condition
+- 6 previously failed files in Case 10 completed after requeue
+
+---
+
+### **Problem 3: Statistics Showing Hidden Files**
+
+**Symptoms:**
+- Case 9 UI showing "14 failed files"
+- Clicking "Failed" only shows 8 files
+- Hard refresh doesn't fix it
+
+**Root Cause:**
+- Page load: `get_file_stats_with_hidden()` correctly returns 8 (excludes hidden files)
+- JavaScript auto-refresh: Calls `/case/<id>/file-stats` API every 3 seconds
+- **API endpoint didn't filter hidden files** → returned 14 (8 visible + 6 hidden)
+- Auto-refresh overwrites initial page value
+
+**Solution:**
+```python
+# app/routes/files.py lines 960-1000
+# Added is_hidden == False filter to ALL status queries:
+
+completed = db.session.query(CaseFile).filter(
+    CaseFile.case_id == case_id,
+    CaseFile.indexing_status == 'Completed',
+    CaseFile.is_deleted == False,
+    CaseFile.is_hidden == False  # v1.13.9 fix
+).count()
+
+# Same for: queued, indexing, sigma, ioc_hunting, failed
+```
+
+**Result:**
+- Live statistics now match initial page load
+- Case 9 shows 8 failed files (correct)
+- Hidden files properly excluded from all counts
+
+---
+
+### **Files Modified**
+
+| File | Changes | Lines |
+|------|---------|-------|
+| `app/file_processing.py` | UserData/EventData → JSON string | 77-85 |
+| `app/file_processing.py` | Race condition handling | 437-487 |
+| `app/routes/files.py` | Statistics API hidden file filter | 960-1000 |
+
+### **Impact Assessment**
+
+**✅ What Still Works:**
+- All date sorting/filtering (uses `System.TimeCreated`, not UserData)
+- Date range dropdowns (Last 24h, 7d, 30d, custom ranges)
+- Timeline views
+- IOC hunting (searches all fields including JSON strings)
+- SIGMA detection (operates on original events)
+- General search functionality (JSON strings are indexed)
+
+**⚠️ What Changed:**
+- Nested field queries no longer work:
+  - **Before**: `UserData.VmlEventLog.VmId:"E966F1A3-41EE-4E7E-86A4-41ADC759CFBA"`
+  - **After**: `UserData:"E966F1A3-41EE-4E7E-86A4-41ADC759CFBA"` (searches entire JSON string)
+
+### **How to Apply**
+
+**For New Files:**
+- ✅ Automatic - new normalization applies to all new processing
+- ✅ New indices created with proper settings
+
+**For Existing Files with Failures:**
+1. Identify cases with mapping conflicts (look for "0 of X events indexed")
+2. Use "Re-Index All Files" button on case files page
+3. Deletes old index, clears metadata, reprocesses all files
+4. New index created with UserData/EventData as JSON strings
+
+**Service Restarts Required:**
+- ✅ Celery workers (after file_processing.py changes)
+- ✅ Flask app (after routes/files.py changes)
+
+---
+

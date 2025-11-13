@@ -2538,5 +2538,99 @@
       ]
     }
   },
-  "last_updated": "2025-11-05"
+  "last_updated": "2025-11-13",
+  "v1.13.9": {
+    "date": "2025-11-13",
+    "title": "UserData/EventData JSON String Normalization + Statistics Fix",
+    "type": "critical_fix",
+    "problems_solved": {
+      "userdata_mapping_conflicts": {
+        "issue": "Hyper-V, SMB, WMI events failing with mapper_parsing_exception",
+        "root_cause": "OpenSearch mapped UserData/EventData dynamically - TEXT vs OBJECT conflicts",
+        "example": "Event.UserData mapped as TEXT, but sending nested VmlEventLog object",
+        "result": "40+ files failing with '0 of X events indexed'",
+        "cases_affected": [
+          "Case 13 (5,285 files)"
+        ]
+      },
+      "failed_count_mismatch": {
+        "issue": "Case 9 showing 14 failed files, but only 8 visible",
+        "root_cause": "Live statistics API not filtering hidden files",
+        "details": "get_file_stats_with_hidden() correct (8), but /file-stats endpoint counted all (14)",
+        "javascript": "Auto-refresh every 3s overrides initial page load value"
+      },
+      "race_condition": {
+        "issue": "Multiple workers creating same index \u2192 resource_already_exists_exception",
+        "root_cause": "Consolidated indices (v1.13.1) = multiple workers process same case",
+        "result": "6 files in Case 10 marked Failed despite index existing"
+      }
+    },
+    "solutions": {
+      "final_normalization": {
+        "approach": "Convert ENTIRE UserData/EventData to JSON string",
+        "code": "normalized[key] = json.dumps(value, sort_keys=True)",
+        "why": "Ensures consistent type (string) regardless of structure complexity",
+        "file": "app/file_processing.py lines 77-85",
+        "attempts": {
+          "v1": "Flatten nested children, keep parent as dict \u2192 FAILED (parent type still varies)",
+          "v2": "Convert entire block to JSON string \u2192 SUCCESS"
+        }
+      },
+      "race_condition_fix": {
+        "approach": "Add ignore=[400] to indices.create()",
+        "code": "opensearch_client.indices.create(..., ignore=[400])",
+        "enhanced_handling": "Check for 'resource_already_exists_exception' and continue",
+        "file": "app/file_processing.py lines 437-487"
+      },
+      "statistics_api_fix": {
+        "approach": "Add is_hidden == False filter to all status queries",
+        "endpoint": "/case/<id>/file-stats",
+        "queries_updated": [
+          "completed",
+          "queued",
+          "indexing",
+          "sigma",
+          "ioc_hunting",
+          "failed"
+        ],
+        "file": "app/routes/files.py lines 960-1000"
+      }
+    },
+    "testing_results": {
+      "case_13_reset_1": {
+        "time": "22:14:56",
+        "result": "FAILED - still had old normalization code",
+        "failures": "40+ files with mapper_parsing_exception"
+      },
+      "case_13_reset_2": {
+        "time": "22:30:23",
+        "result": "SUCCESS",
+        "after_20_seconds": "81 files completed, 0 failures",
+        "events_indexed": "187,252",
+        "error_rate": "0%"
+      }
+    },
+    "impact": {
+      "date_operations": "UNAFFECTED - uses System.TimeCreated, not UserData",
+      "search": "PRESERVED - JSON strings are fully searchable",
+      "ioc_hunting": "WORKS - searches across all fields including JSON",
+      "sigma_detection": "WORKS - operates on original events",
+      "nested_queries": "CHANGED - UserData.VmlEventLog.VmId:\"xxx\" \u2192 UserData:\"xxx\""
+    },
+    "files_modified": [
+      "app/file_processing.py - UserData/EventData normalization + race condition",
+      "app/routes/files.py - Live statistics API hidden file filter"
+    ],
+    "commits": [
+      "050a485 - Enhanced UserData/EventData normalization (attempt 1)",
+      "2d5612b - Convert UserData/EventData to JSON strings (FINAL)",
+      "ec86802 - Exclude hidden files from live statistics API"
+    ],
+    "action_required": "None - fix is automatic for new indices",
+    "notes": [
+      "Existing indices retain their mapping (TEXT or OBJECT)",
+      "New indices will have UserData/EventData as TEXT with JSON string content",
+      "Case 13 fully reset (5,285 files) with new normalization"
+    ]
+  }
 }
