@@ -1012,6 +1012,63 @@ def file_stats_case(case_id):
         }), 500
 
 
+@files_bp.route('/files/global/queue/status')
+@login_required
+def queue_status_global():
+    """Get global queue status across all cases"""
+    from main import db, CaseFile, Case
+    
+    try:
+        # Get queued files (all cases)
+        queued_files = db.session.query(CaseFile, Case.name).join(Case).filter(
+            CaseFile.indexing_status == 'Queued',
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
+        ).order_by(CaseFile.id).limit(100).all()
+        
+        # Get failed files (not hidden)
+        failed_count = db.session.query(CaseFile).filter(
+            CaseFile.indexing_status.like('Failed%'),
+            CaseFile.is_hidden == False,
+            CaseFile.is_deleted == False
+        ).count()
+        
+        # Get actively processing (all cases)
+        processing = db.session.query(CaseFile, Case.name).join(Case).filter(
+            CaseFile.indexing_status.in_(['Staging', 'Indexing', 'SIGMA Testing', 'IOC Hunting']),
+            CaseFile.is_deleted == False
+        ).all()
+        
+        # Get total queued count
+        queued_count = db.session.query(CaseFile).filter(
+            CaseFile.indexing_status == 'Queued',
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
+        ).count()
+        
+        return jsonify({
+            'status': 'success',
+            'queued': [{
+                'id': f.id,
+                'filename': f.original_filename,
+                'case_name': case_name,
+                'case_id': f.case_id
+            } for f, case_name in queued_files],
+            'queued_count': queued_count,
+            'failed_count': failed_count,
+            'processing': [{
+                'id': f.id,
+                'filename': f.original_filename,
+                'status': f.indexing_status,
+                'case_name': case_name,
+                'case_id': f.case_id
+            } for f, case_name in processing]
+        })
+    except Exception as e:
+        logger.error(f"Error getting global queue status: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @files_bp.route('/case/<int:case_id>/queue/status')
 @login_required
 def queue_status_case(case_id):
