@@ -38,9 +38,11 @@
                 </div>
                 <div class="stat-item">
                     <div class="stat-item-label">Hidden Files (0 events)</div>
-                    <div class="stat-item-value-large" style="color: {% if hidden_files > 0 %}var(--color-warning){% else %}var(--color-text-secondary){% endif %};">
-                        {{ hidden_files }}
-                    </div>
+                    <a href="{{ url_for('files.view_hidden_files_global') }}" style="text-decoration: none;">
+                        <div class="stat-item-value-large" style="color: {% if hidden_files > 0 %}var(--color-warning){% else %}var(--color-text-secondary){% endif %}; cursor: pointer;">
+                            {{ hidden_files }}
+                        </div>
+                    </a>
                 </div>
             </div>
             
@@ -74,8 +76,10 @@
                     {% endif %}
                     {% if files_failed > 0 %}
                     <div class="stat-item" style="margin-bottom: var(--spacing-xs);">
-                        <div class="text-secondary" style="font-size: 0.875rem; color: var(--color-error);">❌ Failed</div>
-                        <div style="color: var(--color-error);"><strong>{{ files_failed }}</strong></div>
+                        <a href="{{ url_for('files.view_failed_files_global') }}" style="text-decoration: none;">
+                            <div class="text-secondary" style="font-size: 0.875rem; color: var(--color-error); cursor: pointer;">❌ Failed</div>
+                            <div style="color: var(--color-error); cursor: pointer;"><strong>{{ files_failed }}</strong></div>
+                        </a>
                     </div>
                     {% endif %}
                     {% if files_queued == 0 and files_indexing == 0 and files_sigma == 0 and files_ioc_hunting == 0 and files_failed == 0 %}

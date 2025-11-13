@@ -9,6 +9,86 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# GLOBAL FUNCTIONS (All Cases)
+# ============================================================================
+
+def get_hidden_files_count_global(db_session) -> int:
+    """Get count of hidden files across ALL cases"""
+    from models import CaseFile
+    
+    return db_session.query(CaseFile).filter_by(
+        is_deleted=False,
+        is_hidden=True
+    ).count()
+
+
+def get_hidden_files_global(db_session, page: int = 1, per_page: int = 50, search_term: str = None):
+    """Get paginated list of hidden files across ALL cases with optional search"""
+    from models import CaseFile, Case
+    
+    query = db_session.query(CaseFile, Case.name).join(Case).filter(
+        CaseFile.is_deleted == False,
+        CaseFile.is_hidden == True
+    )
+    
+    # Apply search filter if provided
+    if search_term:
+        search_pattern = f"%{search_term}%"
+        query = query.filter(
+            (CaseFile.original_filename.ilike(search_pattern)) |
+            (CaseFile.file_hash.ilike(search_pattern)) |
+            (Case.name.ilike(search_pattern))
+        )
+    
+    query = query.order_by(CaseFile.uploaded_at.desc())
+    
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return pagination
+
+
+def get_failed_files_count_global(db_session) -> int:
+    """Get count of failed files across ALL cases (not hidden)"""
+    from models import CaseFile
+    
+    known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
+    return db_session.query(CaseFile).filter(
+        CaseFile.is_deleted == False,
+        CaseFile.is_hidden == False,
+        ~CaseFile.indexing_status.in_(known_statuses)
+    ).count()
+
+
+def get_failed_files_global(db_session, page: int = 1, per_page: int = 50, search_term: str = None):
+    """Get paginated list of failed files across ALL cases with optional search"""
+    from models import CaseFile, Case
+    
+    known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
+    query = db_session.query(CaseFile, Case.name).join(Case).filter(
+        CaseFile.is_deleted == False,
+        CaseFile.is_hidden == False,
+        ~CaseFile.indexing_status.in_(known_statuses)
+    )
+    
+    # Apply search filter if provided
+    if search_term:
+        search_pattern = f"%{search_term}%"
+        query = query.filter(
+            (CaseFile.original_filename.ilike(search_pattern)) |
+            (CaseFile.file_hash.ilike(search_pattern)) |
+            (Case.name.ilike(search_pattern))
+        )
+    
+    query = query.order_by(CaseFile.uploaded_at.desc())
+    
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return pagination
+
+
+# ============================================================================
+# CASE-SPECIFIC FUNCTIONS
+# ============================================================================
+
 def get_hidden_files_count(db_session, case_id: int) -> int:
     """Get count of hidden files for a case"""
     from models import CaseFile

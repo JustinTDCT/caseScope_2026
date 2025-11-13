@@ -1,8 +1,177 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.13.2  
-**Last Updated**: 2025-11-13 13:37 UTC  
+**Version**: 1.13.3  
+**Last Updated**: 2025-11-13 14:31 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.13.3 - FEATURE: Global Hidden & Failed Files Views with Pagination (2025-11-13 14:31 UTC)
+
+**Change**: Added clickable links to Hidden Files and Failed Files stats on global file management page, with full pagination and search functionality across ALL cases.
+
+### 1. Problem
+
+**Issue**: No easy way to view hidden or failed files across all cases in one place.
+
+**Pain Points**:
+- Had to click into each case individually to see hidden/failed files
+- No global search for problem files across entire system
+- Hidden Files and Failed Files stats on Global File Management page were just numbers (not clickable)
+- Difficult to identify patterns or issues spanning multiple cases
+
+### 2. Solution
+
+**Global Hidden/Failed Files Views**:
+
+**1. Clickable Stats** (`global_files.html` lines 39-46, 77-84):
+```html
+<!-- Hidden Files - Now Clickable -->
+<a href="{{ url_for('files.view_hidden_files_global') }}">
+    <div class="stat-item-value-large" style="cursor: pointer;">
+        {{ hidden_files }}
+    </div>
+</a>
+
+<!-- Failed Files - Now Clickable -->
+<a href="{{ url_for('files.view_failed_files_global') }}">
+    <div style="cursor: pointer;">{{ files_failed }}</div>
+</a>
+```
+
+**2. New Global Functions** (`hidden_files.py` lines 12-85):
+```python
+def get_hidden_files_global(db_session, page, per_page, search_term):
+    """Get paginated list of hidden files across ALL cases"""
+    query = db_session.query(CaseFile, Case.name).join(Case).filter(
+        CaseFile.is_deleted == False,
+        CaseFile.is_hidden == True
+    )
+    
+    # Search across filename, hash, AND case name
+    if search_term:
+        query = query.filter(
+            (CaseFile.original_filename.ilike(f"%{search_term}%")) |
+            (CaseFile.file_hash.ilike(f"%{search_term}%")) |
+            (Case.name.ilike(f"%{search_term}%"))
+        )
+    
+    return query.paginate(page=page, per_page=per_page)
+
+# Similar for get_failed_files_global()
+```
+
+**3. New Routes** (`routes/files.py` lines 1072-1127):
+```python
+@files_bp.route('/files/global/hidden')
+def view_hidden_files_global():
+    """View hidden files across ALL cases with search and pagination"""
+    pagination = get_hidden_files_global(db.session, page, per_page, search_term)
+    
+    # Transform (CaseFile, case_name) tuples to structured data
+    files_with_cases = [
+        {'file': file, 'case_name': case_name}
+        for file, case_name in pagination.items
+    ]
+    
+    return render_template('global_hidden_files.html', ...)
+
+@files_bp.route('/files/global/failed')
+def view_failed_files_global():
+    # Similar implementation for failed files
+```
+
+**4. New Templates**:
+- **`global_hidden_files.html`**: Shows hidden files with Case column
+- **`global_failed_files.html`**: Shows failed files with Case + Failure Reason columns
+
+**Template Structure**:
+```html
+<table>
+    <thead>
+        <th>File Name</th>
+        <th>Case</th>  <!-- NEW: Shows which case file belongs to -->
+        <th>Type</th>
+        <th>Size</th>
+        <th>Status</th>
+        <th>Failure Reason</th>  <!-- For failed files -->
+        <th>Actions</th>
+    </thead>
+    <tbody>
+        {% for item in files_with_cases %}
+        <tr>
+            <td>{{ item.file.original_filename }}</td>
+            <td>
+                <a href="/case/{{ item.file.case_id }}">
+                    {{ item.case_name }}
+                </a>
+            </td>
+            <!-- ... -->
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Pagination -->
+<div class="pagination-controls">
+    Page {{ pagination.page }} of {{ pagination.pages }}
+</div>
+```
+
+### 3. Features
+
+**Global Hidden Files View** (`/files/global/hidden`):
+- ✅ **All Cases**: Shows hidden files from ALL cases in one table
+- ✅ **Pagination**: 50 files per page
+- ✅ **Search**: Search by filename, hash, OR case name
+- ✅ **Case Column**: See which case each file belongs to (clickable)
+- ✅ **Unhide Action**: Reuses existing `toggle_file_hidden` route (scoped to file's case)
+
+**Global Failed Files View** (`/files/global/failed`):
+- ✅ **All Cases**: Shows failed files from ALL cases in one table
+- ✅ **Pagination**: 50 files per page
+- ✅ **Search**: Search by filename, hash, OR case name
+- ✅ **Case Column**: See which case each file belongs to (clickable)
+- ✅ **Failure Reason**: Shows `error_message` field (added in v1.13.2)
+- ✅ **Requeue Action**: Reuses existing `requeue_single_file` route (scoped to file's case)
+
+### 4. Benefits
+
+**Before**:
+- ❌ Had to check each case individually for hidden/failed files
+- ❌ No way to search across all cases at once
+- ❌ Stats were informational only (not actionable)
+
+**After**:
+- ✅ **Single View**: See ALL hidden/failed files across entire system in one table
+- ✅ **Global Search**: Search by filename, hash, or case name across ALL cases
+- ✅ **Actionable Stats**: Click numbers to see detailed breakdown
+- ✅ **Pattern Detection**: Easy to spot systemic issues (e.g., same file type failing across multiple cases)
+- ✅ **Fast Navigation**: Click case name to jump to specific case
+- ✅ **Reuse Code**: Templates based on existing case-specific templates (modular design)
+
+### 5. Files Modified
+
+**Backend**:
+- `app/hidden_files.py`: Added 4 global functions (lines 12-85)
+  - `get_hidden_files_global()`
+  - `get_hidden_files_count_global()`
+  - `get_failed_files_global()`
+  - `get_failed_files_count_global()`
+- `app/routes/files.py`: Added 2 routes (lines 1072-1127)
+  - `/files/global/hidden` → `view_hidden_files_global()`
+  - `/files/global/failed` → `view_failed_files_global()`
+
+**Frontend**:
+- `app/templates/global_files.html`: Made stats clickable (lines 39-46, 77-84)
+- `app/templates/global_hidden_files.html`: New template (based on `hidden_files.html`)
+- `app/templates/global_failed_files.html`: New template (based on `failed_files.html`)
+
+### 6. Related Features
+
+- **v1.13.2**: Error message tracking (Failure Reason column)
+- **v1.12.39**: Queue cleanup for 0-event files (Hidden Files)
+- **Global Queue Viewer**: Shows processing status (on same page)
 
 ---
 

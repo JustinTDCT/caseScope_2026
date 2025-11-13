@@ -1069,6 +1069,64 @@ def queue_status_global():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@files_bp.route('/files/global/hidden')
+@login_required
+def view_hidden_files_global():
+    """View hidden files across ALL cases with search and pagination"""
+    from main import db
+    from hidden_files import get_hidden_files_global, get_hidden_files_count_global
+    
+    page = request.args.get('page', 1, type=int)
+    search_term = request.args.get('search', '', type=str).strip()
+    per_page = 50
+    
+    pagination = get_hidden_files_global(db.session, page, per_page, search_term)
+    hidden_count = get_hidden_files_count_global(db.session)
+    
+    # Transform pagination items from (CaseFile, case_name) tuples to structured data
+    files_with_cases = []
+    for file, case_name in pagination.items:
+        files_with_cases.append({
+            'file': file,
+            'case_name': case_name
+        })
+    
+    return render_template('global_hidden_files.html',
+                          files_with_cases=files_with_cases,
+                          pagination=pagination,
+                          hidden_count=hidden_count,
+                          search_term=search_term)
+
+
+@files_bp.route('/files/global/failed')
+@login_required
+def view_failed_files_global():
+    """View failed files across ALL cases with search and pagination"""
+    from main import db
+    from hidden_files import get_failed_files_global, get_failed_files_count_global
+    
+    page = request.args.get('page', 1, type=int)
+    search_term = request.args.get('search', '', type=str).strip()
+    per_page = 50
+    
+    pagination = get_failed_files_global(db.session, page, per_page, search_term)
+    failed_count = get_failed_files_count_global(db.session)
+    
+    # Transform pagination items from (CaseFile, case_name) tuples to structured data
+    files_with_cases = []
+    for file, case_name in pagination.items:
+        files_with_cases.append({
+            'file': file,
+            'case_name': case_name
+        })
+    
+    return render_template('global_failed_files.html',
+                          files_with_cases=files_with_cases,
+                          pagination=pagination,
+                          failed_count=failed_count,
+                          search_term=search_term)
+
+
 @files_bp.route('/case/<int:case_id>/queue/status')
 @login_required
 def queue_status_case(case_id):
