@@ -89,7 +89,8 @@
                         <th>File Name</th>
                         <th style="width: 100px;">Type</th>
                         <th style="width: 120px;">Size</th>
-                        <th style="width: 200px;">Status</th>
+                        <th style="width: 150px;">Status</th>
+                        <th style="width: 300px;">Failure Reason</th>
                         <th style="width: 150px;">Uploaded</th>
                         <th style="width: 120px;">Actions</th>
                     </tr>
@@ -107,13 +108,25 @@
                                 {{ file.file_type }}
                             </span>
                         </td>
-                        <td>{{ file.size_mb }} MB</td>
+                        <td>{{ "%.2f"|format(file.file_size / 1024 / 1024) }} MB</td>
                         <td>
-                            <span class="status-badge" style="background: rgba(220, 53, 69, 0.1); color: var(--color-error); font-size: 0.75rem;">
+                            <span class="status-badge" style="background: rgba(239, 68, 68, 0.2); color: var(--color-error); font-weight: 500;">
                                 {{ file.indexing_status }}
                             </span>
                         </td>
-                        <td>{{ file.uploaded_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td style="font-size: 0.85rem;">
+                            {% if file.error_message %}
+                            <div style="color: var(--color-text-secondary); line-height: 1.4; max-width: 300px; overflow-wrap: break-word;">
+                                <span style="font-weight: 500; color: var(--color-error);">⚠️</span> {{ file.error_message[:200] }}{% if file.error_message|length > 200 %}...{% endif %}
+                            </div>
+                            {% else %}
+                            <span class="text-muted" style="font-style: italic;">No error details available</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="text-muted">{{ file.uploaded_at.strftime('%Y-%m-%d') }}</span>
+                            <br><span class="text-muted" style="font-size: 0.75rem;">{{ file.uploaded_at.strftime('%H:%M') }}</span>
+                        </td>
                         <td>
                             <form method="POST" action="{{ url_for('files.requeue_single_file', case_id=case.id, file_id=file.id) }}" style="display: inline;">
                                 <button type="submit" class="btn btn-sm" style="font-size: 0.75rem; background: var(--color-success); color: white;">

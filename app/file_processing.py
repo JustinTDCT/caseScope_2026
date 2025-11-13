@@ -324,12 +324,14 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
             
             if result.returncode != 0:
-                logger.error(f"[INDEX FILE] evtx_dump failed: {result.stderr[:200]}")
+                error_msg = f'evtx_dump failed: {result.stderr[:100]}'
+                logger.error(f"[INDEX FILE] {error_msg}")
                 case_file.indexing_status = 'Failed'
+                case_file.error_message = f'EVTX parsing failed. {result.stderr[:400]}'
                 commit_with_retry(db.session, logger_instance=logger)
                 return {
                     'status': 'error',
-                    'message': f'evtx_dump failed: {result.stderr[:100]}',
+                    'message': error_msg,
                     'file_id': file_id,
                     'event_count': 0,
                     'index_name': index_name
@@ -610,8 +612,10 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
         
         # Verify indexing success
         if indexed_count == 0 and event_count > 0:
-            logger.error(f"[INDEX FILE] CRITICAL: Parsed {event_count} events but indexed 0! Index may not exist or bulk indexing failed.")
+            error_msg = f'Parsed {event_count} events but indexed 0. This usually means OpenSearch rejected the bulk indexing request. Check OpenSearch logs for rejection reasons (field limit, mapping conflicts, etc.)'
+            logger.error(f"[INDEX FILE] CRITICAL: {error_msg}")
             case_file.indexing_status = 'Failed: 0 events indexed'
+            case_file.error_message = error_msg
             case_file.event_count = 0
             commit_with_retry(db.session, logger_instance=logger)
             return {
@@ -691,16 +695,19 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
         }
     
     except Exception as e:
-        logger.error(f"[INDEX FILE] Error: {e}")
+        error_msg = str(e)
+        logger.error(f"[INDEX FILE] Error: {error_msg}")
         import traceback
-        logger.error(traceback.format_exc())
+        traceback_str = traceback.format_exc()
+        logger.error(traceback_str)
         
         case_file.indexing_status = 'Failed'
+        case_file.error_message = f'{error_msg[:200]}. Check worker logs for full stack trace.'
         commit_with_retry(db.session, logger_instance=logger)
         
         return {
             'status': 'error',
-            'message': str(e),
+            'message': error_msg,
             'file_id': file_id,
             'event_count': 0,
             'index_name': index_name

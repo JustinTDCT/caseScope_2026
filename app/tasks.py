@@ -219,7 +219,9 @@ def process_file(self, file_id, operation='full'):
                 )
                 
                 if index_result['status'] == 'error':
+                    error_msg = index_result.get('message', 'Unknown indexing error')
                     case_file.indexing_status = 'Failed'
+                    case_file.error_message = error_msg[:500]
                     db.session.commit()
                     return index_result
                 
@@ -267,10 +269,11 @@ def process_file(self, file_id, operation='full'):
                 if not case_file.is_hidden and case_file.event_count > 0:
                     try:
                         if not opensearch_client.indices.exists(index=index_name):
-                            logger.error(f"[TASK] ❌ VALIDATION FAILED: Index {index_name} does not exist for file {file_id}")
-                            logger.error(f"[TASK] ❌ File has event_count={case_file.event_count} but no index!")
+                            error_msg = f'Index {index_name} does not exist despite file having {case_file.event_count} events. Worker may have crashed during indexing, or index was deleted externally.'
+                            logger.error(f"[TASK] ❌ VALIDATION FAILED: {error_msg}")
                             logger.error(f"[TASK] ❌ Setting status to 'Failed' to prevent data corruption")
                             case_file.indexing_status = 'Failed: Index missing after processing'
+                            case_file.error_message = error_msg
                             case_file.celery_task_id = None
                             db.session.commit()
                             return {
