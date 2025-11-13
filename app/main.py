@@ -1551,6 +1551,104 @@ def delete_custom_event(event_desc_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ============================================================================
+# EVENT DESCRIPTION REFRESH ROUTES (v1.13.7)
+# ============================================================================
+
+@app.route('/case/<int:case_id>/refresh_descriptions', methods=['POST'])
+@login_required
+def refresh_descriptions_case_route(case_id):
+    """Refresh event descriptions for a case (reusable from multiple pages)"""
+    from tasks import refresh_descriptions_case
+    from celery_health import check_workers_available
+    
+    case = db.session.get(Case, case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    # Safety check: Ensure Celery workers are available
+    workers_ok, worker_count, error_msg = check_workers_available(min_workers=1)
+    if not workers_ok:
+        flash(f'⚠️ Cannot start operation: {error_msg}. Please check Celery workers.', 'error')
+        return _redirect_refresh_descriptions(case_id)
+    
+    # Queue refresh task
+    refresh_descriptions_case.delay(case_id)
+    
+    flash(f'✅ Event description refresh queued for case "{case.name}" ({worker_count} worker(s) available)', 'success')
+    return _redirect_refresh_descriptions(case_id)
+
+
+@app.route('/refresh_descriptions_global', methods=['POST'])
+@login_required
+def refresh_descriptions_global_route():
+    """Refresh event descriptions for ALL cases (reusable from multiple pages)"""
+    from tasks import refresh_descriptions_global
+    from celery_health import check_workers_available
+    
+    # Safety check: Ensure Celery workers are available
+    workers_ok, worker_count, error_msg = check_workers_available(min_workers=1)
+    if not workers_ok:
+        flash(f'⚠️ Cannot start global operation: {error_msg}. Please check Celery workers.', 'error')
+        return _redirect_refresh_descriptions_global()
+    
+    # Get case count for user feedback
+    case_count = db.session.query(Case).count()
+    
+    if case_count == 0:
+        flash('No cases found to refresh', 'warning')
+        return _redirect_refresh_descriptions_global()
+    
+    # Queue global refresh task
+    refresh_descriptions_global.delay()
+    
+    flash(f'✅ Global event description refresh queued for {case_count} case(s) ({worker_count} worker(s) available)', 'success')
+    return _redirect_refresh_descriptions_global()
+
+
+def _redirect_refresh_descriptions(case_id):
+    """Helper to redirect back to originating page after case refresh"""
+    redirect_to = request.args.get('redirect_to', request.form.get('redirect_to'))
+    if not redirect_to:
+        # Check referer to determine where user came from
+        referer = request.referrer or ''
+        if '/files' in referer:
+            redirect_to = 'case_files'
+        elif '/evtx' in referer:
+            redirect_to = 'evtx_descriptions'
+        else:
+            redirect_to = 'case_dashboard'
+    
+    if redirect_to == 'case_files':
+        return redirect(url_for('files.case_files', case_id=case_id))
+    elif redirect_to == 'evtx_descriptions':
+        return redirect(url_for('evtx_descriptions'))
+    else:
+        return redirect(url_for('view_case', case_id=case_id))
+
+
+def _redirect_refresh_descriptions_global():
+    """Helper to redirect back to originating page after global refresh"""
+    redirect_to = request.args.get('redirect_to', request.form.get('redirect_to'))
+    if not redirect_to:
+        # Check referer to determine where user came from
+        referer = request.referrer or ''
+        if '/files/global' in referer:
+            redirect_to = 'global_files'
+        elif '/evtx' in referer:
+            redirect_to = 'evtx_descriptions'
+        else:
+            redirect_to = 'dashboard'
+    
+    if redirect_to == 'global_files':
+        return redirect(url_for('files.global_files'))
+    elif redirect_to == 'evtx_descriptions':
+        return redirect(url_for('evtx_descriptions'))
+    else:
+        return redirect(url_for('dashboard'))
+
+
 @app.route('/case/<int:case_id>/search')
 @login_required
 def search_events(case_id):

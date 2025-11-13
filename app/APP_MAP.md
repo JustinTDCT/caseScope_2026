@@ -1,8 +1,256 @@
 # CaseScope 2026 - Application Map
 
 **Version**: 1.13.7  
-**Last Updated**: 2025-11-13 15:30 UTC  
+**Last Updated**: 2025-11-13 16:00 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.13.7 - FEATURE: Refresh Event Descriptions in OpenSearch (2025-11-13 16:00 UTC)
+
+**Change**: Added ability to update `event_title`, `event_description`, and `event_category` fields for ALL indexed events in OpenSearch WITHOUT full re-index.
+
+**User Request**: "is there logic when EVTX descriptions are updated to update ALL saved events across all cases? if not is it possible to do this without reindex? if so we would want to add it as a button on the EVTX manager page and also on the global files page and case files page - remember we want to be modular and breakout what we can where we can and reuse code to keep page code low"
+
+### Problem
+
+**Missing Synchronization**:
+- When users add custom event descriptions, existing OpenSearch events don't get the new descriptions
+- When descriptions are scraped from external sources, existing events keep old descriptions  
+- Only NEW file uploads get current descriptions during indexing (`file_processing.py` lines 627-629)
+- No way to apply description updates to existing 2M+ events across all cases
+
+**Previous Solution**: Full file re-index required
+- Time-consuming: Re-processes all files (parsing, indexing, SIGMA, IOC hunting)
+- Queue disruption: Adds thousands of files to processing queue
+- Resource intensive: Uses Celery workers, disk I/O, CPU for full pipeline
+- Inefficient: Only need to update 3 fields, not entire event documents
+
+### Solution
+
+**Modular Architecture** (Following IOC Rehunting Pattern):
+
+**1. Core Module: `evtx_enrichment.py`** (New 257-line file):
+
+```python
+def update_event_descriptions_for_case(opensearch_client, db, EventDescription, case_id: int) -> Dict:
+    """Update descriptions for single case WITHOUT re-index"""
+    # 1. Load all EventDescription records (scraped + custom)
+    # 2. Check if case index exists
+    # 3. For each Event ID:
+    #    - Query OpenSearch for events with that Event ID
+    #    - Use update_by_query with Painless script
+    #    - Update event_title, event_description, event_category in-place
+    # 4. Return stats: events_updated, descriptions_applied
+```
+
+```python
+def update_event_descriptions_global(opensearch_client, db, EventDescription, Case) -> Dict:
+    """Update descriptions for ALL cases WITHOUT re-index"""
+    # 1. Get all cases
+    # 2. Call update_event_descriptions_for_case() for each
+    # 3. Aggregate stats across all cases
+    # 4. Return stats: cases_processed, total_events_updated
+```
+
+**Key Technical Details**:
+- Uses OpenSearch `update_by_query` API (not bulk re-index)
+- Painless script updates fields in-place: `ctx._source.event_title = params.title`
+- Queries by Event ID: `{"term": {"Event.System.EventID": event_id}}`
+- Optional event_source filter: Channel or Provider.Name matching
+- Conflicts handled with `conflicts='proceed'`
+- Index refreshed after updates: `refresh=True`
+
+**2. Celery Tasks** (`tasks.py` lines 517-558):
+
+```python
+@celery_app.task(bind=True, name='tasks.refresh_descriptions_case')
+def refresh_descriptions_case(self, case_id):
+    """Background task for case-specific refresh (v1.13.7)"""
+    result = update_event_descriptions_for_case(...)
+    logger.info(f"[REFRESH DESCRIPTIONS] ✓ Case {case_id}: {result['message']}")
+    return result
+```
+
+```python
+@celery_app.task(bind=True, name='tasks.refresh_descriptions_global')
+def refresh_descriptions_global(self):
+    """Background task for global refresh across all cases (v1.13.7)"""
+    result = update_event_descriptions_global(...)
+    logger.info(f"[REFRESH DESCRIPTIONS GLOBAL] ✓ {result['message']}")
+    return result
+```
+
+**3. Routes with Smart Redirects** (`main.py` lines 1554-1649):
+
+```python
+@app.route('/case/<int:case_id>/refresh_descriptions', methods=['POST'])
+@login_required
+def refresh_descriptions_case_route(case_id):
+    """Case-specific refresh (reusable from multiple pages)"""
+    # 1. Check workers available
+    # 2. Queue Celery task
+    # 3. Flash success message
+    # 4. Smart redirect: _redirect_refresh_descriptions(case_id)
+```
+
+```python
+@app.route('/refresh_descriptions_global', methods=['POST'])
+@login_required
+def refresh_descriptions_global_route():
+    """Global refresh (reusable from multiple pages)"""
+    # 1. Check workers available
+    # 2. Get case count
+    # 3. Queue Celery task
+    # 4. Smart redirect: _redirect_refresh_descriptions_global()
+```
+
+**Smart Redirect Logic** (Reusable Helpers):
+- `_redirect_refresh_descriptions(case_id)`: Detects originating page (case_files, evtx_descriptions, case_dashboard)
+- `_redirect_refresh_descriptions_global()`: Detects originating page (global_files, evtx_descriptions, dashboard)
+- Uses `redirect_to` query param or form field
+- Falls back to referer analysis if not provided
+
+**4. UI Buttons** (3 Locations - Following Modular Pattern):
+
+**EVTX Manager Page** (`evtx_descriptions.html` lines 20-23, 381-394):
+- Button: "🔁 Refresh All Events" (orange/warning color)
+- Action: Global refresh across ALL cases
+- Position: Next to "Update from Sources" button
+- Confirmation: Explains operation, use cases, duration
+
+**Case Files Page** (`case_files.html` lines 179-182, 818-831):
+- Button: "🔁 Refresh Event Descriptions" (blue/info color)
+- Action: Case-specific refresh
+- Position: Next to "Re-Hunt IOCs All Files" button
+- Confirmation: Explains case-specific scope
+
+**Global Files Page** (`global_files.html` lines 12-15, 399-414):
+- Button: "🔁 Refresh Event Descriptions (All Cases)" (blue/info color)  
+- Action: Global refresh across ALL cases
+- Position: In header next to "Back to Dashboard"
+- Confirmation: Explains global scope, duration
+
+### Technical Implementation
+
+**OpenSearch update_by_query Example**:
+```python
+opensearch_client.update_by_query(
+    index=f"case_{case_id}",
+    body={
+        "query": {
+            "bool": {
+                "must": [
+                    {"term": {"Event.System.EventID": 4624}}
+                ],
+                "should": [
+                    {"match": {"Event.System.Channel": "Security"}},
+                    {"match": {"Event.System.Provider.Name": "Security"}}
+                ],
+                "minimum_should_match": 1
+            }
+        },
+        "script": {
+            "source": """
+                ctx._source.event_title = params.title;
+                ctx._source.event_description = params.description;
+                ctx._source.event_category = params.category;
+            """,
+            "params": {
+                "title": "An account was successfully logged on",
+                "description": "This event is generated when...",
+                "category": "Logon"
+            },
+            "lang": "painless"
+        }
+    },
+    conflicts='proceed',
+    wait_for_completion=True,
+    refresh=True
+)
+```
+
+**Includes ALL Event Descriptions** (Scraped + Custom):
+```python
+descriptions = db.session.query(EventDescription).all()
+# Returns:
+# - Scraped events (is_custom=False): Ultimate Windows Security, GitHub, etc.
+# - Custom events (is_custom=True): User-added event descriptions
+```
+
+**Perfect Synergy with Custom Events Feature**:
+1. User adds custom Event ID 9999 description (v1.13.7 Custom Events feature)
+2. User clicks "Refresh Event Descriptions" button (this feature)
+3. System updates all existing Event 9999 occurrences in OpenSearch
+4. Future file uploads also get the description (existing indexing logic)
+
+### Results
+
+**Before**:
+- ❌ No way to update event descriptions after indexing
+- ❌ Custom event descriptions only applied to new files
+- ❌ Description updates from sources required full re-index
+- ❌ Users had to re-upload files or re-index thousands of files
+- ❌ Time-consuming, queue-disruptive, resource-intensive
+
+**After**:
+- ✅ Update descriptions WITHOUT re-indexing files
+- ✅ Custom event descriptions applied to ALL existing events
+- ✅ Scraped description updates applied retroactively
+- ✅ 3 buttons for easy access (EVTX Manager, Case Files, Global Files)
+- ✅ Background processing via Celery (doesn't block UI)
+- ✅ Smart redirect back to originating page
+- ✅ Fast: Only updates 3 fields per event (not entire document)
+- ✅ Efficient: Uses OpenSearch update_by_query (in-place updates)
+
+### Benefits
+
+**For Users**:
+- ✅ **Immediate Enrichment**: Custom event descriptions applied to existing events instantly
+- ✅ **No Re-processing**: Don't need to re-upload or re-index files
+- ✅ **Easy Access**: Buttons on 3 different pages (wherever users might be)
+- ✅ **Clear Feedback**: Confirmation dialogs explain what will happen
+- ✅ **Background Processing**: Operation doesn't block UI, uses Celery
+
+**For System**:
+- ✅ **Modular Code**: Reusable functions in dedicated module (`evtx_enrichment.py`)
+- ✅ **Follows Patterns**: Similar architecture to IOC rehunting (proven pattern)
+- ✅ **Smart Redirects**: Reusable helper functions for page detection
+- ✅ **No Queue Disruption**: Doesn't add files to processing queue
+- ✅ **Efficient Updates**: Only updates 3 fields, not entire event documents
+- ✅ **Scalable**: Handles millions of events via update_by_query batching
+
+**For Administrators**:
+- ✅ **Case-Specific or Global**: Choose scope based on needs
+- ✅ **Background Tasks**: Monitor via Celery logs/dashboard
+- ✅ **Safe Operation**: Doesn't affect file processing or other operations
+- ✅ **Audit Trail**: All operations logged with stats
+
+### Use Cases
+
+1. **After Adding Custom Events**: User adds Event ID 9999 → clicks refresh → all existing Event 9999 entries updated
+2. **After Scraping Descriptions**: Admin runs "Update from Sources" → clicks refresh → all events get new/updated descriptions
+3. **After Fixing Description Data**: Admin corrects Event 4624 description → clicks refresh → 50K Event 4624 occurrences updated
+4. **Case-Specific Enrichment**: User working on Case 5 → adds custom event → clicks case refresh → only Case 5 events updated
+5. **Global Enrichment**: Admin updates descriptions → clicks global refresh → all 2M+ events across all cases updated
+
+### Files Modified
+
+**New Module**:
+- `app/evtx_enrichment.py`: Core logic for updating descriptions (257 lines, 2 main functions)
+
+**Backend**:
+- `app/tasks.py`: Added 2 Celery tasks (lines 517-558)
+- `app/main.py`: Added 2 routes + 2 helper functions (lines 1554-1649)
+
+**Frontend**:
+- `app/templates/evtx_descriptions.html`: Button (lines 20-23), JavaScript (lines 381-394)
+- `app/templates/case_files.html`: Button (lines 179-182), JavaScript (lines 818-831)
+- `app/templates/global_files.html`: Button (lines 12-15), JavaScript (lines 399-414)
+
+**Documentation**:
+- `app/version.json`: Added feature entry for v1.13.7
+- `app/APP_MAP.md`: This entry
 
 ---
 

@@ -17,6 +17,10 @@
             <span>🔄</span>
             <span>Update from Sources</span>
         </button>
+        <button onclick="confirmRefreshDescriptions()" class="btn" style="background: var(--color-warning); color: white;">
+            <span>🔁</span>
+            <span>Refresh All Events</span>
+        </button>
         <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
             <span>←</span>
             <span>Back to Dashboard</span>
@@ -366,6 +370,24 @@ function confirmUpdate() {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = '{{ url_for("evtx_descriptions_update") }}';
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+// ============================================================================
+// REFRESH EVENT DESCRIPTIONS IN OPENSEARCH
+// ============================================================================
+function confirmRefreshDescriptions() {
+    if (confirm('🔁 Refresh Event Descriptions in ALL Cases\n\nThis will update event_title, event_description, and event_category fields for ALL indexed events across ALL cases.\n\nUse this after:\n• Adding custom event descriptions\n• Updating event descriptions from sources\n• Fixing event description data\n\nThis operation:\n• Updates OpenSearch WITHOUT re-indexing files\n• Processes all cases in the background\n• Does not affect file processing queue\n\nThis may take several minutes depending on event count.\n\nContinue?')) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("refresh_descriptions_global_route") }}';
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'redirect_to';
+        input.value = 'evtx_descriptions';
+        form.appendChild(input);
         document.body.appendChild(form);
         form.submit();
     }

@@ -176,6 +176,10 @@
                 <span>🎯</span>
                 <span>Re-Hunt IOCs All Files</span>
             </button>
+            <button onclick="confirmRefreshDescriptions()" class="btn" style="background: var(--color-info); color: white;">
+                <span>🔁</span>
+                <span>Refresh Event Descriptions</span>
+            </button>
             {% if current_user.role == 'administrator' %}
             <button onclick="confirmDeleteAll()" class="btn" style="background: var(--color-error); color: white;">
                 <span>🗑️</span>
@@ -806,6 +810,21 @@ function confirmReHunt() {
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = `/case/${CASE_ID}/bulk_rehunt_iocs`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function confirmRefreshDescriptions() {
+    if (confirm('🔁 Refresh Event Descriptions for This Case\n\nThis will update event_title, event_description, and event_category fields for ALL indexed events in this case.\n\nUse this after:\n• Adding custom event descriptions\n• Updating event descriptions from sources\n\nThis operation:\n• Updates OpenSearch WITHOUT re-indexing files\n• Processes in the background\n• Does not affect file processing queue\n\nContinue?')) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/case/${CASE_ID}/refresh_descriptions`;
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'redirect_to';
+        input.value = 'case_files';
+        form.appendChild(input);
         document.body.appendChild(form);
         form.submit();
     }

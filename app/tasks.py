@@ -514,6 +514,50 @@ def bulk_rehunt(self, case_id):
         return {'status': 'success', 'files_queued': queued, 'matches_cleared': ioc_deleted, 'flags_cleared': flags_cleared}
 
 
+@celery_app.task(bind=True, name='tasks.refresh_descriptions_case')
+def refresh_descriptions_case(self, case_id):
+    """Refresh event descriptions for a specific case (v1.13.7)"""
+    from main import app, db, opensearch_client
+    from models import EventDescription
+    from evtx_enrichment import update_event_descriptions_for_case
+    
+    with app.app_context():
+        logger.info(f"[REFRESH DESCRIPTIONS] Starting for case {case_id}")
+        
+        result = update_event_descriptions_for_case(
+            opensearch_client, db, EventDescription, case_id
+        )
+        
+        if result['status'] == 'success':
+            logger.info(f"[REFRESH DESCRIPTIONS] ✓ Case {case_id}: {result['message']}")
+        else:
+            logger.error(f"[REFRESH DESCRIPTIONS] ✗ Case {case_id}: {result['message']}")
+        
+        return result
+
+
+@celery_app.task(bind=True, name='tasks.refresh_descriptions_global')
+def refresh_descriptions_global(self):
+    """Refresh event descriptions for ALL cases (v1.13.7)"""
+    from main import app, db, opensearch_client
+    from models import EventDescription, Case
+    from evtx_enrichment import update_event_descriptions_global
+    
+    with app.app_context():
+        logger.info(f"[REFRESH DESCRIPTIONS GLOBAL] Starting global refresh")
+        
+        result = update_event_descriptions_global(
+            opensearch_client, db, EventDescription, Case
+        )
+        
+        if result['status'] == 'success':
+            logger.info(f"[REFRESH DESCRIPTIONS GLOBAL] ✓ {result['message']}")
+        else:
+            logger.error(f"[REFRESH DESCRIPTIONS GLOBAL] ✗ {result['message']}")
+        
+        return result
+
+
 @celery_app.task(bind=True, name='tasks.single_file_rehunt')
 def single_file_rehunt(self, file_id):
     """Re-hunt IOCs on a single file (clears old matches first)"""

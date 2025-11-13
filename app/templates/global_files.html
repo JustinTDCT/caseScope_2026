@@ -9,6 +9,10 @@
         <p class="text-secondary">All files across all cases</p>
     </div>
     <div class="content-actions">
+        <button onclick="confirmRefreshDescriptions()" class="btn" style="background: var(--color-info); color: white;">
+            <span>🔁</span>
+            <span>Refresh Event Descriptions (All Cases)</span>
+        </button>
         <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
             <span>←</span>
             <span>Back to Dashboard</span>
@@ -390,6 +394,24 @@
 {% block extra_js %}
 <script>
 // Global files - no single case context
+
+// ============================================================================
+// REFRESH EVENT DESCRIPTIONS (GLOBAL)
+// ============================================================================
+function confirmRefreshDescriptions() {
+    if (confirm('🔁 Refresh Event Descriptions for ALL Cases\n\nThis will update event_title, event_description, and event_category fields for ALL indexed events across ALL cases.\n\nUse this after:\n• Adding custom event descriptions\n• Updating event descriptions from sources\n\nThis operation:\n• Updates OpenSearch WITHOUT re-indexing files\n• Processes all cases in the background\n• Does not affect file processing queue\n\nThis may take several minutes depending on total event count.\n\nContinue?')) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ url_for("refresh_descriptions_global_route") }}';
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'redirect_to';
+        input.value = 'global_files';
+        form.appendChild(input);
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
 
 // ============================================================================
 // CHECKBOX SELECTION FUNCTIONS
