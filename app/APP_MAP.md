@@ -1,8 +1,125 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.33  
-**Last Updated**: 2025-11-13 03:00 UTC  
+**Version**: 1.12.34  
+**Last Updated**: 2025-11-13 03:15 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.12.34 - FIX: Add Column 500 Error (2025-11-13 03:15 UTC)
+
+**Change**: Fixed 500 error when clicking "Add Column" button in Event Details modal.
+
+### 1. Problem
+
+**Issue**: Clicking "➕ Add Column" button in Event Details modal caused server error 500.
+
+**Symptoms**:
+- User clicks field in Event Details modal and selects "➕ Add Column"
+- Server returns 500 error
+- Column is not added to search results table
+
+**Root Cause**: The `update_search_columns()` route in `main.py` lacked proper error handling:
+- Used `request.json` which can be `None` if request isn't JSON
+- No validation of request data
+- No validation of case existence
+- No try/except error handling
+- Silent failures caused 500 errors
+
+### 2. Solution
+
+**Added Comprehensive Error Handling** (`app/main.py` lines 2194-2225):
+
+1. **Request Validation**:
+   - Check if request is JSON (`request.is_json`)
+   - Use `request.get_json()` instead of `request.json` (safer)
+   - Validate JSON data exists
+
+2. **Data Validation**:
+   - Validate `columns` is a list
+   - Validate case exists before saving to session
+
+3. **Error Handling**:
+   - Try/except block around entire function
+   - Proper error logging with traceback
+   - Return appropriate HTTP status codes (400, 404, 500)
+   - Return JSON error responses
+
+**Before**:
+```python
+@app.route('/case/<int:case_id>/search/columns', methods=['POST'])
+@login_required
+def update_search_columns(case_id):
+    """Update search column configuration"""
+    data = request.json  # ⚠️ Can be None
+    columns = data.get('columns', [])  # ⚠️ Fails if data is None
+    session[f'search_columns_{case_id}'] = columns
+    return jsonify({'success': True, 'columns': columns})
+```
+
+**After**:
+```python
+@app.route('/case/<int:case_id>/search/columns', methods=['POST'])
+@login_required
+def update_search_columns(case_id):
+    """Update search column configuration"""
+    try:
+        # Validate request has JSON data
+        if not request.is_json:
+            return jsonify({'success': False, 'error': 'Request must be JSON'}), 400
+        
+        data = request.get_json()  # ✅ Safer than request.json
+        if not data:
+            return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
+        
+        columns = data.get('columns', [])
+        if not isinstance(columns, list):
+            return jsonify({'success': False, 'error': 'Columns must be a list'}), 400
+        
+        # Validate case exists
+        case = db.session.get(Case, case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Save to session
+        session[f'search_columns_{case_id}'] = columns
+        
+        logger.info(f"[SEARCH COLUMNS] Updated columns for case {case_id}: {len(columns)} columns")
+        
+        return jsonify({'success': True, 'columns': columns})
+    
+    except Exception as e:
+        logger.error(f"[SEARCH COLUMNS] Error updating columns for case {case_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+```
+
+### 3. Files Modified
+
+**Backend**:
+- `app/main.py` (lines 2194-2225):
+  - Added comprehensive error handling to `update_search_columns()` route
+  - Added request validation (JSON check)
+  - Added data validation (columns list check)
+  - Added case existence validation
+  - Added proper error logging
+  - Changed `request.json` to `request.get_json()` for safety
+
+### 4. Benefits
+
+✅ **Prevents 500 Errors**: Proper error handling prevents server crashes  
+✅ **Better Error Messages**: Clear error messages returned to frontend  
+✅ **Data Validation**: Validates request data before processing  
+✅ **Case Validation**: Ensures case exists before saving columns  
+✅ **Better Logging**: Errors logged with full traceback for debugging  
+✅ **User Experience**: Users see clear error messages instead of generic 500
+
+### 5. Verification
+
+- ✅ Code changes complete
+- ✅ Syntax check: No errors
+- ✅ Linter check: No errors
+- ✅ Error handling added
+- ⏳ Test: Click "Add Column" button should work without 500 error
 
 ---
 

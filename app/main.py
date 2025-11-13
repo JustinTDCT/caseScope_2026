@@ -2195,13 +2195,34 @@ def bulk_unhide_events(case_id):
 @login_required
 def update_search_columns(case_id):
     """Update search column configuration"""
-    data = request.json
-    columns = data.get('columns', [])
+    try:
+        # Validate request has JSON data
+        if not request.is_json:
+            return jsonify({'success': False, 'error': 'Request must be JSON'}), 400
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
+        
+        columns = data.get('columns', [])
+        if not isinstance(columns, list):
+            return jsonify({'success': False, 'error': 'Columns must be a list'}), 400
+        
+        # Validate case exists
+        case = db.session.get(Case, case_id)
+        if not case:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
+        
+        # Save to session
+        session[f'search_columns_{case_id}'] = columns
+        
+        logger.info(f"[SEARCH COLUMNS] Updated columns for case {case_id}: {len(columns)} columns")
+        
+        return jsonify({'success': True, 'columns': columns})
     
-    # Save to session
-    session[f'search_columns_{case_id}'] = columns
-    
-    return jsonify({'success': True, 'columns': columns})
+    except Exception as e:
+        logger.error(f"[SEARCH COLUMNS] Error updating columns for case {case_id}: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/case/<int:case_id>/search/history/<int:search_id>/favorite', methods=['POST'])
