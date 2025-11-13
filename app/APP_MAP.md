@@ -1,8 +1,108 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.34  
-**Last Updated**: 2025-11-13 03:15 UTC  
+**Version**: 1.12.35  
+**Last Updated**: 2025-11-13 03:20 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.12.35 - FIX: Search Page 500 Error with Custom Columns (2025-11-13 03:20 UTC)
+
+**Change**: Fixed 500 error on search page when custom columns contain integer values.
+
+### 1. Problem
+
+**Issue**: After adding the "Add Column" fix (v1.12.34), search pages started throwing 500 errors.
+
+**Symptoms**:
+- User performs search
+- Search completes successfully (events found)
+- Template rendering fails with `TypeError: object of type 'int' has no len()`
+- Error occurs at line 442 of `search_events.html`
+
+**Root Cause**: The custom column rendering code in `search_events.html` assumed all custom values were strings and tried to check their length:
+```jinja2
+{% if custom_value|length > 100 %}
+```
+- When a custom field contained an integer (e.g., Event ID, Process ID, Port Number), calling `length` on it failed
+- No type checking or conversion before checking length
+
+### 2. Solution
+
+**Added Type Safety to Custom Column Rendering** (`app/templates/search_events.html` lines 438-451):
+
+1. **Changed Existence Check**:
+   - From: `{% if custom_value %}` (fails for `0`, `False`, empty string)
+   - To: `{% if custom_value is not none %}` (only excludes `None`)
+
+2. **Added String Conversion**:
+   - Convert value to string: `{% set custom_str = custom_value|string %}`
+   - Check length on string: `{% if custom_str|length > 100 %}`
+   - Display string: `{{ custom_str }}`
+
+**Before**:
+```jinja2
+<td>
+    {% set custom_value = event._source|get_nested(col) %}
+    {% if custom_value %}
+        {% if custom_value|length > 100 %}  {# ⚠️ Fails for int #}
+            <span title="{{ custom_value }}">{{ custom_value[:100] }}...</span>
+        {% else %}
+            {{ custom_value }}
+        {% endif %}
+    {% else %}
+        <span class="text-muted">—</span>
+    {% endif %}
+</td>
+```
+
+**After**:
+```jinja2
+<td>
+    {% set custom_value = event._source|get_nested(col) %}
+    {% if custom_value is not none %}  {# ✅ Better null check #}
+        {% set custom_str = custom_value|string %}  {# ✅ Convert to string #}
+        {% if custom_str|length > 100 %}  {# ✅ Safe length check #}
+            <span title="{{ custom_str }}">{{ custom_str[:100] }}...</span>
+        {% else %}
+            {{ custom_str }}
+        {% endif %}
+    {% else %}
+        <span class="text-muted">—</span>
+    {% endif %}
+</td>
+```
+
+### 3. Files Modified
+
+**Frontend**:
+- `app/templates/search_events.html` (lines 438-451):
+  - Changed null check from `{% if custom_value %}` to `{% if custom_value is not none %}`
+  - Added string conversion: `{% set custom_str = custom_value|string %}`
+  - Check length on converted string instead of raw value
+  - Display converted string
+
+### 4. Benefits
+
+✅ **Handles All Data Types**: Works with strings, integers, booleans, floats  
+✅ **Prevents 500 Errors**: No more `TypeError: object of type 'int' has no len()`  
+✅ **Better Null Handling**: `is not none` check works correctly for `0`, `False`, empty strings  
+✅ **Maintains Functionality**: Truncation still works for long values  
+✅ **Consistent Display**: All values displayed as strings
+
+### 5. Why This Happened
+
+The "Add Column" fix (v1.12.34) added error handling to the route but didn't cause the template issue. The template code was always broken for integer fields, but the issue only surfaced when:
+1. User added a custom column
+2. That column contained integer values (Event IDs, Process IDs, Ports, etc.)
+3. Template tried to check `length` on the integer
+
+### 6. Verification
+
+- ✅ Code changes complete
+- ✅ Template syntax valid
+- ✅ Service restarted
+- ⏳ Test: Search page should work with custom columns containing integers
 
 ---
 

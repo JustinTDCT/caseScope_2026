@@ -438,11 +438,12 @@
                             {# Custom column - extract from raw source #}
                             <td>
                                 {% set custom_value = event._source|get_nested(col) %}
-                                {% if custom_value %}
-                                    {% if custom_value|length > 100 %}
-                                        <span title="{{ custom_value }}">{{ custom_value[:100] }}...</span>
+                                {% if custom_value is not none %}
+                                    {% set custom_str = custom_value|string %}
+                                    {% if custom_str|length > 100 %}
+                                        <span title="{{ custom_str }}">{{ custom_str[:100] }}...</span>
                                     {% else %}
-                                        {{ custom_value }}
+                                        {{ custom_str }}
                                     {% endif %}
                                 {% else %}
                                     <span class="text-muted">—</span>
