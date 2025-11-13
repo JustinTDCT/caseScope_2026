@@ -1078,6 +1078,22 @@ def requeue_single_file(case_id, file_id):
         return redirect(url_for('files.view_failed_files', case_id=case_id))
     
     try:
+        # CRITICAL: Check for stale task_id before queuing
+        # If file already has a task_id, verify it's not stale
+        if case_file.celery_task_id:
+            from celery.result import AsyncResult
+            old_task = AsyncResult(case_file.celery_task_id, app=celery_app)
+            
+            # If old task is still active, don't requeue
+            if old_task.state in ['PENDING', 'STARTED', 'RETRY']:
+                logger.warning(f"[REQUEUE] File {file_id} already has active task {case_file.celery_task_id} (state: {old_task.state})")
+                flash(f'File is already being processed (task state: {old_task.state})', 'warning')
+                return redirect(url_for('files.view_failed_files', case_id=case_id))
+            else:
+                # Old task is finished (SUCCESS/FAILURE/REVOKED), clear it
+                logger.info(f"[REQUEUE] File {file_id} has stale task_id {case_file.celery_task_id} (state: {old_task.state}), clearing before requeue")
+                case_file.celery_task_id = None
+        
         # Submit task to Celery
         task = celery_app.send_task(
             'tasks.process_file',
@@ -1144,6 +1160,20 @@ def bulk_requeue_selected(case_id):
         
         for case_file in failed_files:
             try:
+                # CRITICAL: Check for stale task_id before queuing
+                if case_file.celery_task_id:
+                    from celery.result import AsyncResult
+                    old_task = AsyncResult(case_file.celery_task_id, app=celery_app)
+                    
+                    # If old task is still active, skip this file
+                    if old_task.state in ['PENDING', 'STARTED', 'RETRY']:
+                        logger.warning(f"[BULK REQUEUE] File {case_file.id} already has active task {case_file.celery_task_id} (state: {old_task.state}), skipping")
+                        continue
+                    else:
+                        # Old task is finished, clear it
+                        logger.info(f"[BULK REQUEUE] File {case_file.id} has stale task_id {case_file.celery_task_id} (state: {old_task.state}), clearing before requeue")
+                        case_file.celery_task_id = None
+                
                 # Submit task to Celery
                 task = celery_app.send_task(
                     'tasks.process_file',
@@ -1219,6 +1249,20 @@ def requeue_failed_files(case_id):
         
         for case_file in failed_files:
             try:
+                # CRITICAL: Check for stale task_id before queuing
+                if case_file.celery_task_id:
+                    from celery.result import AsyncResult
+                    old_task = AsyncResult(case_file.celery_task_id, app=celery_app)
+                    
+                    # If old task is still active, skip this file
+                    if old_task.state in ['PENDING', 'STARTED', 'RETRY']:
+                        logger.warning(f"[BULK REQUEUE GLOBAL] File {case_file.id} already has active task {case_file.celery_task_id} (state: {old_task.state}), skipping")
+                        continue
+                    else:
+                        # Old task is finished, clear it
+                        logger.info(f"[BULK REQUEUE GLOBAL] File {case_file.id} has stale task_id {case_file.celery_task_id} (state: {old_task.state}), clearing before requeue")
+                        case_file.celery_task_id = None
+                
                 # Submit task to Celery
                 task = celery_app.send_task(
                     'tasks.process_file',

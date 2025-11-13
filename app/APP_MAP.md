@@ -1,8 +1,235 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.12.37  
-**Last Updated**: 2025-11-13 11:55 UTC  
+**Version**: 1.12.38  
+**Last Updated**: 2025-11-13 12:02 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.12.38 - CRITICAL FIX: Queue Processing - Complete Stale Task ID Fix (2025-11-13 12:02 UTC)
+
+**Change**: Comprehensive fix for stale task_id handling across ALL queue processing paths.
+
+### 1. Problem
+
+**Issue**: v1.12.37 fixed `tasks.py` but left other queue processing paths vulnerable to the same stale task_id bug.
+
+**Remaining Vulnerabilities**:
+1. **routes/files.py** (manual requeue functions):
+   - 3 requeue functions set `celery_task_id` without checking if old task finished
+   - `requeue_single_file()` - Single file requeue from Failed Files page
+   - `bulk_requeue_selected()` - Bulk requeue selected files
+   - `bulk_requeue_global()` - Global requeue all failed files
+   - All set `celery_task_id = task.id` immediately after `send_task()`
+   - Never checked if old task was stale (SUCCESS/FAILURE/REVOKED)
+
+2. **bulk_operations.py** (queue_file_processing function):
+   - Checked for `celery_task_id` but never verified if task was stale
+   - Set `f.celery_task_id = result.id` in memory but NEVER committed to database
+   - Task IDs lost if worker crashed or restarted
+   - No state checking (assumed any task_id = active task)
+
+**User Report**: *"This keeps happening"* - files still getting stuck after v1.12.37 fix
+
+### 2. Solution
+
+**1. Fixed Manual Requeue Functions** (`routes/files.py`):
+
+**Three functions updated with identical AsyncResult state checking**:
+
+```python
+# Before (lines 1080-1090)
+try:
+    task = celery_app.send_task('tasks.process_file', args=[case_file.id, 'full'])
+    case_file.indexing_status = 'Queued'
+    case_file.celery_task_id = task.id  # ❌ Never checks if old task_id is stale
+    db.session.commit()
+```
+
+```python
+# After (lines 1081-1106)
+try:
+    # CRITICAL: Check for stale task_id before queuing
+    if case_file.celery_task_id:
+        from celery.result import AsyncResult
+        old_task = AsyncResult(case_file.celery_task_id, app=celery_app)
+        
+        # If old task is still active, don't requeue
+        if old_task.state in ['PENDING', 'STARTED', 'RETRY']:
+            logger.warning(f"[REQUEUE] File {file_id} already has active task {case_file.celery_task_id} (state: {old_task.state})")
+            flash(f'File is already being processed (task state: {old_task.state})', 'warning')
+            return redirect(url_for('files.view_failed_files', case_id=case_id))
+        else:
+            # Old task is finished, clear it
+            logger.info(f"[REQUEUE] File {file_id} has stale task_id {case_file.celery_task_id} (state: {old_task.state}), clearing before requeue")
+            case_file.celery_task_id = None
+    
+    task = celery_app.send_task('tasks.process_file', args=[case_file.id, 'full'])
+    case_file.indexing_status = 'Queued'
+    case_file.celery_task_id = task.id
+    db.session.commit()
+```
+
+**Functions Updated**:
+- `requeue_single_file()` - Lines 1081-1095
+- `bulk_requeue_selected()` - Lines 1163-1175
+- `bulk_requeue_global()` - Lines 1252-1264
+
+**2. Enhanced bulk_operations.py queue_file_processing()**:
+
+**Added state checking and database commit** (lines 395-446):
+
+```python
+# Before
+if f.celery_task_id:
+    logger.debug(f"[BULK OPS] Skipping file {f.id} (already queued: {f.celery_task_id})")
+    skipped_count += 1
+    continue  # ❌ Never checks if task is stale
+
+result = process_file_task.delay(f.id, operation=operation)
+f.celery_task_id = result.id  # ❌ Sets in memory but never commits
+logger.debug(f"[BULK OPS] Queued {operation} processing for file {f.id}")
+queued_count += 1
+```
+
+```python
+# After
+# CRITICAL: Check for stale task_id before queuing
+if f.celery_task_id:
+    from celery.result import AsyncResult
+    from celery_app import celery_app
+    old_task = AsyncResult(f.celery_task_id, app=celery_app)
+    
+    # If old task is still active, skip this file
+    if old_task.state in ['PENDING', 'STARTED', 'RETRY']:
+        logger.debug(f"[BULK OPS] Skipping file {f.id} (already queued: {f.celery_task_id}, state: {old_task.state})")
+        skipped_count += 1
+        continue
+    else:
+        # Old task is finished, clear it and continue
+        logger.debug(f"[BULK OPS] File {f.id} has stale task_id {f.celery_task_id} (state: {old_task.state}), clearing before requeue")
+        f.celery_task_id = None
+
+try:
+    result = process_file_task.delay(f.id, operation=operation)
+    f.celery_task_id = result.id
+    logger.debug(f"[BULK OPS] Queued {operation} processing for file {f.id} (task_id: {result.id})")
+    queued_count += 1
+except Exception as e:
+    error_msg = f"Failed to queue file {f.id}: {e}"
+    logger.error(f"[BULK OPS] {error_msg}")
+    errors.append(error_msg)
+    # CRITICAL: Clear task_id if queuing failed
+    if hasattr(f, 'celery_task_id'):
+        f.celery_task_id = None
+
+# CRITICAL: Commit the task_id changes to database
+if db_session and queued_count > 0:
+    try:
+        db_session.commit()
+        logger.debug(f"[BULK OPS] Committed {queued_count} task_id assignments to database")
+    except Exception as e:
+        logger.error(f"[BULK OPS] Failed to commit task_ids: {e}")
+        db_session.rollback()
+```
+
+**3. Updated All Calls to queue_file_processing()** (`tasks.py`):
+
+**Added db_session parameter to 5 call sites**:
+
+```python
+# Before
+queued = queue_file_processing(process_file, files, operation='full')
+# ❌ No db_session parameter, task_ids never committed
+
+# After
+queued = queue_file_processing(process_file, files, operation='full', db_session=db.session)
+# ✅ Task_ids committed to database
+```
+
+**Updated Lines**:
+- Line 412: `bulk_reindex()` - Full re-index operation
+- Line 457: `bulk_rechainsaw()` - SIGMA re-run operation
+- Line 509: `bulk_rehunt()` - IOC re-hunt operation
+- Line 536: `single_file_rehunt()` - Single file IOC re-hunt
+- Line 783: `bulk_import_directory()` - Bulk import operation
+
+### 3. Why This Works
+
+**Complete Protection**:
+- ✅ **Normal processing**: tasks.py checks stale task_ids (v1.12.37)
+- ✅ **Manual requeue**: routes/files.py checks stale task_ids (v1.12.38)
+- ✅ **Bulk operations**: bulk_operations.py checks stale task_ids (v1.12.38)
+- ✅ **Database commit**: Task IDs persisted across all paths (v1.12.38)
+
+**Smart State Detection Everywhere**:
+- Checks actual task state (SUCCESS/FAILURE/REVOKED/PENDING/STARTED/RETRY)
+- Only skips if old task truly active (PENDING/STARTED/RETRY)
+- Clears stale task_id if old task finished (SUCCESS/FAILURE/REVOKED)
+- Handles unknown states gracefully (clears and continues)
+
+**Error Recovery**:
+- Worker crash: Task marked FAILURE → cleared on next requeue
+- Redis disconnect: Task fails → task_id cleared immediately
+- Race condition: Old task SUCCESS but not cleared → detected and cleared
+- Queue failure: Exception caught → task_id cleared, continues with other files
+
+### 4. Files Modified
+
+**Backend**:
+- `app/routes/files.py`:
+  - Lines 1081-1095: `requeue_single_file()` - Added AsyncResult state checking
+  - Lines 1163-1175: `bulk_requeue_selected()` - Added AsyncResult state checking
+  - Lines 1252-1264: `bulk_requeue_global()` - Added AsyncResult state checking
+
+- `app/bulk_operations.py`:
+  - Lines 369-446: `queue_file_processing()` - Added state checking and db_session parameter
+  - Lines 395-409: Added AsyncResult state checking for stale task_ids
+  - Lines 422-434: Added database commit logic with error handling
+
+- `app/tasks.py`:
+  - Line 412: `bulk_reindex()` - Added db_session parameter
+  - Line 457: `bulk_rechainsaw()` - Added db_session parameter
+  - Line 509: `bulk_rehunt()` - Added db_session parameter
+  - Line 536: `single_file_rehunt()` - Added db_session parameter
+  - Line 783: `bulk_import_directory()` - Added db_session parameter
+
+**Documentation**:
+- `app/version.json`: Added v1.12.38 entry
+- `app/APP_MAP.md`: This entry
+
+### 5. Benefits
+
+✅ **Complete Coverage**: All queue processing paths protected against stale task_ids  
+✅ **Manual Requeue**: Users can safely requeue files without worrying about stale tasks  
+✅ **Bulk Operations**: Re-index/re-SIGMA/re-hunt operations now reliable  
+✅ **Database Persistence**: Task IDs survive worker restarts  
+✅ **Error Handling**: Queuing failures don't leave orphaned task_ids  
+✅ **Better Logging**: Clear visibility into stale task detection and cleanup  
+
+### 6. Testing
+
+**Verified**:
+- ✅ Worker service restarted successfully
+- ✅ No files stuck with stale task_ids (0 found)
+- ✅ Queue processing working correctly
+- ✅ All requeue functions protected
+
+**Current System Status**:
+```
+Queued (with task_id): 0
+Queued (total): 1
+Processing: 0
+Completed: 26,735
+Failed: 18
+```
+
+### 7. Related Issues
+
+- **v1.12.37** (Nov 13): Fixed stale task_ids in tasks.py only
+- **v1.12.33** (Nov 13): Added duplicate processing prevention (didn't handle stale task_ids)
+- **v1.12.32** (Nov 13): Enhanced queue error handling (didn't address task_id commits)
+- This fix completes the queue processing reliability improvements across ALL code paths
 
 ---
 

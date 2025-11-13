@@ -366,7 +366,7 @@ def get_case_files(db, case_id: int, include_deleted: bool = False, include_hidd
     return files
 
 
-def queue_file_processing(process_file_task, files: List[Any], operation: str = 'full'):
+def queue_file_processing(process_file_task, files: List[Any], operation: str = 'full', db_session=None):
     """
     Queue file processing tasks for multiple files
     
@@ -374,6 +374,7 @@ def queue_file_processing(process_file_task, files: List[Any], operation: str = 
         process_file_task: Celery task (process_file)
         files: List of CaseFile objects
         operation: Operation type ('full', 'chainsaw_only', 'ioc_only')
+        db_session: Optional database session (if None, will not commit)
     
     Returns:
         Number of tasks queued
@@ -391,11 +392,21 @@ def queue_file_processing(process_file_task, files: List[Any], operation: str = 
             skipped_count += 1
             continue
         
-        # Skip files that are already queued/processing
+        # CRITICAL: Check for stale task_id before queuing
         if f.celery_task_id:
-            logger.debug(f"[BULK OPS] Skipping file {f.id} (already queued: {f.celery_task_id})")
-            skipped_count += 1
-            continue
+            from celery.result import AsyncResult
+            from celery_app import celery_app
+            old_task = AsyncResult(f.celery_task_id, app=celery_app)
+            
+            # If old task is still active, skip this file
+            if old_task.state in ['PENDING', 'STARTED', 'RETRY']:
+                logger.debug(f"[BULK OPS] Skipping file {f.id} (already queued: {f.celery_task_id}, state: {old_task.state})")
+                skipped_count += 1
+                continue
+            else:
+                # Old task is finished, clear it and continue
+                logger.debug(f"[BULK OPS] File {f.id} has stale task_id {f.celery_task_id} (state: {old_task.state}), clearing before requeue")
+                f.celery_task_id = None
         
         try:
             result = process_file_task.delay(f.id, operation=operation)
@@ -408,7 +419,19 @@ def queue_file_processing(process_file_task, files: List[Any], operation: str = 
             error_msg = f"Failed to queue file {f.id}: {e}"
             logger.error(f"[BULK OPS] {error_msg}")
             errors.append(error_msg)
+            # CRITICAL: Clear task_id if queuing failed
+            if hasattr(f, 'celery_task_id'):
+                f.celery_task_id = None
             # Continue with other files even if one fails
+    
+    # CRITICAL: Commit the task_id changes to database
+    if db_session and queued_count > 0:
+        try:
+            db_session.commit()
+            logger.debug(f"[BULK OPS] Committed {queued_count} task_id assignments to database")
+        except Exception as e:
+            logger.error(f"[BULK OPS] Failed to commit task_ids: {e}")
+            db_session.rollback()
     
     if errors:
         logger.warning(f"[BULK OPS] Queued {queued_count}/{len(files)} files successfully. {len(errors)} errors occurred, {skipped_count} skipped.")

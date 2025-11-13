@@ -409,7 +409,7 @@ def bulk_reindex(self, case_id):
         logger.info(f"[BULK REINDEX] Reset metadata for {len(files)} files")
         
         # Queue full re-processing (index + SIGMA + IOC)
-        queued = queue_file_processing(process_file, files, operation='full')
+        queued = queue_file_processing(process_file, files, operation='full', db_session=db.session)
         
         return {
             'status': 'success',
@@ -454,7 +454,7 @@ def bulk_rechainsaw(self, case_id):
         logger.info(f"[BULK RECHAINSAW] Reset violation_count and status to 'Queued' for {len(files)} files")
         
         # Queue re-chainsaw tasks
-        queued = queue_file_processing(process_file, files, operation='chainsaw_only')
+        queued = queue_file_processing(process_file, files, operation='chainsaw_only', db_session=db.session)
         
         return {'status': 'success', 'files_queued': queued, 'violations_cleared': sigma_deleted, 'flags_cleared': flags_cleared}
 
@@ -506,7 +506,7 @@ def bulk_rehunt(self, case_id):
         logger.info(f"[BULK REHUNT] Reset ioc_event_count and status to 'Queued' for {len(files)} files")
         
         # Queue re-hunt tasks
-        queued = queue_file_processing(process_file, files, operation='ioc_only')
+        queued = queue_file_processing(process_file, files, operation='ioc_only', db_session=db.session)
         
         return {'status': 'success', 'files_queued': queued, 'matches_cleared': ioc_deleted, 'flags_cleared': flags_cleared}
 
@@ -533,7 +533,7 @@ def single_file_rehunt(self, file_id):
         commit_with_retry(db.session, logger_instance=logger)
         
         # Queue re-hunt task
-        queue_file_processing(process_file, [case_file], operation='ioc_only')
+        queue_file_processing(process_file, [case_file], operation='ioc_only', db_session=db.session)
         
         return {'status': 'success', 'file_id': file_id, 'matches_cleared': ioc_deleted}
 
@@ -780,7 +780,7 @@ def bulk_import_directory(self, case_id):
                     'queued_count': len(case_files)
                 })
                 
-                queue_file_processing(process_file, case_files, operation='full')
+                queue_file_processing(process_file, case_files, operation='full', db_session=db.session)
                 logger.info(f"[BULK IMPORT] Queued {len(case_files)} files for processing")
             
             # Clean up staging
