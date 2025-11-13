@@ -444,33 +444,45 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                                 "mapping.total_fields.limit": 10000  # v1.13.1: 1 index per case = many event types = many fields
                             }
                         }
-                    }
+                    },
+                    ignore=[400]  # CRITICAL FIX (v1.13.9): Ignore "already exists" errors from race conditions
                 )
                 logger.info(f"[INDEX FILE] Created index {index_name} with max_result_window=100000, field_limit=10000")
             else:
-                logger.info(f"[INDEX FILE] Index {index_name} already exists")
+                logger.debug(f"[INDEX FILE] Index {index_name} already exists")
         except Exception as e:
-            logger.error(f"[INDEX FILE] Failed to create index {index_name}: {e}")
-            
-            # Check if this is a shard limit error
             error_str = str(e)
-            if 'maximum shards open' in error_str or 'max_shards_per_node' in error_str:
+            
+            # v1.13.9: Check if this is a race condition (index created by another worker)
+            if 'resource_already_exists_exception' in error_str:
+                logger.warning(f"[INDEX FILE] Index creation race condition - another worker created {index_name}, continuing...")
+                # Don't fail - the index exists, so we can proceed to indexing
+            elif 'maximum shards open' in error_str or 'max_shards_per_node' in error_str:
+                # Shard limit error - fail the file
                 logger.critical(f"[INDEX FILE] ⚠️  OPENSEARCH SHARD LIMIT REACHED - Cannot create more indices")
                 case_file.indexing_status = 'Failed: Shard Limit'
                 case_file.error_message = 'OpenSearch shard limit reached. Please consolidate indices or increase cluster.max_shards_per_node setting.'
+                commit_with_retry(db.session, logger_instance=logger)
+                return {
+                    'status': 'error',
+                    'message': f'Index creation failed: {e}',
+                    'file_id': file_id,
+                    'event_count': 0,
+                    'index_name': None
+                }
             else:
-                # Generic index creation failure
+                # Generic index creation failure - fail the file
+                logger.error(f"[INDEX FILE] Failed to create index {index_name}: {e}")
                 case_file.indexing_status = f'Failed: {str(e)[:100]}'
                 case_file.error_message = str(e)[:500] if hasattr(case_file, 'error_message') else None
-            
-            commit_with_retry(db.session, logger_instance=logger)
-            return {
-                'status': 'error',
-                'message': f'Index creation failed: {e}',
-                'file_id': file_id,
-                'event_count': 0,
-                'index_name': None
-            }
+                commit_with_retry(db.session, logger_instance=logger)
+                return {
+                    'status': 'error',
+                    'message': f'Index creation failed: {e}',
+                    'file_id': file_id,
+                    'event_count': 0,
+                    'index_name': None
+                }
         
         from opensearchpy.helpers import bulk as opensearch_bulk
         
