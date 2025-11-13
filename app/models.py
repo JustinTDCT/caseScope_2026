@@ -249,11 +249,13 @@ class EventDescription(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     event_id = db.Column(db.Integer, nullable=False, index=True)
-    event_source = db.Column(db.String(100))  # e.g., 'Security', 'System', 'Sysmon'
+    event_source = db.Column(db.String(100))  # e.g., 'Security', 'System', 'Sysmon', 'Custom'
     title = db.Column(db.String(500))
-    description = db.Column(db.Text)
+    description = db.Column(db.Text)  # Enrichment text / additional context
     category = db.Column(db.String(100))
     source_url = db.Column(db.String(500))  # Which site it came from
+    is_custom = db.Column(db.Boolean, default=False, index=True)  # User-added custom event (v1.13.7)
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'))  # Who created custom event (v1.13.7)
     last_updated = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Composite unique constraint on event_id + source

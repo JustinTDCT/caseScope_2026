@@ -1,8 +1,194 @@
 # CaseScope 2026 - Application Map
 
 **Version**: 1.13.7  
-**Last Updated**: 2025-11-13 15:06 UTC  
+**Last Updated**: 2025-11-13 15:30 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## ✨ v1.13.7 - FEATURE: Custom EVTX Event Descriptions (2025-11-13 15:30 UTC)
+
+**Change**: Added ability for users to manually add custom event descriptions to the EVTX management page with full CRUD (Create, Read, Update, Delete) operations.
+
+**User Request**: "on the EVTX management page; can we add the ability to manually add to that database? I would like to allow a user to add a description for event IDs - they would have the option to add Event ID, Description, Enrichment text and of course edit their items; add a static to this tile for custom events; also note the second line of stats doesnt have the separator line please fix that"
+
+### Problem
+
+**Missing Functionality**:
+- Users could not add descriptions for custom/internal event IDs
+- Only scraped events from external sources (Ultimate Windows Security, GitHub, etc.) were available
+- No way to document organization-specific event IDs
+- No enrichment text for internal applications or custom logging
+
+**UI Issues**:
+- Second row of statistics missing separator line (inconsistent styling)
+- No way to track custom event count
+
+### Solution
+
+**1. Database Changes** (`app/models.py` lines 257-259):
+```python
+is_custom = db.Column(db.Boolean, default=False, index=True)  # User-added custom event (v1.13.7)
+created_by = db.Column(db.Integer, db.ForeignKey('user.id'))  # Who created custom event (v1.13.7)
+```
+
+**2. UI Enhancements** (`app/templates/evtx_descriptions.html`):
+
+**Add Custom Event Button** (lines 12-14):
+```html
+<button onclick="openAddEventModal()" class="btn" style="background: var(--color-success); color: white;">
+    <span>➕</span>
+    <span>Add Custom Event</span>
+</button>
+```
+
+**Fixed Stats Row Separator** (line 82):
+```html
+<!-- Row 2: Additional Sources (4 columns) - FIXED: Added missing border-top separator -->
+<div style="... padding-top: var(--spacing-md); border-top: 1px solid var(--color-border);">
+```
+
+**Custom Events Stat** (lines 114-123):
+```html
+<!-- Source 7: Custom Events (v1.13.7) -->
+<div style="text-align: center;">
+    <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Custom Events</div>
+    <a href="{{ url_for('evtx_descriptions', source='custom', q=search_query) }}" ...>
+        <div style="font-size: 1.5rem; font-weight: 600; color: var(--color-success); ...">
+            {{ source_stats.get('Custom Events', 0) }}
+        </div>
+    </a>
+</div>
+```
+
+**Actions Column in Table** (lines 198-262):
+- Added "Actions" column header
+- Custom events show green "✏️ Custom" badge (not source name)
+- Edit button: `openEditEventModal(id, eventId, title, description, category)`
+- Delete button: `confirmDeleteEvent(id, eventId)`
+- Non-custom events show "—" (no actions)
+
+**Modal UI** (lines 296-355):
+```html
+<div id="eventModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <!-- Form fields: Event ID, Title, Description (enrichment), Category -->
+    </div>
+</div>
+```
+
+**JavaScript Functions** (lines 377-465):
+- `openAddEventModal()` - Opens modal for creating new custom event
+- `openEditEventModal(id, eventId, title, description, category)` - Opens modal for editing
+- `closeEventModal()` - Closes modal
+- `submitEvent(e)` - Handles form submission (POST for new, PUT for edit)
+- `confirmDeleteEvent(id, eventId)` - Confirms and executes delete
+
+**3. Backend Routes** (`app/main.py`):
+
+**Custom Events Count** (lines 1296-1301):
+```python
+# Count custom events (v1.13.7)
+custom_count = db.session.query(EventDescription).filter(
+    EventDescription.is_custom == True
+).count()
+if custom_count > 0:
+    source_stats['Custom Events'] = custom_count
+```
+
+**Custom Events Filter** (lines 1320-1321):
+```python
+elif source_filter == 'custom':
+    events_query = events_query.filter(EventDescription.is_custom == True)
+```
+
+**CRUD Routes** (lines 1408-1551):
+
+**Create Custom Event** (`POST /evtx_descriptions/custom`):
+- Validates Event ID and Title (required)
+- Checks for duplicate custom Event ID
+- Sets `is_custom=True`, `event_source='Custom'`, `created_by=current_user.id`
+- Audit logs creation
+- Returns `{'success': True, 'id': custom_event.id}`
+
+**Update Custom Event** (`PUT /evtx_descriptions/custom/:id`):
+- Only allows editing custom events (not scraped events)
+- Permission check: owner or admin only
+- Updates title, description, category (Event ID cannot be changed)
+- Audit logs update
+- Returns `{'success': True}`
+
+**Delete Custom Event** (`DELETE /evtx_descriptions/custom/:id`):
+- Only allows deleting custom events (not scraped events)
+- Permission check: owner or admin only
+- Audit logs deletion
+- Returns `{'success': True}`
+
+**Permission Model**:
+- Users can create custom events
+- Users can only edit/delete their own custom events
+- Administrators can edit/delete any custom event
+- Scraped events (from external sources) cannot be edited or deleted
+
+### Results
+
+**Before**:
+- ❌ No way to add custom event descriptions
+- ❌ Internal/custom event IDs had no descriptions
+- ❌ Stats row 2 missing separator line (inconsistent UI)
+- ❌ No custom event count tracking
+
+**After**:
+- ✅ "Add Custom Event" button in header
+- ✅ Modal UI with Event ID, Title, Description (enrichment), Category
+- ✅ Custom events show with green "✏️ Custom" badge
+- ✅ Edit/Delete buttons for user's own custom events
+- ✅ Admin can edit/delete any custom event
+- ✅ Custom Events stat (clickable to filter)
+- ✅ Stats row 2 has separator line (consistent UI)
+- ✅ Audit logging for all CRUD operations
+
+### Benefits
+
+**For Users**:
+- ✅ **Internal Event Documentation**: Document organization-specific event IDs
+- ✅ **Custom Application Events**: Add descriptions for custom logging systems
+- ✅ **Investigation Tips**: Include enrichment text (what to look for, context, etc.)
+- ✅ **Ownership**: Users own their custom events, admins can manage all
+- ✅ **Easy Management**: Inline edit/delete buttons, no separate admin page needed
+
+**For Administrators**:
+- ✅ **Central Knowledge Base**: All event descriptions (scraped + custom) in one place
+- ✅ **User Empowerment**: Analysts can add their own event knowledge
+- ✅ **Audit Trail**: All create/update/delete actions logged
+- ✅ **Permission Control**: Users can't edit scraped events, only custom ones
+
+**For the System**:
+- ✅ **Extensible**: No limits on custom events (beyond database constraints)
+- ✅ **Consistent UI**: Custom events integrate seamlessly with scraped events
+- ✅ **Searchable**: Custom events fully searchable like scraped events
+- ✅ **Filterable**: Dedicated filter to view only custom events
+
+### Files Modified
+
+**Database**:
+- `app/models.py`: Added `is_custom` and `created_by` columns to `EventDescription` model (lines 257-259)
+
+**Backend**:
+- `app/main.py`: Added custom event count (lines 1296-1301), custom filter (lines 1320-1321), 3 CRUD routes (lines 1408-1551)
+
+**Frontend**:
+- `app/templates/evtx_descriptions.html`: 
+  - Add button (lines 12-14)
+  - Stats row 2 separator fix (line 82)
+  - Custom Events stat (lines 114-123)
+  - Actions column (lines 198-262)
+  - Modal UI (lines 296-355)
+  - JavaScript functions (lines 377-465)
+
+**Version Files**:
+- `app/version.json`: Added feature entry for v1.13.7
+- `app/APP_MAP.md`: This entry
 
 ---
 

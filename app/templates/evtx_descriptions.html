@@ -9,6 +9,10 @@
         <p class="text-secondary">Manage Windows Event ID descriptions for friendly display</p>
     </div>
     <div class="content-actions">
+        <button onclick="openAddEventModal()" class="btn" style="background: var(--color-success); color: white;">
+            <span>➕</span>
+            <span>Add Custom Event</span>
+        </button>
         <button onclick="confirmUpdate()" class="btn btn-primary">
             <span>🔄</span>
             <span>Update from Sources</span>
@@ -78,8 +82,8 @@
             </div>
         </div>
         
-        <!-- Row 2: Additional Sources (3 columns) -->
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--spacing-xl); align-items: center;">
+        <!-- Row 2: Additional Sources (4 columns) - FIXED: Added missing border-top separator -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--spacing-xl); align-items: center; margin-top: var(--spacing-md); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border);">
             
             <!-- Source 4: MyEventLog.com -->
             <div style="text-align: center;">
@@ -107,6 +111,16 @@
                 <a href="{{ url_for('evtx_descriptions', source='ms_security', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Microsoft Security Auditing">
                     <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'ms_security' %}var(--color-primary){% else %}var(--color-text-primary){% endif %};">
                         {{ source_stats.get('Microsoft Security Auditing', 0) }}
+                    </div>
+                </a>
+            </div>
+            
+            <!-- Source 7: Custom Events (v1.13.7) -->
+            <div style="text-align: center;">
+                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-bottom: 0.25rem;">Custom Events</div>
+                <a href="{{ url_for('evtx_descriptions', source='custom', q=search_query) }}" style="text-decoration: none; cursor: pointer;" title="Filter by Custom Events">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: {% if source_filter == 'custom' %}var(--color-success){% else %}var(--color-success){% endif %}; opacity: {% if source_filter == 'custom' %}1{% else %}0.7{% endif %};">
+                        {{ source_stats.get('Custom Events', 0) }}
                     </div>
                 </a>
             </div>
@@ -187,6 +201,7 @@
                         <th style="width: 150px;">Source</th>
                         <th>Title & Description</th>
                         <th style="width: 120px;">Category</th>
+                        <th style="width: 120px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -205,9 +220,15 @@
                             {% endif %}
                         </td>
                         <td>
+                            {% if event.is_custom %}
+                            <span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: var(--color-success); font-size: 0.75rem;">
+                                ✏️ Custom
+                            </span>
+                            {% else %}
                             <span class="status-badge" style="background: rgba(59, 130, 246, 0.1); color: var(--color-info); font-size: 0.75rem;">
                                 {{ event.event_source }}
                             </span>
+                            {% endif %}
                         </td>
                         <td>
                             <div style="font-weight: 600; margin-bottom: 0.25rem;">{{ event.title }}</div>
@@ -218,6 +239,20 @@
                         <td>
                             {% if event.category %}
                             <span class="text-muted" style="font-size: 0.875rem;">{{ event.category }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if event.is_custom %}
+                            <button onclick="openEditEventModal({{ event.id }}, {{ event.event_id }}, '{{ event.title|replace("'", "\\'") }}', '{{ event.description|replace("'", "\\'") if event.description else "" }}', '{{ event.category|replace("'", "\\'") if event.category else "" }}')" 
+                                    class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; background: var(--color-primary); color: white; margin-right: 0.25rem;">
+                                ✏️ Edit
+                            </button>
+                            <button onclick="confirmDeleteEvent({{ event.id }}, {{ event.event_id }})" 
+                                    class="btn btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; background: var(--color-error); color: white;">
+                                🗑️ Delete
+                            </button>
                             {% else %}
                             <span class="text-muted">—</span>
                             {% endif %}
@@ -258,10 +293,74 @@
     </div>
 </div>
 
+<!-- Add/Edit Custom Event Modal -->
+<div id="eventModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title" id="modalTitle">➕ Add Custom Event</h2>
+            <button onclick="closeEventModal()" class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+            <form id="eventForm" onsubmit="submitEvent(event)">
+                <input type="hidden" id="eventId" value="">
+                
+                <div style="margin-bottom: var(--spacing-md);">
+                    <label class="form-label" for="eventEventId">Event ID <span style="color: var(--color-error);">*</span></label>
+                    <input type="number" id="eventEventId" name="event_id" required min="0" max="999999" 
+                           placeholder="e.g., 9999" class="form-input" style="width: 100%;">
+                    <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        Numeric Windows Event ID (0-999999)
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: var(--spacing-md);">
+                    <label class="form-label" for="eventTitle">Title <span style="color: var(--color-error);">*</span></label>
+                    <input type="text" id="eventTitle" name="title" required maxlength="500" 
+                           placeholder="e.g., Custom Security Event" class="form-input" style="width: 100%;">
+                    <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        Short, descriptive name for the event
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: var(--spacing-md);">
+                    <label class="form-label" for="eventDescription">Enrichment / Description</label>
+                    <textarea id="eventDescription" name="description" rows="4" maxlength="2000" 
+                              placeholder="Additional context, what to look for, investigation tips..." 
+                              class="form-input" style="width: 100%; resize: vertical;"></textarea>
+                    <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        Detailed description or enrichment text (optional)
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: var(--spacing-lg);">
+                    <label class="form-label" for="eventCategory">Category</label>
+                    <input type="text" id="eventCategory" name="category" maxlength="100" 
+                           placeholder="e.g., Security, Application, Custom" class="form-input" style="width: 100%;">
+                    <div style="font-size: 0.875rem; color: var(--color-text-muted); margin-top: 0.25rem;">
+                        Event category or channel (optional)
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: var(--spacing-sm); justify-content: flex-end;">
+                    <button type="button" onclick="closeEventModal()" class="btn btn-secondary">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn" style="background: var(--color-success); color: white;" id="submitBtn">
+                        <span id="submitBtnText">➕ Add Event</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
+// ============================================================================
+// UPDATE FROM SOURCES
+// ============================================================================
 function confirmUpdate() {
     if (confirm('🔄 Update EVTX Event Descriptions\n\nThis will fetch from 6 data sources:\n• Ultimate Windows Security\n• GitHub Gist\n• Infrasos\n• MyEventLog.com\n• Microsoft Sysmon (29 events)\n• Microsoft Security Auditing (50+ events)\n\nThe system will:\n• Update existing events with new information\n• Add any new events found\n\nThis may take 1-2 minutes.\n\nContinue?')) {
         const form = document.createElement('form');
@@ -271,5 +370,98 @@ function confirmUpdate() {
         form.submit();
     }
 }
+
+// ============================================================================
+// CUSTOM EVENT MODAL FUNCTIONS
+// ============================================================================
+function openAddEventModal() {
+    document.getElementById('modalTitle').textContent = '➕ Add Custom Event';
+    document.getElementById('submitBtnText').textContent = '➕ Add Event';
+    document.getElementById('eventId').value = '';
+    document.getElementById('eventEventId').value = '';
+    document.getElementById('eventEventId').readOnly = false;
+    document.getElementById('eventTitle').value = '';
+    document.getElementById('eventDescription').value = '';
+    document.getElementById('eventCategory').value = '';
+    document.getElementById('eventModal').style.display = 'flex';
+    document.getElementById('eventEventId').focus();
+}
+
+function openEditEventModal(id, eventId, title, description, category) {
+    document.getElementById('modalTitle').textContent = '✏️ Edit Custom Event';
+    document.getElementById('submitBtnText').textContent = '✅ Save Changes';
+    document.getElementById('eventId').value = id;
+    document.getElementById('eventEventId').value = eventId;
+    document.getElementById('eventEventId').readOnly = true; // Can't change Event ID
+    document.getElementById('eventTitle').value = title;
+    document.getElementById('eventDescription').value = description || '';
+    document.getElementById('eventCategory').value = category || '';
+    document.getElementById('eventModal').style.display = 'flex';
+    document.getElementById('eventTitle').focus();
+}
+
+function closeEventModal() {
+    document.getElementById('eventModal').style.display = 'none';
+}
+
+function submitEvent(e) {
+    e.preventDefault();
+    
+    const id = document.getElementById('eventId').value;
+    const formData = {
+        event_id: parseInt(document.getElementById('eventEventId').value),
+        title: document.getElementById('eventTitle').value.trim(),
+        description: document.getElementById('eventDescription').value.trim() || null,
+        category: document.getElementById('eventCategory').value.trim() || null
+    };
+    
+    const url = id ? `/evtx_descriptions/custom/${id}` : '/evtx_descriptions/custom';
+    const method = id ? 'PUT' : 'POST';
+    
+    fetch(url, {
+        method: method,
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(formData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeEventModal();
+            location.reload();
+        } else {
+            alert('Error: ' + (data.error || 'Failed to save event'));
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+    });
+}
+
+function confirmDeleteEvent(id, eventId) {
+    if (confirm(`🗑️ Delete Custom Event\n\nAre you sure you want to delete Event ID ${eventId}?\n\nThis action cannot be undone.`)) {
+        fetch(`/evtx_descriptions/custom/${id}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error: ' + (data.error || 'Failed to delete event'));
+            }
+        })
+        .catch(err => {
+            alert('Error: ' + err.message);
+        });
+    }
+}
+
+// Close modal on background click
+window.onclick = function(e) {
+    const modal = document.getElementById('eventModal');
+    if (e.target === modal) {
+        closeEventModal();
+    }
+};
 </script>
 {% endblock %}

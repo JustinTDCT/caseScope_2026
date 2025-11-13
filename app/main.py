@@ -1293,6 +1293,13 @@ def evtx_descriptions():
         db.func.max(EventDescription.last_updated)
     ).scalar()
     
+    # Count custom events (v1.13.7)
+    custom_count = db.session.query(EventDescription).filter(
+        EventDescription.is_custom == True
+    ).count()
+    if custom_count > 0:
+        source_stats['Custom Events'] = custom_count
+    
     # Build query with source filter and search filter
     events_query = db.session.query(EventDescription)
     
@@ -1310,6 +1317,8 @@ def evtx_descriptions():
             events_query = events_query.filter(EventDescription.source_url.like('%learn.microsoft.com/en-us/sysinternals%'))
         elif source_filter == 'ms_security':
             events_query = events_query.filter(EventDescription.source_url.like('%learn.microsoft.com/en-us/previous-versions%'))
+        elif source_filter == 'custom':
+            events_query = events_query.filter(EventDescription.is_custom == True)
     
     # Apply search filter
     if search_query:
@@ -1390,6 +1399,156 @@ def evtx_descriptions_update():
         logger.error(f"[EVTX UPDATE] Error: {e}", exc_info=True)
     
     return redirect(url_for('evtx_descriptions'))
+
+
+# ============================================================================
+# CUSTOM EVENT CRUD ROUTES (v1.13.7)
+# ============================================================================
+
+@app.route('/evtx_descriptions/custom', methods=['POST'])
+@login_required
+def create_custom_event():
+    """Create a new custom event description"""
+    from models import EventDescription
+    from audit_logger import log_action
+    
+    try:
+        data = request.json
+        event_id = data.get('event_id')
+        title = data.get('title')
+        description = data.get('description')
+        category = data.get('category')
+        
+        # Validation
+        if not event_id or not title:
+            return jsonify({'success': False, 'error': 'Event ID and Title are required'}), 400
+        
+        # Check if event ID already exists as custom event
+        existing = db.session.query(EventDescription).filter_by(
+            event_id=event_id,
+            is_custom=True
+        ).first()
+        
+        if existing:
+            return jsonify({'success': False, 'error': f'Custom Event ID {event_id} already exists'}), 400
+        
+        # Create new custom event
+        custom_event = EventDescription(
+            event_id=event_id,
+            event_source='Custom',
+            title=title,
+            description=description,
+            category=category,
+            is_custom=True,
+            created_by=current_user.id
+        )
+        
+        db.session.add(custom_event)
+        db.session.commit()
+        
+        # Audit log
+        log_action('create_custom_event', resource_type='event_description',
+                  resource_id=custom_event.id, resource_name=f'Event {event_id}',
+                  details={'event_id': event_id, 'title': title})
+        
+        logger.info(f"[CUSTOM EVENT] Created Event {event_id}: {title} by user {current_user.username}")
+        
+        return jsonify({'success': True, 'id': custom_event.id})
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[CUSTOM EVENT] Error creating event: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/evtx_descriptions/custom/<int:event_desc_id>', methods=['PUT'])
+@login_required
+def update_custom_event(event_desc_id):
+    """Update an existing custom event description"""
+    from models import EventDescription
+    from audit_logger import log_action
+    
+    try:
+        custom_event = db.session.get(EventDescription, event_desc_id)
+        
+        if not custom_event:
+            return jsonify({'success': False, 'error': 'Event not found'}), 404
+        
+        # Only allow editing custom events
+        if not custom_event.is_custom:
+            return jsonify({'success': False, 'error': 'Cannot edit scraped events, only custom events'}), 403
+        
+        # Only allow owner or admin to edit
+        if custom_event.created_by != current_user.id and current_user.role != 'administrator':
+            return jsonify({'success': False, 'error': 'You can only edit your own custom events'}), 403
+        
+        data = request.json
+        
+        # Update fields (event_id cannot be changed once created)
+        if 'title' in data:
+            custom_event.title = data['title']
+        if 'description' in data:
+            custom_event.description = data['description']
+        if 'category' in data:
+            custom_event.category = data['category']
+        
+        db.session.commit()
+        
+        # Audit log
+        log_action('update_custom_event', resource_type='event_description',
+                  resource_id=custom_event.id, resource_name=f'Event {custom_event.event_id}',
+                  details={'event_id': custom_event.event_id, 'title': custom_event.title})
+        
+        logger.info(f"[CUSTOM EVENT] Updated Event {custom_event.event_id}: {custom_event.title} by user {current_user.username}")
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[CUSTOM EVENT] Error updating event: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/evtx_descriptions/custom/<int:event_desc_id>', methods=['DELETE'])
+@login_required
+def delete_custom_event(event_desc_id):
+    """Delete a custom event description"""
+    from models import EventDescription
+    from audit_logger import log_action
+    
+    try:
+        custom_event = db.session.get(EventDescription, event_desc_id)
+        
+        if not custom_event:
+            return jsonify({'success': False, 'error': 'Event not found'}), 404
+        
+        # Only allow deleting custom events
+        if not custom_event.is_custom:
+            return jsonify({'success': False, 'error': 'Cannot delete scraped events, only custom events'}), 403
+        
+        # Only allow owner or admin to delete
+        if custom_event.created_by != current_user.id and current_user.role != 'administrator':
+            return jsonify({'success': False, 'error': 'You can only delete your own custom events'}), 403
+        
+        event_id = custom_event.event_id
+        title = custom_event.title
+        
+        db.session.delete(custom_event)
+        db.session.commit()
+        
+        # Audit log
+        log_action('delete_custom_event', resource_type='event_description',
+                  resource_id=event_desc_id, resource_name=f'Event {event_id}',
+                  details={'event_id': event_id, 'title': title})
+        
+        logger.info(f"[CUSTOM EVENT] Deleted Event {event_id}: {title} by user {current_user.username}")
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"[CUSTOM EVENT] Error deleting event: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/case/<int:case_id>/search')
