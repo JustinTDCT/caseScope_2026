@@ -27,6 +27,22 @@ app = Flask(__name__)
 app.config.from_object(Config)
 
 
+# Helper function to check if OpenSearch index exists
+def index_exists(case_id: int) -> bool:
+    """
+    Check if the consolidated case index exists in OpenSearch.
+    Returns True if index exists, False otherwise.
+    
+    v1.13.1+: Uses consolidated index (case_{id}), not per-file indices
+    """
+    try:
+        index_name = f"case_{case_id}"
+        return opensearch_client.indices.exists(index=index_name)
+    except Exception as e:
+        logger.error(f"[INDEX_CHECK] Error checking if index exists for case {case_id}: {e}")
+        return False
+
+
 # Helper function for extracting nested field values
 def get_nested_field(source_dict, field_path):
     """
@@ -2380,6 +2396,17 @@ def show_logins_ok(case_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
+    # CRITICAL: Check if index exists before querying (v1.13.7)
+    if not index_exists(case_id):
+        logger.info(f"[LOGINS_OK] Index does not exist for case {case_id} - files still processing")
+        return jsonify({
+            'success': True,
+            'logins': [],
+            'total_events': 0,
+            'distinct_count': 0,
+            'message': 'No data available yet. Files are still being processed and indexed. Please try again in a few minutes.'
+        })
+    
     # Get date range parameters (use same filters as main search)
     date_range = request.args.get('date_range', 'all')
     custom_date_start = None
@@ -2442,6 +2469,17 @@ def show_logins_failed(case_id):
     case = db.session.get(Case, case_id)
     if not case:
         return jsonify({'error': 'Case not found'}), 404
+    
+    # CRITICAL: Check if index exists before querying (v1.13.7)
+    if not index_exists(case_id):
+        logger.info(f"[LOGINS_FAILED] Index does not exist for case {case_id} - files still processing")
+        return jsonify({
+            'success': True,
+            'logins': [],
+            'total_events': 0,
+            'distinct_count': 0,
+            'message': 'No data available yet. Files are still being processed and indexed. Please try again in a few minutes.'
+        })
     
     # Get date range parameters (use same filters as main search)
     date_range = request.args.get('date_range', 'all')
@@ -2506,6 +2544,17 @@ def show_rdp_connections(case_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
+    # CRITICAL: Check if index exists before querying (v1.13.7)
+    if not index_exists(case_id):
+        logger.info(f"[RDP_CONNECTIONS] Index does not exist for case {case_id} - files still processing")
+        return jsonify({
+            'success': True,
+            'logins': [],
+            'total_events': 0,
+            'distinct_count': 0,
+            'message': 'No data available yet. Files are still being processed and indexed. Please try again in a few minutes.'
+        })
+    
     # Get date range parameters (use same filters as main search)
     date_range = request.args.get('date_range', 'all')
     custom_date_start = None
@@ -2569,6 +2618,17 @@ def show_console_logins(case_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
+    # CRITICAL: Check if index exists before querying (v1.13.7)
+    if not index_exists(case_id):
+        logger.info(f"[CONSOLE_LOGINS] Index does not exist for case {case_id} - files still processing")
+        return jsonify({
+            'success': True,
+            'logins': [],
+            'total_events': 0,
+            'distinct_count': 0,
+            'message': 'No data available yet. Files are still being processed and indexed. Please try again in a few minutes.'
+        })
+    
     # Get date range parameters (use same filters as main search)
     date_range = request.args.get('date_range', 'all')
     custom_date_start = None
@@ -2631,6 +2691,17 @@ def show_vpn_authentications(case_id):
     case = db.session.get(Case, case_id)
     if not case:
         return jsonify({'error': 'Case not found'}), 404
+    
+    # CRITICAL: Check if index exists before querying (v1.13.7)
+    if not index_exists(case_id):
+        logger.info(f"[VPN_AUTHS] Index does not exist for case {case_id} - files still processing")
+        return jsonify({
+            'success': True,
+            'logins': [],
+            'total_events': 0,
+            'distinct_count': 0,
+            'message': 'No data available yet. Files are still being processed and indexed. Please try again in a few minutes.'
+        })
     
     # Get firewall IP and name from request
     firewall_ip = request.args.get('firewall_ip', '')
@@ -2702,6 +2773,17 @@ def show_failed_vpn_attempts(case_id):
     case = db.session.get(Case, case_id)
     if not case:
         return jsonify({'error': 'Case not found'}), 404
+    
+    # CRITICAL: Check if index exists before querying (v1.13.7)
+    if not index_exists(case_id):
+        logger.info(f"[FAILED_VPN] Index does not exist for case {case_id} - files still processing")
+        return jsonify({
+            'success': True,
+            'logins': [],
+            'total_events': 0,
+            'distinct_count': 0,
+            'message': 'No data available yet. Files are still being processed and indexed. Please try again in a few minutes.'
+        })
     
     # Get firewall IP and name from request
     firewall_ip = request.args.get('firewall_ip', '')

@@ -1,8 +1,112 @@
 # CaseScope 2026 - Application Map
 
-**Version**: 1.13.6  
-**Last Updated**: 2025-11-13 14:59 UTC  
+**Version**: 1.13.7  
+**Last Updated**: 2025-11-13 15:06 UTC  
 **Purpose**: Track file responsibilities and workflow
+
+---
+
+## 🐛 v1.13.7 - CRITICAL FIX: Index Existence Checks for All Login Analysis Routes (2025-11-13 15:06 UTC)
+
+**Change**: Added index existence validation to prevent raw OpenSearch errors when indices are still being built after recovery.
+
+### Problem
+
+**User Report**: "This is what I was talking about hours ago - we need to make SURE ALL PAGES use the new case index"
+
+**Issue**: After v1.13.4/v1.13.5 recovery (deleted and rebuilt indices), users clicking login analysis buttons got raw OpenSearch errors:
+
+```
+Error: NotFoundError(404, 'index_not_found_exception', 'no such index [case_13]', case_13, index_or_alias)
+```
+
+**Scenario**:
+1. v1.13.4/v1.13.5 deleted corrupted indices (case_13, case_9) for recovery
+2. Files requeued for reprocessing with normalization fixes
+3. Indices being rebuilt by workers (takes time for 2,000+ files)
+4. User clicks "RDP Connections" button before case_13 rebuilt
+5. OpenSearch query fails with 404 index_not_found_exception
+6. Raw error message displayed in modal (confusing and unprofessional)
+
+**Affected Routes**: 6 login analysis features:
+- Show Logins OK (Event ID 4624)
+- Failed Logins (Event ID 4625)
+- RDP Connections (Event ID 1149)
+- Console Logins (LogonType 2)
+- VPN Authentications (Event ID 6272)
+- Failed VPN Attempts (Event ID 6273)
+
+### Solution
+
+**1. Created index_exists() Helper Function** (`main.py` lines 30-43):
+```python
+def index_exists(case_id: int) -> bool:
+    """
+    Check if the consolidated case index exists in OpenSearch.
+    v1.13.1+: Uses consolidated index (case_{id}), not per-file indices
+    """
+    try:
+        index_name = f"case_{case_id}"
+        return opensearch_client.indices.exists(index=index_name)
+    except Exception as e:
+        logger.error(f"[INDEX_CHECK] Error checking if index exists for case {case_id}: {e}")
+        return False
+```
+
+**2. Added Index Check to ALL 6 Login Analysis Routes**:
+
+**Example** (RDP Connections, lines 2525-2534):
+```python
+# CRITICAL: Check if index exists before querying (v1.13.7)
+if not index_exists(case_id):
+    logger.info(f"[RDP_CONNECTIONS] Index does not exist for case {case_id} - files still processing")
+    return jsonify({
+        'success': True,
+        'logins': [],
+        'total_events': 0,
+        'distinct_count': 0,
+        'message': 'No data available yet. Files are still being processed and indexed. Please try again in a few minutes.'
+    })
+```
+
+**Routes Updated**:
+- `show_logins_ok()` - lines 2399-2408
+- `show_logins_failed()` - lines 2473-2482
+- `show_rdp_connections()` - lines 2525-2534
+- `show_console_logins()` - lines 2610-2619
+- `show_vpn_authentications()` - lines 2695-2704
+- `show_failed_vpn_attempts()` - lines 2777-2786
+
+### Results
+
+**Before Fix**:
+- ❌ Raw OpenSearch error: `NotFoundError(404, 'index_not_found_exception', 'no such index [case_13]')`
+- ❌ User confusion: Technical error message exposed
+- ❌ Bad UX: Unclear why feature doesn't work
+
+**After Fix**:
+- ✅ User-friendly message: "No data available yet. Files are still being processed and indexed. Please try again in a few minutes."
+- ✅ Modal displays gracefully with empty table and clear explanation
+- ✅ Professional UX: Users understand system is processing files
+- ✅ No technical errors exposed
+
+### Benefits
+
+**Operational**:
+- ✅ **Handles Recovery Gracefully**: v1.13.4/v1.13.5 recoveries don't confuse users
+- ✅ **Prevents Raw Errors**: OpenSearch exceptions never reach frontend
+- ✅ **Clear User Communication**: Users know to wait for processing
+
+**Architectural**:
+- ✅ **Compatible with v1.13.1**: Works with consolidated index architecture
+- ✅ **Defensive Coding**: Checks index existence before every query
+- ✅ **Reusable Pattern**: index_exists() can be used in other routes
+
+### Files Modified
+
+- `app/main.py`: Added index_exists() helper (lines 30-43), added checks to 6 routes (2399-2408, 2473-2482, 2525-2534, 2610-2619, 2695-2704, 2777-2786)
+- `app/version.json`: Added v1.13.7 entry
+- `app/APP_MAP.md`: This entry
 
 ---
 
