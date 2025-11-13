@@ -957,41 +957,47 @@ def file_stats_case(case_id):
         return jsonify({'status': 'error', 'message': 'Case not found'}), 404
     
     try:
-        # Count by status
+        # Count by status (v1.13.9: Exclude hidden files from all counts)
         completed = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.indexing_status == 'Completed',
-            CaseFile.is_deleted == False
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
         ).count()
         
         queued = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.indexing_status == 'Queued',
-            CaseFile.is_deleted == False
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
         ).count()
         
         indexing = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.indexing_status == 'Indexing',
-            CaseFile.is_deleted == False
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
         ).count()
         
         sigma = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.indexing_status == 'SIGMA Testing',
-            CaseFile.is_deleted == False
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
         ).count()
         
         ioc_hunting = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.indexing_status == 'SIGMA Hunting',
-            CaseFile.is_deleted == False
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False
         ).count()
         
         failed = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.indexing_status.like('Failed%'),
-            CaseFile.is_deleted == False
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False  # v1.13.9: Exclude hidden files from failed count
         ).count()
         
         return jsonify({
