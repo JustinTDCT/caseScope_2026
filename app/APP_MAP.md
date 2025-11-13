@@ -6,9 +6,9 @@
 
 ---
 
-## ✨ v1.13.6 - UX IMPROVEMENT: Added Defender & RDP Event IDs to Search Reference (2025-11-13 14:59 UTC)
+## ✨ v1.13.6 - UX IMPROVEMENT: Added Defender & RDP Event IDs to Search Reference (2025-11-13 15:00 UTC)
 
-**Change**: Added 4 critical Windows Defender and RDP event IDs to Common Event IDs reference on search page with proper spacing.
+**Change**: Added 4 critical Windows Defender and RDP event IDs to Common Event IDs reference on search page with uniform spacing.
 
 ### Event IDs Added:
 - **1149**: Remote Desktop Connection (RDP sessions)
@@ -17,12 +17,12 @@
 - **5012/5010/5001**: Defender Items Disabled (security bypass attempts)
 
 ### Spacing Fix:
-- Fixed alignment issue where compound event IDs (1006/1116, 5012/5010/5001) had no spacing before descriptions
-- Increased `min-width` from 60px to 120px for new items to ensure uniform spacing
-- All event IDs now align consistently
+- **Problem**: Original 8 event IDs had 60px min-width, new 4 had 120px → inconsistent alignment
+- **Solution**: Set ALL 12 event IDs to uniform 140px min-width
+- **Result**: Perfect alignment across all entries
 
 ### Files Modified:
-- `app/templates/search_events.html`: Added 4 new event ID entries (lines 60-75), fixed spacing
+- `app/templates/search_events.html`: Added 4 new event ID entries, applied uniform 140px min-width to all 12 entries (lines 27-76)
 - `app/version.json`: Added v1.13.6 entry
 - `app/APP_MAP.md`: This entry
 
