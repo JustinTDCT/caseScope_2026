@@ -1285,18 +1285,10 @@ def delete_case_async(self, case_id):
                     
             except Exception as e:
                 logger.warning(f"[DELETE_CASE] Failed to delete index {index_name}: {e}")
-                # Fallback: try individual deletion if wildcard fails
-                logger.info(f"[DELETE_CASE] Falling back to individual index deletion...")
-                deleted_indices = 0
-                for idx, file in enumerate(files):
-                    if file.opensearch_key:
-                        index_name = make_index_name(case_id, file.original_filename)
-                        try:
-                            if opensearch_client.indices.exists(index=index_name):
-                                opensearch_client.indices.delete(index=index_name)
-                                deleted_indices += 1
-                        except Exception as e2:
-                            logger.warning(f"[DELETE_CASE] Failed to delete index {index_name}: {e2}")
+                # v1.13.1: No fallback needed - only 1 index per case now
+                # Old code used individual per-file deletion (case_{id}_{filename})
+                # New architecture: 1 index per case (already tried above)
+                logger.info(f"[DELETE_CASE] Index deletion failed for case {case_id} - index may not exist")
             
             # Step 5: Delete database records (50% - 95%)
             update_progress('Deleting DB: AIReports', 55, f'Deleting {aireport_count} AI reports...')
