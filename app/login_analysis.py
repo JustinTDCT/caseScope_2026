@@ -550,28 +550,58 @@ def _extract_computer_name(source: Dict) -> Optional[str]:
 
 def _extract_username(source: Dict) -> Optional[str]:
     """Extract username from event source (TargetUserName is the logged-in user)"""
+    import json
+    
     # Try Event.EventData.TargetUserName (most common for EVTX->JSON)
     if 'Event' in source and isinstance(source['Event'], dict):
-        if 'EventData' in source['Event'] and isinstance(source['Event']['EventData'], dict):
-            username = source['Event']['EventData'].get('TargetUserName')
+        event_data = source['Event'].get('EventData')
+        # v1.13.9+: EventData might be a JSON string
+        if isinstance(event_data, str):
+            try:
+                event_data = json.loads(event_data)
+            except:
+                pass
+        if isinstance(event_data, dict):
+            username = event_data.get('TargetUserName')
             if username and _is_valid_username(username):
                 return username
     
     # Try EventData.TargetUserName (direct structure)
-    if 'EventData' in source and isinstance(source['EventData'], dict):
-        username = source['EventData'].get('TargetUserName')
+    event_data = source.get('EventData')
+    # v1.13.9+: EventData might be a JSON string
+    if isinstance(event_data, str):
+        try:
+            event_data = json.loads(event_data)
+        except:
+            pass
+    if isinstance(event_data, dict):
+        username = event_data.get('TargetUserName')
         if username and _is_valid_username(username):
             return username
     
     # Fallback to SubjectUserName if TargetUserName not found
     if 'Event' in source and isinstance(source['Event'], dict):
-        if 'EventData' in source['Event'] and isinstance(source['Event']['EventData'], dict):
-            username = source['Event']['EventData'].get('SubjectUserName')
+        event_data = source['Event'].get('EventData')
+        # v1.13.9+: EventData might be a JSON string
+        if isinstance(event_data, str):
+            try:
+                event_data = json.loads(event_data)
+            except:
+                pass
+        if isinstance(event_data, dict):
+            username = event_data.get('SubjectUserName')
             if username and _is_valid_username(username):
                 return username
     
-    if 'EventData' in source and isinstance(source['EventData'], dict):
-        username = source['EventData'].get('SubjectUserName')
+    event_data = source.get('EventData')
+    # v1.13.9+: EventData might be a JSON string
+    if isinstance(event_data, str):
+        try:
+            event_data = json.loads(event_data)
+        except:
+            pass
+    if isinstance(event_data, dict):
+        username = event_data.get('SubjectUserName')
         if username and _is_valid_username(username):
             return username
     
@@ -580,18 +610,34 @@ def _extract_username(source: Dict) -> Optional[str]:
 
 def _extract_rdp_username(source: Dict) -> Optional[str]:
     """Extract RDP username from Event ID 1149 (Event.UserData.EventXML.Param1)"""
+    import json
+    
     # Try Event.UserData.EventXML.Param1 (RDP connection username)
     if 'Event' in source and isinstance(source['Event'], dict):
-        if 'UserData' in source['Event'] and isinstance(source['Event']['UserData'], dict):
-            if 'EventXML' in source['Event']['UserData'] and isinstance(source['Event']['UserData']['EventXML'], dict):
-                username = source['Event']['UserData']['EventXML'].get('Param1')
+        user_data = source['Event'].get('UserData')
+        # v1.13.9+: UserData might be a JSON string
+        if isinstance(user_data, str):
+            try:
+                user_data = json.loads(user_data)
+            except:
+                pass
+        if isinstance(user_data, dict):
+            if 'EventXML' in user_data and isinstance(user_data['EventXML'], dict):
+                username = user_data['EventXML'].get('Param1')
                 if username and _is_valid_username(username):
                     return username
     
     # Try UserData.EventXML.Param1 (direct structure)
-    if 'UserData' in source and isinstance(source['UserData'], dict):
-        if 'EventXML' in source['UserData'] and isinstance(source['UserData']['EventXML'], dict):
-            username = source['UserData']['EventXML'].get('Param1')
+    user_data = source.get('UserData')
+    # v1.13.9+: UserData might be a JSON string
+    if isinstance(user_data, str):
+        try:
+            user_data = json.loads(user_data)
+        except:
+            pass
+    if isinstance(user_data, dict):
+        if 'EventXML' in user_data and isinstance(user_data['EventXML'], dict):
+            username = user_data['EventXML'].get('Param1')
             if username and _is_valid_username(username):
                 return username
     
@@ -814,16 +860,32 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
 
 def _extract_logon_type(source: Dict) -> str:
     """Extract LogonType from Event ID 4624 event"""
+    import json
+    
     # Try Event.EventData.LogonType (most common for EVTX->JSON)
     if 'Event' in source and isinstance(source['Event'], dict):
-        if 'EventData' in source['Event'] and isinstance(source['Event']['EventData'], dict):
-            logon_type = source['Event']['EventData'].get('LogonType')
+        event_data = source['Event'].get('EventData')
+        # v1.13.9+: EventData might be a JSON string
+        if isinstance(event_data, str):
+            try:
+                event_data = json.loads(event_data)
+            except:
+                pass
+        if isinstance(event_data, dict):
+            logon_type = event_data.get('LogonType')
             if logon_type:
                 return str(logon_type)
     
     # Try EventData.LogonType (direct structure)
-    if 'EventData' in source and isinstance(source['EventData'], dict):
-        logon_type = source['EventData'].get('LogonType')
+    event_data = source.get('EventData')
+    # v1.13.9+: EventData might be a JSON string
+    if isinstance(event_data, str):
+        try:
+            event_data = json.loads(event_data)
+        except:
+            pass
+    if isinstance(event_data, dict):
+        logon_type = event_data.get('LogonType')
         if logon_type:
             return str(logon_type)
     
