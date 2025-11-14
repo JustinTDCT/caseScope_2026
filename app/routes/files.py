@@ -1144,11 +1144,12 @@ def queue_status_case(case_id):
         return jsonify({'status': 'error', 'message': 'Case not found'}), 404
     
     try:
-        # Get queued files
+        # Get queued files (exclude hidden 0-event files)
         queued_files = db.session.query(CaseFile).filter(
             CaseFile.case_id == case_id,
             CaseFile.indexing_status == 'Queued',
-            CaseFile.is_deleted == False
+            CaseFile.is_deleted == False,
+            CaseFile.is_hidden == False  # CRITICAL FIX (v1.13.9): Don't show hidden files in Processing Queue UI
         ).order_by(CaseFile.id).limit(100).all()
         
         # Get failed files (not hidden)

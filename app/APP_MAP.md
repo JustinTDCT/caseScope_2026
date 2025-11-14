@@ -1,3 +1,135 @@
+## 🐛 v1.13.9 - BUG FIX: Processing Queue UI Showing Hidden 0-Event Files (2025-11-14 00:50 UTC)
+
+**Change**: Fixed "Processing Queue" section on case files page to exclude hidden files stuck in inconsistent state.
+
+**User Report**: "case 13 did the same thing, items stuck in queue - you need to check if there is something happening with case 13 triggering other cases! i wasnt even at the keyboard i went and took a shower"
+
+### Problem
+
+**Zombie Files in UI Queue**:
+- User performed Case 13 reindex, left to shower, came back to 7+ files "stuck" in Processing Queue
+- Files shown: `ADAMLAPTOP2_Microsoft-Windows-OOBE-Machine-DUI%4Operational.evtx`, etc.
+- All files were **0-event hidden files** (`is_hidden=True`, `event_count=0`)
+- Database status: `indexing_status='Queued'` AND `is_indexed=True` (inconsistent state)
+- Workers correctly **skipped** these files (due to `is_indexed=True` flag)
+- UI incorrectly **displayed** these files as "queued for processing"
+- No actual processing happening - Redis queue was empty, workers idle
+- User concerned about cross-case contamination (none occurred)
+
+**Database Investigation**:
+```sql
+-- Query: Hidden files with 'Queued' status
+SELECT COUNT(*) FROM case_file 
+WHERE case_id = 13 
+  AND is_hidden = True 
+  AND indexing_status = 'Queued';
+-- Result: 3,209 files!
+```
+
+**Specific Examples**:
+- `file_id: 50006` - `ADAMLAPTOP2_Microsoft-Windows-OOBE-Machine-DUI%4Operational.evtx`
+  - Status: `Queued`, Events: 0, `is_indexed: True`, `is_hidden: True`
+- `file_id: 50007` - `ADAMLAPTOP2_Microsoft-Windows-RemoteAssistance%4Admin.evtx`
+  - Status: `Queued`, Events: 0, `is_indexed: True`, `is_hidden: True`
+
+### Root Cause
+
+**Two Issues Combined**:
+
+1. **Database Inconsistency**: Hidden 0-event files retained `indexing_status='Queued'` instead of being updated to `'Completed'` when marked as hidden
+   - When files have 0 events, they're marked `is_hidden=True`
+   - But their status wasn't updated from `Queued` → `Completed`
+   - This created "zombie" state: hidden but appearing queued
+
+2. **Missing UI Filter**: `queue_status_case()` route didn't filter out hidden files
+   ```python
+   # OLD CODE (app/routes/files.py line 1148):
+   queued_files = db.session.query(CaseFile).filter(
+       CaseFile.case_id == case_id,
+       CaseFile.indexing_status == 'Queued',
+       CaseFile.is_deleted == False
+   ).order_by(CaseFile.id).limit(100).all()
+   # Missing: CaseFile.is_hidden == False ❌
+   ```
+
+**Why Workers Ignored Them**:
+- Workers check `is_indexed` flag first (line 117-121 in `tasks.py`)
+- If `is_indexed=True`, workers skip: "already indexed, skipping"
+- So workers correctly avoided duplicate work
+- But UI still showed them as "queued"
+
+**Consistency Check**:
+- `queue_status_global()` (line 1032) **already had** `is_hidden=False` filter ✅
+- `file-stats` API (v1.13.9 earlier fix) **already had** `is_hidden=False` filters ✅
+- Only `queue_status_case()` was missing this filter ❌
+
+### Solution
+
+**Two-Part Fix**:
+
+1. **Database Cleanup** (one-time):
+   ```python
+   # Updated 3,209 hidden files from Queued → Completed
+   UPDATE case_file 
+   SET indexing_status = 'Completed' 
+   WHERE case_id = 13 
+     AND is_hidden = True 
+     AND indexing_status = 'Queued';
+   ```
+
+2. **UI Code Fix** (`app/routes/files.py` line 1152):
+   ```python
+   # NEW CODE:
+   queued_files = db.session.query(CaseFile).filter(
+       CaseFile.case_id == case_id,
+       CaseFile.indexing_status == 'Queued',
+       CaseFile.is_deleted == False,
+       CaseFile.is_hidden == False  # CRITICAL FIX: Don't show hidden files
+   ).order_by(CaseFile.id).limit(100).all()
+   ```
+
+### Testing
+
+**Before Fix**:
+- Case 13 Processing Queue: 7 files shown (all hidden 0-event files)
+- Database: 3,209 hidden files with `status='Queued'`
+- Workers: Idle (correctly skipping zombie files)
+- User: Confused about "stuck" files
+
+**After Fix**:
+- Database cleanup: 3,209 files updated to `status='Completed'`
+- UI query: Added `is_hidden=False` filter
+- Service restart: `sudo systemctl restart casescope.service`
+- Result: Processing Queue now shows **only genuine queued files**
+
+**Verification**:
+```sql
+-- Hidden files still queued?
+SELECT COUNT(*) FROM case_file 
+WHERE case_id = 13 
+  AND is_hidden = True 
+  AND indexing_status = 'Queued';
+-- Result: 0 ✅
+```
+
+### Impact
+
+**Benefits**:
+1. **Accurate UI**: Processing Queue section reflects actual work queue
+2. **No Clutter**: Hidden 0-event files don't appear in UI
+3. **Consistency**: Matches pattern from v1.13.9 statistics API fix
+4. **User Confidence**: No more confusion about "stuck" files
+5. **Cross-Case Safety**: Confirmed no contamination between cases
+
+**Files Modified**:
+- `app/routes/files.py` (line 1152): Added `is_hidden=False` filter
+
+**Prevention**:
+- Future: Consider updating `indexing_status` when marking files as hidden
+- Or: Add database constraint to prevent `is_hidden=True` + `indexing_status='Queued'`
+
+---
+
 ## 🐛 v1.13.9 - CRITICAL FIX: IOC Hunting Broken After v1.13.1 Index Consolidation (2025-11-13 18:05 UTC)
 
 **Change**: Fixed IOC hunting to work with v1.13.1 consolidated per-case indices by adding `file_id` filter to all OpenSearch queries.
