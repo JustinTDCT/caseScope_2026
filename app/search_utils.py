@@ -58,12 +58,13 @@ def build_search_query(
     #       query_string with wildcard returned 179 hits ✅
     if search_text:
         # Escape Lucene special characters to prevent parse errors
+        # NOTE: Do NOT escape spaces - needed for AND/OR/NOT operators
         def escape_lucene(text):
-            special_chars = ['\\', '+', '-', '=', '&', '|', '!', '(', ')', '{', '}', 
-                             '[', ']', '^', '"', '~', '*', '?', ':', '/', ' ']
+            special_chars = ['\\', '+', '=', '!', '(', ')', '{', '}', 
+                             '[', ']', '^', '"', '~', '?', ':']
+            # Keep: * (wildcards), - (NOT operator), & | (AND/OR symbols), / (paths), spaces (operators)
             for char in special_chars:
-                if char != '*':  # Keep wildcards
-                    text = text.replace(char, f'\\{char}')
+                text = text.replace(char, f'\\{char}')
             return text
         
         escaped_query = escape_lucene(search_text)
