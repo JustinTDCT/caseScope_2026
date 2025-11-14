@@ -105,12 +105,8 @@ def get_logins_by_event_id(opensearch_client, case_id: int, event_id: str,
                 "System.EventID",
                 "Event.System.Computer",
                 "Event.System.EventID",
-                "Event.EventData.TargetUserName",
-                "Event.EventData.SubjectUserName",
-                "Event.EventData.LogonType",
-                "EventData.TargetUserName",
-                "EventData.SubjectUserName",
-                "EventData.LogonType"
+                "Event.EventData",  # v1.13.9: EventData is a JSON string, fetch entire field
+                "EventData"  # v1.13.9: EventData is a JSON string, fetch entire field
             ],
             "query": {
                 "bool": {
@@ -294,7 +290,9 @@ def get_console_logins(opensearch_client, case_id: int, date_range: str = 'all',
                 }
             }
         
-        # Build OpenSearch query for Event ID 4624 AND LogonType = 2
+        # Build OpenSearch query for Event ID 4624
+        # v1.13.9 FIX: EventData is now a JSON string, can't filter by nested LogonType
+        # Solution: Fetch all 4624 events, filter by LogonType=2 in Python after parsing
         must_conditions = [
             # Event ID 4624
             {
@@ -308,20 +306,8 @@ def get_console_logins(opensearch_client, case_id: int, date_range: str = 'all',
                     ],
                     "minimum_should_match": 1
                 }
-            },
-            # LogonType = 2
-            {
-                "bool": {
-                    "should": [
-                        {"term": {"Event.EventData.LogonType": 2}},
-                        {"term": {"Event.EventData.LogonType": "2"}},
-                        {"term": {"Event.EventData.LogonType.#text": "2"}},
-                        {"term": {"EventData.LogonType": 2}},
-                        {"term": {"EventData.LogonType": "2"}}
-                    ],
-                    "minimum_should_match": 1
-                }
             }
+            # NOTE: LogonType filter removed - applied in Python after EventData parsing
         ]
         
         if date_filter:
@@ -337,12 +323,8 @@ def get_console_logins(opensearch_client, case_id: int, date_range: str = 'all',
                 "System.EventID",
                 "Event.System.Computer",
                 "Event.System.EventID",
-                "Event.EventData.TargetUserName",
-                "Event.EventData.SubjectUserName",
-                "Event.EventData.LogonType",
-                "EventData.TargetUserName",
-                "EventData.SubjectUserName",
-                "EventData.LogonType"
+                "Event.EventData",  # v1.13.9: EventData is a JSON string, fetch entire field
+                "EventData"  # v1.13.9: EventData is a JSON string, fetch entire field
             ],
             "query": {
                 "bool": {
@@ -364,6 +346,11 @@ def get_console_logins(opensearch_client, case_id: int, date_range: str = 'all',
         
         for hit in result['hits']['hits']:
             source = hit['_source']
+            
+            # v1.13.9 FIX: Filter by LogonType=2 in Python (EventData is JSON string)
+            logon_type = _extract_logon_type(source)
+            if logon_type != '2':
+                continue  # Skip non-console logins
             
             # Extract computer name (same as other login functions)
             computer = _extract_computer_name(source)
@@ -486,8 +473,8 @@ def get_rdp_connections(opensearch_client, case_id: int, date_range: str = 'all'
                 "System.EventID",
                 "Event.System.Computer",
                 "Event.System.EventID",
-                "Event.UserData.EventXML.Param1",  # RDP username field
-                "UserData.EventXML.Param1"
+                "Event.UserData",  # v1.13.9: UserData is a JSON string, fetch entire field
+                "UserData"  # v1.13.9: UserData is a JSON string, fetch entire field
             ],
             "query": {
                 "bool": {
@@ -809,20 +796,8 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
             "_source": [
                 "normalized_timestamp",
                 "normalized_event_id",
-                "Event.EventData.TargetUserName",
-                "Event.EventData.SubjectUserName",
-                "Event.EventData.WorkstationName",
-                "Event.EventData.ClientName",
-                "Event.EventData.IpAddress",
-                "Event.EventData.ClientIPAddress",
-                "Event.EventData.NASIPv4Address",
-                "EventData.TargetUserName",
-                "EventData.SubjectUserName",
-                "EventData.WorkstationName",
-                "EventData.ClientName",
-                "EventData.IpAddress",
-                "EventData.ClientIPAddress",
-                "EventData.NASIPv4Address"
+                "Event.EventData",  # v1.13.9: EventData is a JSON string, fetch entire field
+                "EventData"  # v1.13.9: EventData is a JSON string, fetch entire field
             ],
             "query": {
                 "bool": {
@@ -1026,20 +1001,8 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
             "_source": [
                 "normalized_timestamp",
                 "normalized_event_id",
-                "Event.EventData.TargetUserName",
-                "Event.EventData.SubjectUserName",
-                "Event.EventData.WorkstationName",
-                "Event.EventData.ClientName",
-                "Event.EventData.IpAddress",
-                "Event.EventData.ClientIPAddress",
-                "Event.EventData.NASIPv4Address",
-                "EventData.TargetUserName",
-                "EventData.SubjectUserName",
-                "EventData.WorkstationName",
-                "EventData.ClientName",
-                "EventData.IpAddress",
-                "EventData.ClientIPAddress",
-                "EventData.NASIPv4Address"
+                "Event.EventData",  # v1.13.9: EventData is a JSON string, fetch entire field
+                "EventData"  # v1.13.9: EventData is a JSON string, fetch entire field
             ],
             "query": {
                 "bool": {

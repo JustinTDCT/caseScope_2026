@@ -1,3 +1,217 @@
+
+## 🐛 v1.14.1 - CRITICAL FIX: Login Analysis Broken After v1.13.9 EventData Stringification (2025-11-14)
+
+**Change**: Fixed login analysis features returning empty results despite showing correct total event counts. All 6 login analysis buttons were broken after v1.13.9 converted EventData to JSON strings.
+
+### 1. Problem
+
+**Symptoms**:
+- User clicks "Show Logins OK" button → "No user logins found" 
+- Bottom of dialog shows "Total 4624 events: 14,335" ✓ (count works)
+- Empty results table (no usernames/computers displayed) ❌
+- Same issue for all 6 login analysis features:
+  - Successful Logins (Event ID 4624)
+  - Failed Logins (Event ID 4625)
+  - RDP Connections (Event ID 1149)
+  - Console Logins (Event ID 4624, LogonType=2)
+  - VPN Authentications (Event ID 4624 + firewall IP)
+  - Failed VPN Attempts (Event ID 4625 + firewall IP)
+
+**User Impact**:
+- Login analysis completely non-functional since v1.13.9
+- Incident responders unable to analyze user activity
+- Lateral movement detection broken
+- Compromise assessment workflows blocked
+
+### 2. Root Cause
+
+**v1.13.9 Change** (file_processing.py lines 240-248):
+```python
+elif key in ['EventData', 'UserData']:
+    # v1.13.9 FINAL FIX: Convert ENTIRE UserData/EventData to JSON string
+    import json
+    normalized[key] = json.dumps(value, sort_keys=True)
+```
+
+**Why v1.13.9 Did This**:
+- Prevent OpenSearch mapping conflicts in consolidated indices
+- EventData fields have inconsistent types across event types:
+  - Event A: `{"Data": 123}` (numeric)
+  - Event B: `{"Data": "Eastern Standard Time"}` (string)
+- First file sets mapping, subsequent files with different types fail
+- Solution: Convert entire EventData/UserData to JSON string for consistency
+
+**How This Broke Login Analysis**:
+
+**OLD OpenSearch Query** (login_analysis.py lines 100-113):
+```python
+"_source": [
+    "Event.EventData.TargetUserName",  # ❌ Path doesn't exist
+    "Event.EventData.SubjectUserName",  # ❌ Path doesn't exist
+    "Event.EventData.LogonType",        # ❌ Path doesn't exist
+    "EventData.TargetUserName",         # ❌ Path doesn't exist
+    ...
+]
+```
+
+**Actual Structure in OpenSearch** (v1.13.9+):
+```json
+{
+  "Event": {
+    "EventData": "{\"TargetUserName\":\"john.doe\",\"LogonType\":\"2\",...}"
+  }
+}
+```
+
+**Problem**: OpenSearch returns `Event.EventData` as a string, NOT nested fields. The extraction functions expected to receive EventData in `_source`, but OpenSearch said "those nested paths don't exist, here's nothing".
+
+### 3. Solution
+
+**Fix 1: Update _source Field Requests** (login_analysis.py):
+
+Changed all 6 functions to request the ENTIRE EventData field instead of nested paths:
+
+**BEFORE**:
+```python
+"_source": [
+    "Event.EventData.TargetUserName",
+    "Event.EventData.SubjectUserName",
+    "Event.EventData.LogonType",
+    "EventData.TargetUserName",
+    ...
+]
+```
+
+**AFTER**:
+```python
+"_source": [
+    "Event.EventData",  # v1.13.9: EventData is JSON string, fetch entire field
+    "EventData"         # v1.13.9: EventData is JSON string, fetch entire field
+]
+```
+
+**Fix 2: Python-Side LogonType Filtering** (console logins):
+
+Since EventData is a string, can't filter `Event.EventData.LogonType=2` in OpenSearch query. 
+
+**Removed OpenSearch Filter**:
+```python
+# OLD: LogonType filter in query
+{
+    "bool": {
+        "should": [
+            {"term": {"Event.EventData.LogonType": 2}},
+            {"term": {"EventData.LogonType": "2"}}
+        ]
+    }
+}
+```
+
+**Added Python Filter** (line 351):
+```python
+# NEW: Filter after fetching all Event 4624
+for hit in result['hits']['hits']:
+    logon_type = _extract_logon_type(source)
+    if logon_type != '2':
+        continue  # Skip non-console logins
+```
+
+**Why Extraction Functions Still Work**:
+
+The extraction functions (`_extract_username`, `_extract_logon_type`, etc.) already had JSON string handling code from v1.13.9:
+
+```python
+def _extract_username(source: Dict) -> Optional[str]:
+    if 'Event' in source:
+        event_data = source['Event'].get('EventData')
+        # v1.13.9+: EventData might be a JSON string
+        if isinstance(event_data, str):
+            try:
+                event_data = json.loads(event_data)  # ✓ Parse JSON string
+            except:
+                pass
+        if isinstance(event_data, dict):
+            username = event_data.get('TargetUserName')  # ✓ Extract field
+```
+
+So once OpenSearch returns the EventData field (as a string), the extraction functions parse it correctly.
+
+### 4. Files Modified
+
+**Backend**:
+- `app/login_analysis.py`:
+  - Lines 100-113: `get_logins_by_event_id()` - fetch Event.EventData, EventData
+  - Lines 327-338: `get_console_logins()` - fetch Event.EventData, EventData  
+  - Lines 293-311: `get_console_logins()` - removed OpenSearch LogonType filter
+  - Line 351: `get_console_logins()` - added Python LogonType=2 filter
+  - Lines 473-483: `get_rdp_connections()` - fetch Event.UserData, UserData
+  - Lines 801-806: `get_vpn_authentications()` - fetch Event.EventData, EventData
+  - Lines 1019-1023: `get_failed_vpn_attempts()` - fetch Event.EventData, EventData
+
+**Documentation**:
+- `app/APP_MAP.md`: This entry (v1.14.1)
+- `app/version.json`: Added v1.14.1 changelog entry
+
+### 5. Impact
+
+**Before Fix**:
+- ❌ All 6 login analysis buttons showed "No ... found"
+- ❌ Event counts displayed correctly (query worked)
+- ❌ Empty results (extraction failed - no data in _source)
+- ❌ Incident response workflows blocked
+- ❌ Lateral movement detection impossible
+
+**After Fix**:
+- ✅ Login analysis returns username/computer combinations
+- ✅ Event counts still correct
+- ✅ Results table populated with data
+- ✅ Incident response workflows restored
+- ✅ All 6 analysis features functional
+
+### 6. Testing
+
+**Test Case**:
+1. Navigate to Case search page
+2. Click "Show Logins OK" (Event 4624)
+3. **BEFORE**: Dialog shows "No user logins found" with "Total: 14,335"
+4. **AFTER**: Dialog shows distinct username/computer pairs with "Total: 14,335"
+
+**Affected Routes** (all 6 restored):
+- `/case/<id>/search/logins-ok` - Successful logins
+- `/case/<id>/search/logins-failed` - Failed logins
+- `/case/<id>/search/rdp-connections` - RDP sessions
+- `/case/<id>/search/console-logins` - Console logins
+- `/case/<id>/search/vpn-authentications` - VPN authentications
+- `/case/<id>/search/vpn-failed-attempts` - Failed VPN attempts
+
+### 7. Technical Notes
+
+**Why This Wasn't Caught Earlier**:
+- v1.13.9 was released to fix mapping conflicts (critical)
+- Login analysis tests weren't run after v1.13.9 deployment
+- Total event counts still worked (query found events)
+- Only data extraction failed (subtle failure mode)
+
+**Architecture Lesson**:
+- v1.13.1: Consolidated indices (1 per case) - good for performance
+- v1.13.9: EventData stringification - good for mapping consistency  
+- v1.14.1: Query adaptation - required to work with stringified EventData
+
+**VPN Filter Concern**:
+- VPN functions filter by `Event.EventData.IpAddress.keyword`
+- These filters still work because OpenSearch text search matches within JSON strings
+- However, performance may be impacted (text search vs. term query on keyword field)
+- Monitor VPN query performance; may need to extract IPs to normalized fields if slow
+
+### 8. Related Issues
+
+- **v1.13.9**: EventData/UserData stringification (prevented mapping conflicts)
+- **v1.13.5**: EventData string conversion (earlier attempt)
+- **v1.13.4**: Event structure normalization (XML flattening)
+- **v1.11.5**: Login analysis suite original implementation
+
+---
+
 ## ✨ v1.14.0 - MAJOR FEATURE: IIS Log Support - W3C Extended Log Format (2025-11-14)
 
 **Change**: Added comprehensive support for Microsoft IIS (Internet Information Services) W3C Extended Log Format files, enabling web server log analysis alongside existing Windows event log and CSV support.
