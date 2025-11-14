@@ -1762,8 +1762,8 @@ def search_events(case_id):
             latest_event_timestamp = datetime.utcnow()
     
     # Build query (if no search text AND showing all events, match all)
-    if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 4 and hidden_filter == 'show':
-        # Simple match_all for performance (only if all file types selected AND showing all events including hidden)
+    if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 5 and hidden_filter == 'show':
+        # Simple match_all for performance (only if all 5 file types selected AND showing all events including hidden) v1.14.0: Changed 4→5 (added IIS)
         query_dsl = {"query": {"match_all": {}}}
     else:
         # Build proper query with hidden filter applied
@@ -1995,8 +1995,8 @@ def export_search_results(case_id):
             latest_event_timestamp = datetime.utcnow()
     
     # Build query (reuse same logic)
-    if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 4:
-        query_dsl = {"query": {"match_all": {}}}
+    if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 5:
+        query_dsl = {"query": {"match_all": {}}}  # v1.14.0: Changed 4→5 (added IIS)
     else:
         query_dsl = build_search_query(
             search_text=search_text,

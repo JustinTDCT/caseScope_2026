@@ -30,6 +30,158 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================================
+# IIS LOG PARSING (v1.14.0: IIS W3C Extended Log Format support)
+# ============================================================================
+
+def extract_computer_name_iis(filename: str, first_event: dict = None) -> str:
+    """
+    Extract computer name from IIS log filename or server IP.
+    
+    Priority:
+    1. Filename prefix (e.g., WEB-SERVER-01_u_ex250112.log -> WEB-SERVER-01)
+    2. Server IP from first event (s-ip field)
+    3. Default: 'IIS-Server'
+    
+    Args:
+        filename: Original IIS log filename
+        first_event: First parsed event (for s-ip fallback)
+        
+    Returns:
+        Computer name string
+    """
+    # Try filename prefix
+    if '_' in filename:
+        prefix = filename.split('_')[0]
+        # Validate it's not just "u", "ex", or IIS service name
+        if prefix not in ['u', 'ex', 'ncsa', 'W3SVC1', 'W3SVC2', 'W3SVC3', 'W3SVC4', 'W3SVC5']:
+            return prefix
+    
+    # Try server IP from first event
+    if first_event and 's-ip' in first_event:
+        return f"IIS-{first_event['s-ip']}"
+    
+    # Fallback
+    return 'IIS-Server'
+
+
+def parse_iis_log(file_path, opensearch_key, file_id, filename):
+    """
+    Parse IIS W3C Extended Log Format.
+    
+    Example IIS log structure:
+        #Software: Microsoft Internet Information Services 10.0
+        #Version: 1.0
+        #Date: 2025-01-12 00:00:00
+        #Fields: date time s-ip cs-method cs-uri-stem cs-uri-query s-port cs-username c-ip cs(User-Agent) cs(Referer) sc-status sc-substatus sc-win32-status time-taken
+        2025-01-12 14:23:45 192.168.1.100 GET /api/users id=123 443 - 203.0.113.45 Mozilla/5.0... https://example.com/ 200 0 0 125
+    
+    Args:
+        file_path: Path to .log file
+        opensearch_key: Unique key for this file's events
+        file_id: CaseFile ID for tracking
+        filename: Original filename
+        
+    Returns:
+        List of event dictionaries ready for OpenSearch indexing
+    """
+    logger.info(f"[PARSE IIS] Parsing IIS log: {filename}")
+    
+    events = []
+    field_names = []
+    computer_name = None
+    row_num = 0
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                
+                # Skip empty lines
+                if not line:
+                    continue
+                
+                # Parse #Fields: header to get column names
+                if line.startswith('#Fields:'):
+                    field_names = line[8:].strip().split()
+                    logger.info(f"[PARSE IIS] Found {len(field_names)} fields: {field_names}")
+                    continue
+                
+                # Skip other comment lines
+                if line.startswith('#'):
+                    continue
+                
+                # Parse data rows
+                if not field_names:
+                    logger.warning(f"[PARSE IIS] No #Fields: header found, skipping line {line_num}")
+                    continue
+                
+                # Split by whitespace, respecting that some fields might be "-" (empty)
+                values = line.split()
+                
+                # Handle case where values don't match field count (malformed line)
+                if len(values) != len(field_names):
+                    logger.warning(f"[PARSE IIS] Line {line_num}: Expected {len(field_names)} fields, got {len(values)}, skipping")
+                    continue
+                
+                row_num += 1
+                
+                # Build event dictionary
+                event = {}
+                for field_name, value in zip(field_names, values):
+                    # Convert "-" to empty string (IIS convention for empty fields)
+                    event[field_name] = value if value != '-' else ''
+                
+                # Extract timestamp from date + time fields
+                date_str = event.get('date', '')
+                time_str = event.get('time', '')
+                
+                if date_str and time_str:
+                    # Combine into ISO 8601 format: "2025-01-12T14:23:45.000Z"
+                    timestamp_str = f"{date_str}T{time_str}.000Z"
+                else:
+                    # Fallback to current time if parsing fails
+                    timestamp_str = datetime.utcnow().isoformat() + 'Z'
+                    logger.warning(f"[PARSE IIS] Row {row_num}: Missing date/time, using fallback timestamp")
+                
+                # Extract computer name from first event
+                if row_num == 1:
+                    computer_name = extract_computer_name_iis(filename, event)
+                    logger.info(f"[PARSE IIS] Computer name: {computer_name}")
+                
+                # Build OpenSearch-compatible event structure
+                # CRITICAL: Add System.TimeCreated.SystemTime for date range queries
+                event['System'] = {
+                    'TimeCreated': {
+                        'SystemTime': timestamp_str
+                    },
+                    'Computer': computer_name
+                }
+                
+                # Add normalized timestamp (backup for sorting)
+                event['normalized_timestamp'] = timestamp_str
+                
+                # Add metadata for filtering and tracking
+                event['opensearch_key'] = opensearch_key
+                event['source_file'] = filename
+                event['source_file_type'] = 'IIS'
+                event['file_id'] = file_id
+                event['row_number'] = row_num
+                
+                # Initialize IOC/SIGMA flags
+                event['has_ioc'] = False
+                event['has_sigma'] = False
+                
+                events.append(event)
+        
+        logger.info(f"[PARSE IIS] Parsed {len(events)} events from {filename}")
+        return events
+        
+    except Exception as e:
+        logger.error(f"[PARSE IIS] Error parsing IIS log {filename}: {e}")
+        return []
+
+
+# ============================================================================
 # EVENT NORMALIZATION (v1.13.4: Fix mapping conflicts)
 # ============================================================================
 
@@ -277,6 +429,8 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
     filename_lower = filename.lower()
     is_evtx = filename_lower.endswith('.evtx')
     is_json = filename_lower.endswith(('.json', '.ndjson', '.jsonl'))
+    is_csv = filename_lower.endswith('.csv')
+    is_iis = False
     
     # Detect file type
     if filename_lower.endswith('.evtx'):
@@ -289,12 +443,27 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
         file_type = 'NDJSON'
     elif filename_lower.endswith('.csv'):
         file_type = 'CSV'
+    elif filename_lower.endswith('.log'):
+        # Peek at first 1024 bytes to detect IIS logs
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                header = f.read(1024)
+            
+            # Check for IIS W3C Extended Log Format signatures
+            if ('Microsoft Internet Information Services' in header or 
+                ('#Fields:' in header and ('cs-method' in header or 'cs-uri-stem' in header or 's-ip' in header))):
+                file_type = 'IIS'
+                is_iis = True
+                logger.info(f"[INDEX FILE] Detected IIS W3C Extended Log Format")
+            else:
+                file_type = 'LOG'  # Generic log file (not supported)
+        except Exception as e:
+            logger.warning(f"[INDEX FILE] Could not peek at .log file: {e}")
+            file_type = 'UNKNOWN'
     else:
         file_type = 'UNKNOWN'
     
-    is_csv = filename_lower.endswith('.csv')
-    
-    if not (is_evtx or is_json or is_csv):
+    if not (is_evtx or is_json or is_csv or is_iis):
         logger.error(f"[INDEX FILE] Unsupported file type: {filename}")
         return {
             'status': 'error',
@@ -309,8 +478,8 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
     
     # Generate index name and opensearch_key
     index_name = make_index_name(case_id, filename)
-    # Strip all JSON-related extensions for opensearch_key
-    clean_name = filename.replace('.evtx', '').replace('.ndjson', '').replace('.jsonl', '').replace('.json', '')
+    # Strip all extensions for opensearch_key
+    clean_name = filename.replace('.evtx', '').replace('.ndjson', '').replace('.jsonl', '').replace('.json', '').replace('.csv', '').replace('.log', '')
     opensearch_key = f"case{case_id}_{clean_name}"
     
     logger.info(f"[INDEX FILE] File type: {file_type}")
@@ -413,6 +582,10 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
             # CSV files will be processed directly (no conversion needed)
             json_path = None
             logger.info(f"[INDEX FILE] CSV file detected, will process directly")
+        elif is_iis:
+            # IIS logs will be processed directly (no conversion needed)
+            json_path = None
+            logger.info(f"[INDEX FILE] IIS log detected, will process directly")
         else:
             # Use existing JSON/NDJSON/JSONL file
             json_path = file_path
@@ -583,6 +756,67 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                         logger.info(f"[INDEX FILE] Progress: {event_count:,} CSV rows indexed")
             
             logger.info(f"[INDEX FILE] ✓ CSV processing complete: {event_count:,} rows")
+        
+        # Process IIS log files
+        elif is_iis:
+            logger.info("[INDEX FILE] Processing IIS log file...")
+            
+            # Parse IIS log into events
+            parsed_events = parse_iis_log(file_path, opensearch_key, file_id, filename)
+            
+            if not parsed_events:
+                logger.warning(f"[INDEX FILE] No events parsed from IIS log")
+            
+            # Bulk index IIS events
+            for event in parsed_events:
+                # Normalize event fields for consistent search
+                from event_normalization import normalize_event
+                event = normalize_event(event)
+                
+                # Add deterministic document ID for deduplication if enabled
+                bulk_doc = {
+                    '_index': index_name,
+                    '_source': event
+                }
+                if deduplicate_enabled:
+                    doc_id = generate_event_document_id(case_id, event)
+                    bulk_doc['_id'] = doc_id
+                
+                bulk_data.append(bulk_doc)
+                event_count += 1
+                
+                # Bulk index every 1000 events
+                if len(bulk_data) >= 1000:
+                    try:
+                        success, errors = opensearch_bulk(opensearch_client, bulk_data, raise_on_error=False)
+                        indexed_count += success
+                        if errors:
+                            logger.warning(f"[INDEX FILE] {len(errors)} events failed to index in batch")
+                            if len(errors) > 0:
+                                first_error = errors[0]
+                                if isinstance(first_error, dict):
+                                    error_detail = first_error.get('index', {}).get('error', {})
+                                    error_type = error_detail.get('type', 'unknown')
+                                    error_reason = error_detail.get('reason', 'unknown')
+                                    logger.error(f"[INDEX FILE] First bulk error: {error_type} - {error_reason}")
+                    except Exception as e:
+                        logger.error(f"[INDEX FILE] Bulk index error: {e}")
+                    bulk_data = []
+                    
+                    # Update progress
+                    if celery_task:
+                        celery_task.update_state(
+                            state='PROGRESS',
+                            meta={
+                                'current': event_count,
+                                'total': event_count,
+                                'status': f'Indexing {event_count:,} IIS log entries'
+                            }
+                        )
+                    
+                    logger.info(f"[INDEX FILE] Progress: {event_count:,} IIS log entries indexed")
+            
+            logger.info(f"[INDEX FILE] ✓ IIS log processing complete: {event_count:,} entries")
         
         # Process JSON/NDJSON/EVTX files
         elif json_path:

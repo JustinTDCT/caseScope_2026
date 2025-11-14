@@ -28,7 +28,7 @@
                 <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: var(--spacing-sm);">📂 How to Use</h3>
                 <ol style="margin-left: var(--spacing-lg); font-size: 0.9rem; color: var(--color-text-secondary); line-height: 1.6;">
                     <li>Place your files in: <code style="background: var(--color-bg-secondary); padding: 2px 6px; border-radius: 3px; font-family: monospace;">/opt/casescope/bulk_import/</code></li>
-                    <li>Supported formats: <strong>EVTX, NDJSON, JSON, CSV, ZIP</strong> (ZIPs auto-extract EVTX/NDJSON only)</li>
+                    <li>Supported formats: <strong>EVTX, NDJSON, JSON, CSV, IIS logs, ZIP</strong> (ZIPs auto-extract EVTX/NDJSON/IIS only)</li>
                     <li>Files will be automatically moved and processed (ZIPs extracted)</li>
                     <li>Duplicates are skipped, 0-event files are hidden</li>
                 </ol>
@@ -49,11 +49,12 @@
                 
                 <!-- File Type Breakdown -->
                 <div id="bulkFileBreakdown" style="display: none; margin-top: var(--spacing-md); padding-top: var(--spacing-md); border-top: 1px solid var(--color-border); font-size: 0.875rem;">
-                    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--spacing-sm);">
+                    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--spacing-sm);">
                         <div><span class="text-muted">EVTX:</span> <span id="evtxCount">0</span></div>
                         <div><span class="text-muted">JSON:</span> <span id="jsonCount">0</span></div>
                         <div><span class="text-muted">NDJSON:</span> <span id="ndjsonCount">0</span></div>
                         <div><span class="text-muted">CSV:</span> <span id="csvCount">0</span></div>
+                        <div><span class="text-muted">IIS:</span> <span id="iisCount">0</span></div>
                         <div><span class="text-muted">ZIP:</span> <span id="zipCount">0</span></div>
                     </div>
                 </div>
@@ -114,9 +115,9 @@
         <div class="form-group">
             <label class="form-label" for="fileInput">Select Files</label>
             <input type="file" id="fileInput" multiple class="form-input" 
-                   accept=".evtx,.ndjson,.json,.csv,.zip">
+                   accept=".evtx,.ndjson,.json,.csv,.log,.zip">
             <p class="text-muted" style="margin-top: var(--spacing-sm); font-size: 0.875rem;">
-                Supported formats: EVTX, NDJSON, JSON, CSV, ZIP (ZIPs extract EVTX/NDJSON only)
+                Supported formats: EVTX, NDJSON, JSON, CSV, IIS logs, ZIP (ZIPs extract EVTX/NDJSON/IIS only)
             </p>
         </div>
         
@@ -305,6 +306,7 @@ async function scanBulkDirectory() {
             document.getElementById('jsonCount').textContent = stats.json_count || 0;
             document.getElementById('ndjsonCount').textContent = stats.ndjson_count || 0;
             document.getElementById('csvCount').textContent = stats.csv_count || 0;
+            document.getElementById('iisCount').textContent = stats.iis_count || 0;
             document.getElementById('zipCount').textContent = stats.zip_count || 0;
             
             // Enable start button

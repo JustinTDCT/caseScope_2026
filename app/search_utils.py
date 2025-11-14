@@ -164,6 +164,15 @@ def build_search_query(
                         ]
                     }
                 })
+            elif file_type == 'IIS':
+                # v1.14.0: IIS: has source_file_type='IIS' field
+                should_clauses.append({
+                    "bool": {
+                        "must": [
+                            {"term": {"source_file_type.keyword": "IIS"}}
+                        ]
+                    }
+                })
             elif file_type == 'JSON':
                 # JSON: no source_file_type AND not EVTX/EDR/CSV structure
                 should_clauses.append({

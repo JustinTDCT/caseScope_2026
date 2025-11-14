@@ -1,3 +1,307 @@
+## ✨ v1.14.0 - MAJOR FEATURE: IIS Log Support - W3C Extended Log Format (2025-11-14)
+
+**Change**: Added comprehensive support for Microsoft IIS (Internet Information Services) W3C Extended Log Format files, enabling web server log analysis alongside existing Windows event log and CSV support.
+
+### Overview
+
+Users can now upload, index, search, and analyze IIS logs (`.log` files) with **full feature parity** to EVTX and CSV files. This major enhancement brings web server security analysis capabilities to CaseScope, allowing investigators to correlate web traffic with Windows events for comprehensive incident response.
+
+### Use Cases
+
+1. **Web Server Security Analysis**: HTTP status codes, failed requests, suspicious URIs
+2. **Attack Surface Mapping**: Exposed endpoints via `cs-uri-stem`
+3. **Traffic Analysis**: Client IPs, user agents, referrers  
+4. **Access Logging**: Authenticated users via `cs-username`
+5. **Performance Analysis**: Request duration via `time-taken` field
+6. **Compliance & Audit**: Web access logs for regulatory requirements
+7. **Correlation with Windows Events**: Combine IIS logs with EVTX for complete incident picture
+
+### Implementation Details
+
+#### 1. Core Parsing (`app/file_processing.py`)
+
+**New Functions**:
+- `extract_computer_name_iis(filename, first_event)` (lines 36-64)
+  - Extracts computer name from filename prefix (e.g., `WEB-SERVER-01_u_ex250112.log` → `WEB-SERVER-01`)
+  - Falls back to server IP from `s-ip` field (`IIS-192.168.1.100`)
+  - Default fallback: `'IIS-Server'`
+
+- `parse_iis_log(file_path, opensearch_key, file_id, filename)` (lines 67-181)
+  - Reads W3C Extended Log Format
+  - Parses `#Fields:` header to get column names
+  - Handles comment lines (lines starting with `#`)
+  - Processes data rows (whitespace-separated values)
+  - Converts `-` (IIS empty field convention) to empty string
+  - Combines `date` + `time` fields → ISO 8601 timestamp
+  - Builds OpenSearch-compatible event structure
+
+**IIS Detection** (lines 433-463):
+```python
+elif filename_lower.endswith('.log'):
+    # Peek at first 1024 bytes to detect IIS logs
+    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+        header = f.read(1024)
+    
+    # Check for IIS W3C Extended Log Format signatures
+    if ('Microsoft Internet Information Services' in header or 
+        ('#Fields:' in header and ('cs-method' in header or 'cs-uri-stem' in header or 's-ip' in header))):
+        file_type = 'IIS'
+        is_iis = True
+```
+
+**IIS Event Structure**:
+```json
+{
+  "date": "2025-01-12",
+  "time": "14:23:45",
+  "s-ip": "192.168.1.100",
+  "cs-method": "GET",
+  "cs-uri-stem": "/api/users",
+  "cs-uri-query": "id=123",
+  "s-port": "443",
+  "cs-username": "-",
+  "c-ip": "203.0.113.45",
+  "cs(User-Agent)": "Mozilla/5.0...",
+  "cs(Referer)": "https://example.com/",
+  "sc-status": "200",
+  "sc-substatus": "0",
+  "sc-win32-status": "0",
+  "time-taken": "125",
+  
+  "System": {
+    "TimeCreated": {
+      "SystemTime": "2025-01-12T14:23:45.000Z"
+    },
+    "Computer": "WEB-SERVER-01"
+  },
+  "normalized_timestamp": "2025-01-12T14:23:45.000Z",
+  "source_file": "u_ex250112.log",
+  "source_file_type": "IIS",
+  "file_id": 12345,
+  "row_number": 1,
+  "has_ioc": false,
+  "has_sigma": false
+}
+```
+
+**Processing Integration** (lines 760-819):
+- Added IIS log processing after CSV, before JSON/NDJSON
+- Calls `parse_iis_log()` to get list of events
+- Applies `normalize_event()` for consistent search
+- Bulk indexes in 1000-event batches
+- Progress updates via Celery task state
+
+#### 2. Smart ZIP Extraction (`app/upload_pipeline.py`)
+
+**Safety Feature**: Only extracts IIS logs from ZIPs, skips generic `.log` files
+
+**New Function**: `is_iis_log(zip_file, file_info)` (lines 213-237)
+```python
+def is_iis_log(zip_file: zipfile.ZipFile, file_info: zipfile.ZipInfo) -> bool:
+    """Detect if a .log file inside a ZIP is an IIS W3C Extended Log Format file."""
+    try:
+        with zip_file.open(file_info) as f:
+            header = f.read(1024).decode('utf-8', errors='ignore')
+        
+        if ('Microsoft Internet Information Services' in header or 
+            ('#Fields:' in header and ('cs-method' in header or 'cs-uri-stem' in header or 's-ip' in header))):
+            return True
+        return False
+    except Exception as e:
+        logger.warning(f"[ZIP] Could not peek at .log file {file_info.filename}: {e}")
+        return False
+```
+
+**ZIP Extraction Updates**:
+- Added `.log` to `ALLOWED_EXTENSIONS` (line 127)
+- Pre-extraction counting includes IIS logs (lines 306-311)
+- Extraction logic handles `.log` files with IIS detection (lines 368-393)
+- Tracks `non_iis_logs_skipped` stat separately (line 264)
+- Nested ZIP aggregation includes IIS stats (line 344)
+
+**Example Log Output**:
+```
+[EXTRACT] CyLR_collection: Expected 15 EVTX + 2 NDJSON + 1 IIS = 18 files (2 non-IIS .log files will be skipped)
+[EXTRACT]   → CyLR_collection_u_ex250112.log (IIS log)
+[EXTRACT]   Skipping non-IIS .log file: application.log
+```
+
+#### 3. Bulk Import Integration (`app/bulk_import.py`)
+
+**Changes**:
+- Added `.log` to `ALLOWED_EXTENSIONS` (line 17)
+- Added `'iis': []` to `files_by_type` dict (line 35)
+- Detection logic: `.log` extension → categorize as `'iis'` (lines 61-63)
+- Updated `total_supported` calculation to include `'iis'` (line 70)
+- Added `'iis_count'` to `get_bulk_import_stats()` return (line 154)
+
+**Result**: Bulk import scans now detect and count IIS logs separately from other file types.
+
+#### 4. Event Deduplication (`app/event_deduplication.py`)
+
+**CSV/IIS Unified Handling** (lines 59-66):
+```python
+# Priority 3: For CSV/IIS/non-Windows events, use all event fields except metadata
+elif event.get('source_file_type') in ['CSV', 'IIS']:
+    # For CSV and IIS, exclude metadata fields and use content fields
+    # v1.14.0: IIS logs also exclude 'System' block (artificially added for timestamp normalization)
+    exclude_fields = {'source_file', 'source_file_type', 'normalized_timestamp', 
+                    'normalized_computer', 'normalized_event_id', 'indexed_at', 
+                    'System', 'row_number', 'file_id', 'opensearch_key', 
+                    'has_ioc', 'has_sigma'}
+    event_data = {k: v for k, v in event.items() if k not in exclude_fields}
+```
+
+**Deduplication Strategy**:
+- IIS events treated like CSV (flat key-value structure)
+- Excludes metadata we artificially added (`System` block for timestamp normalization)
+- Uses actual IIS content fields for fingerprinting:
+  - `c-ip` (client IP)
+  - `cs-method` (HTTP method)
+  - `cs-uri-stem` (URL path)
+  - Combined date+time (timestamp)
+- Same event from different files → same fingerprint → deduplicated
+
+#### 5. Search Integration
+
+**File Type Filter** (`app/search_utils.py` lines 167-175):
+```python
+elif file_type == 'IIS':
+    # v1.14.0: IIS: has source_file_type='IIS' field
+    should_clauses.append({
+        "bool": {
+            "must": [
+                {"term": {"source_file_type.keyword": "IIS"}}
+            ]
+        }
+    })
+```
+
+**Search Optimization** (`app/main.py` lines 1765-1766, 1998-1999):
+```python
+# Changed from len(file_types) == 4 to == 5
+if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 5:
+    # Simple match_all for performance (only if all 5 file types selected)
+    query_dsl = {"query": {"match_all": {}}}
+```
+
+**Result**: IIS checkbox works with all existing search features (text search, date ranges, IOC/SIGMA flags).
+
+#### 6. Frontend Updates
+
+**File Upload Page** (`upload_files.html`):
+- Grid changed from 5 to 6 columns for file type breakdown (line 52)
+- Added IIS count display: `<span class="text-muted">IIS:</span> <span id="iisCount">0</span>` (line 57)
+- JavaScript updates IIS count: `document.getElementById('iisCount').textContent = stats.iis_count || 0;` (line 309)
+- Accept attribute includes `.log`: `accept=".evtx,.ndjson,.json,.csv,.log,.zip"` (line 117)
+- Text updated (3 locations, lines 31, 119): "EVTX, NDJSON, JSON, CSV, **IIS logs**, ZIP"
+
+**Search Events Page** (`search_events.html`):
+- File Types filter grid changed from 2 to 3 columns (line 161)
+- Added IIS checkbox (lines 178-181):
+  ```html
+  <label style="display: flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; cursor: pointer; padding: 0.25rem;">
+      <input type="checkbox" name="file_types" value="IIS" onchange="resetToPageOne()" {% if 'IIS' in file_types %}checked{% endif %}>
+      <span>IIS</span>
+  </label>
+  ```
+- Grid now shows: **EVTX | EDR | JSON** / **CSV | IIS** (2 rows, 3 columns)
+
+**Case/Global Files Pages**:
+- `case_files.html` (line 434): "Upload EVTX, NDJSON, JSON, CSV, **IIS logs**, or ZIP files"
+- `global_files.html` (line 447): Same text update
+- `view_case.html` (line 167): Same text update
+- `view_case_enhanced.html` (line 293): Same text update
+
+### OpenSearch Structure
+
+**Required Fields for Date/Time Functions**:
+1. `System.TimeCreated.SystemTime` - Enables date dropdown filters and custom range queries
+2. `System.Computer` - For system filtering and deduplication
+3. `source_file_type='IIS'` - For file type filtering
+4. `file_id` and `source_file` - For IOC hunting and file isolation
+5. `has_ioc` and `has_sigma` - For filter functionality
+
+**Timestamp Normalization**:
+- IIS logs have separate `date` (YYYY-MM-DD) and `time` (HH:MM:SS) fields
+- Combined into ISO 8601 format: `date` + `T` + `time` + `.000Z`
+- Example: `2025-01-12` + `14:23:45` → `2025-01-12T14:23:45.000Z`
+- Set in both `System.TimeCreated.SystemTime` and `normalized_timestamp`
+
+**Computer Name Extraction Priority**:
+1. **Filename prefix**: `WEB-SERVER-01_u_ex250112.log` → `WEB-SERVER-01`
+   - Skips common IIS prefixes: `u`, `ex`, `ncsa`, `W3SVC1-5`
+2. **Server IP**: If no valid prefix, use `s-ip` field → `IIS-192.168.1.100`
+3. **Fallback**: `IIS-Server` if both above fail
+
+### Feature Parity
+
+IIS logs support **ALL** existing CaseScope features:
+
+✅ **IOC Hunting** (file-level and global)  
+✅ **SIGMA Rule Testing** (if applicable)  
+✅ **Event Deduplication** (file SHA256 hash + event-level fingerprinting)  
+✅ **Search and Filtering** (text search, date ranges, file types, IOC/SIGMA flags)  
+✅ **CSV Export** (raw data includes full IIS log entries)  
+✅ **Statistics Tracking** (file counts, event counts, per-case and global)  
+✅ **Bulk Operations** (reindex, re-SIGMA, re-hunt IOCs, delete, hide)  
+✅ **Single File Operations** (reindex, rechainsaw, rehunt, hide, delete)  
+✅ **Date Range Queries** (Last 24 Hours, 7 Days, 30 Days, Custom Range)  
+✅ **Sorting by Timestamp**  
+✅ **Known User Enrichment** (`cs-username` field)
+
+### Benefits
+
+1. **No Schema Changes**: Existing `CaseFile` model supports IIS via `file_type='IIS'`
+2. **No Mapping Conflicts**: IIS fields are IIS-specific, won't collide with EVTX
+3. **Smart Extraction**: Only IIS logs extracted from ZIPs (not generic `.log` files)
+4. **Full Integration**: Works with existing upload, bulk import, search, export workflows
+5. **Backward Compatible**: Existing cases/files unaffected
+
+### Testing Checklist
+
+- [ ] **File Deduplication**: Upload same IIS log twice → 2nd skipped
+- [ ] **Event Deduplication**: Re-upload with different name → same event count  
+- [ ] **ZIP Extraction**: IIS log + non-IIS log + EVTX → IIS extracted, non-IIS skipped
+- [ ] **Timestamp Functions**: Date dropdowns, custom ranges, sorting work correctly
+- [ ] **Search Filters**: IIS checkbox, "All file types" includes IIS (5 checkboxes)
+- [ ] **Statistics**: Case/global file types show IIS count in 6-column grid
+- [ ] **IOC Hunting**: IOC match in IIS log → flagged correctly
+- [ ] **SIGMA Testing**: SIGMA rules can match IIS events (if applicable)
+- [ ] **Bulk Operations**: Reindex, re-SIGMA, re-hunt IOCs work on IIS files
+
+### Known Limitations
+
+1. **Format Support**: Only W3C Extended Log Format supported (not IIS native format or NCSA format)
+2. **SIGMA Rules**: Limited applicability to IIS logs (depends on rule coverage)
+3. **Enrichment**: No IIS-specific enrichment (future enhancement opportunity)
+4. **Computer Name**: Best-effort extraction (may show generic `'IIS-Server'` if filename/IP unavailable)
+
+### Files Updated
+
+**Backend (7 files)**:
+- `file_processing.py` (lines 32-182 new functions, 433-463 detection, 482-483 opensearch_key, 585-588 conversion, 760-819 processing)
+- `upload_pipeline.py` (lines 127, 213-237 is_iis_log, 254/264 stats, 277-311 counting, 306-311 logging, 344 aggregation, 368-393 extraction)
+- `bulk_import.py` (lines 17 ALLOWED_EXTENSIONS, 35 files_by_type, 61-63 detection, 70 total_supported, 154 iis_count)
+- `event_deduplication.py` (lines 59-66 IIS deduplication)
+- `search_utils.py` (lines 167-175 IIS filter)
+- `main.py` (lines 1765-1766, 1998-1999 search optimization)
+- `version.json` (v1.14.0 entry added)
+
+**Frontend (6 files)**:
+- `upload_files.html` (lines 31, 52-57, 117, 119, 308-309)
+- `search_events.html` (lines 161-182 3-column grid + IIS checkbox)
+- `case_files.html` (line 434)
+- `global_files.html` (line 447)
+- `view_case.html` (line 167)
+- `view_case_enhanced.html` (line 293)
+
+**Documentation (2 files)**:
+- `APP_MAP.md` (this entry)
+- `version.json` (comprehensive v1.14.0 feature description)
+
+---
+
 ## 🐛 v1.13.9 - BUG FIX: Processing Queue UI Showing Hidden 0-Event Files (2025-11-14 00:50 UTC)
 
 **Change**: Fixed "Processing Queue" section on case files page to exclude hidden files stuck in inconsistent state.

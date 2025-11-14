@@ -124,7 +124,7 @@ def stage_bulk_upload(case_id: int, source_folder: str, cleanup_after: bool = Tr
         }
     
     # Supported extensions (from bulk_import.py)
-    ALLOWED_EXTENSIONS = {'.evtx', '.ndjson', '.json', '.csv', '.zip'}  # All formats accepted for upload
+    ALLOWED_EXTENSIONS = {'.evtx', '.ndjson', '.json', '.csv', '.log', '.zip'}  # All formats accepted for upload (v1.14.0: Added .log for IIS)
     
     files_staged = 0
     staged_files = []  # Track successfully staged files for cleanup
@@ -210,6 +210,33 @@ def is_temp_file(filename: str) -> bool:
     return False
 
 
+def is_iis_log(zip_file: zipfile.ZipFile, file_info: zipfile.ZipInfo) -> bool:
+    """
+    Detect if a .log file inside a ZIP is an IIS W3C Extended Log Format file.
+    
+    Args:
+        zip_file: ZipFile object
+        file_info: ZipInfo object for the .log file
+        
+    Returns:
+        bool: True if IIS log, False otherwise
+    """
+    try:
+        # Read first 1024 bytes from the file in the ZIP
+        with zip_file.open(file_info) as f:
+            header = f.read(1024).decode('utf-8', errors='ignore')
+        
+        # Check for IIS W3C Extended Log Format signatures
+        if ('Microsoft Internet Information Services' in header or 
+            ('#Fields:' in header and ('cs-method' in header or 'cs-uri-stem' in header or 's-ip' in header))):
+            return True
+        
+        return False
+    except Exception as e:
+        logger.warning(f"[ZIP] Could not peek at .log file {file_info.filename}: {e}")
+        return False
+
+
 def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict:
     """
     Extract a single ZIP file recursively (handles nested ZIPs)
@@ -224,7 +251,8 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
             'files_extracted': int,
             'nested_zips_found': int,
             'temp_files_skipped': int,
-            'expected_files': int,  # Expected EVTX/NDJSON files (excluding temp files)
+            'non_iis_logs_skipped': int,  # v1.14.0: .log files that are NOT IIS logs
+            'expected_files': int,  # Expected EVTX/NDJSON/IIS files (excluding temp files)
             'validation_passed': bool,  # True if extracted == expected
             'validation_details': str  # Human-readable validation message
         }
@@ -233,6 +261,7 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
         'files_extracted': 0,
         'nested_zips_found': 0,
         'temp_files_skipped': 0,
+        'non_iis_logs_skipped': 0,  # v1.14.0: Track non-IIS .log files skipped
         'expected_files': 0,
         'validation_passed': True,
         'validation_details': ''
@@ -247,7 +276,9 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
         # STEP 1: Count expected files BEFORE extraction (for validation)
         expected_evtx = 0
         expected_ndjson = 0
+        expected_iis = 0
         expected_temp = 0
+        expected_non_iis_logs = 0
         
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             for zip_info in zip_ref.infolist():
@@ -272,12 +303,25 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
                         expected_temp += 1
                     else:
                         expected_ndjson += 1
+                elif file_lower.endswith('.log'):
+                    # v1.14.0: Smart extraction - only IIS logs
+                    if is_iis_log(zip_ref, zip_info):
+                        expected_iis += 1
+                    else:
+                        expected_non_iis_logs += 1
         
-        stats['expected_files'] = expected_evtx + expected_ndjson
+        stats['expected_files'] = expected_evtx + expected_ndjson + expected_iis
         expected_total = stats['expected_files']
         
-        logger.info(f"[EXTRACT] {zip_name}: Expected {expected_evtx} EVTX + {expected_ndjson} NDJSON = {expected_total} files"
-                   + (f" ({expected_temp} temp files will be skipped)" if expected_temp > 0 else ""))
+        log_msg = f"[EXTRACT] {zip_name}: Expected {expected_evtx} EVTX + {expected_ndjson} NDJSON"
+        if expected_iis > 0:
+            log_msg += f" + {expected_iis} IIS"
+        log_msg += f" = {expected_total} files"
+        if expected_temp > 0:
+            log_msg += f" ({expected_temp} temp files will be skipped)"
+        if expected_non_iis_logs > 0:
+            log_msg += f" ({expected_non_iis_logs} non-IIS .log files will be skipped)"
+        logger.info(log_msg)
         
         # STEP 2: Extract and process
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -297,6 +341,7 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
                     stats['files_extracted'] += nested_stats['files_extracted']
                     stats['nested_zips_found'] += nested_stats['nested_zips_found']
                     stats['temp_files_skipped'] += nested_stats.get('temp_files_skipped', 0)
+                    stats['non_iis_logs_skipped'] += nested_stats.get('non_iis_logs_skipped', 0)
                     # Aggregate expected files from nested ZIPs
                     stats['expected_files'] += nested_stats.get('expected_files', 0)
                     # If nested ZIP validation failed, mark parent as failed
@@ -313,13 +358,40 @@ def extract_single_zip(zip_path: str, target_dir: str, prefix: str = "") -> Dict
                         continue
                     
                     # Move to target with prefix
-                    # NOTE: Only EVTX and NDJSON are extracted from ZIPs
+                    # NOTE: Only EVTX, NDJSON, and IIS logs are extracted from ZIPs
                     # JSON and CSV inside ZIPs are ignored
                     prefixed_name = f"{current_prefix}{file}"
                     target_path = os.path.join(target_dir, prefixed_name)
                     shutil.move(file_path, target_path)
                     stats['files_extracted'] += 1
                     logger.info(f"[EXTRACT]   → {prefixed_name}")
+                
+                elif file_lower.endswith('.log'):
+                    # v1.14.0: Smart extraction - only extract IIS logs
+                    # Check if this is an IIS log
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            header = f.read(1024)
+                        
+                        is_iis_file = ('Microsoft Internet Information Services' in header or 
+                                      ('#Fields:' in header and ('cs-method' in header or 'cs-uri-stem' in header or 's-ip' in header)))
+                        
+                        if is_iis_file:
+                            # This is an IIS log - extract it
+                            prefixed_name = f"{current_prefix}{file}"
+                            target_path = os.path.join(target_dir, prefixed_name)
+                            shutil.move(file_path, target_path)
+                            stats['files_extracted'] += 1
+                            logger.info(f"[EXTRACT]   → {prefixed_name} (IIS log)")
+                        else:
+                            # Not an IIS log - skip it
+                            logger.info(f"[EXTRACT]   Skipping non-IIS .log file: {file}")
+                            os.remove(file_path)
+                            stats['non_iis_logs_skipped'] += 1
+                    except Exception as e:
+                        logger.warning(f"[EXTRACT]   Could not check .log file {file}: {e}, skipping")
+                        os.remove(file_path)
+                        stats['non_iis_logs_skipped'] += 1
         
         # STEP 3: Validate extraction results
         extracted_count = stats['files_extracted']

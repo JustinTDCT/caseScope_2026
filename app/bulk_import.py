@@ -14,7 +14,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 BULK_IMPORT_DIR = '/opt/casescope/bulk_import'
-ALLOWED_EXTENSIONS = {'.evtx', '.ndjson', '.json', '.csv', '.zip'}  # All formats accepted for upload
+ALLOWED_EXTENSIONS = {'.evtx', '.ndjson', '.json', '.csv', '.log', '.zip'}  # All formats accepted for upload (v1.14.0: Added .log for IIS)
 
 
 def scan_bulk_import_directory() -> Dict[str, List[str]]:
@@ -32,6 +32,7 @@ def scan_bulk_import_directory() -> Dict[str, List[str]]:
         'json': [],
         'ndjson': [],
         'csv': [],
+        'iis': [],  # v1.14.0: IIS log files
         'zip': [],
         'other': []
     }
@@ -57,13 +58,16 @@ def scan_bulk_import_directory() -> Dict[str, List[str]]:
                     files_by_type['ndjson'].append(filepath)
                 elif ext == '.json':
                     files_by_type['json'].append(filepath)
+                elif ext == '.log':
+                    # v1.14.0: IIS logs detected by .log extension
+                    files_by_type['iis'].append(filepath)
                 elif ext == '.zip':
                     files_by_type['zip'].append(filepath)
             else:
                 files_by_type['other'].append(filepath)
         
         # Calculate totals
-        total_supported = sum(len(files_by_type[k]) for k in ['evtx', 'json', 'ndjson', 'csv', 'zip'])
+        total_supported = sum(len(files_by_type[k]) for k in ['evtx', 'json', 'ndjson', 'csv', 'iis', 'zip'])
         
         return {
             'total_supported': total_supported,
@@ -147,6 +151,7 @@ def get_bulk_import_stats() -> Dict[str, int]:
         'json_count': len(scan_result['files_by_type']['json']),
         'ndjson_count': len(scan_result['files_by_type']['ndjson']),
         'csv_count': len(scan_result['files_by_type']['csv']),
+        'iis_count': len(scan_result['files_by_type'].get('iis', [])),  # v1.14.0: IIS log count
         'zip_count': len(scan_result['files_by_type']['zip']),
         'directory': scan_result['directory']
     }

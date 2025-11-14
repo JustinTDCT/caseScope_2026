@@ -55,11 +55,14 @@ def generate_event_document_id(
         # Priority 2: Event.EventData (nested structure)
         elif 'Event' in event and isinstance(event['Event'], dict):
             event_data = event['Event'].get('EventData', {})
-        # Priority 3: For CSV/non-Windows events, use all event fields except metadata
-        elif event.get('source_file_type') == 'CSV':
-            # For CSV, exclude metadata fields and use content fields
+        # Priority 3: For CSV/IIS/non-Windows events, use all event fields except metadata
+        elif event.get('source_file_type') in ['CSV', 'IIS']:
+            # For CSV and IIS, exclude metadata fields and use content fields
+            # v1.14.0: IIS logs also exclude 'System' block (artificially added for timestamp normalization)
             exclude_fields = {'source_file', 'source_file_type', 'normalized_timestamp', 
-                            'normalized_computer', 'normalized_event_id', 'indexed_at'}
+                            'normalized_computer', 'normalized_event_id', 'indexed_at', 
+                            'System', 'row_number', 'file_id', 'opensearch_key', 
+                            'has_ioc', 'has_sigma'}
             event_data = {k: v for k, v in event.items() if k not in exclude_fields}
     except Exception as e:
         logger.debug(f"[DEDUP] Could not extract EventData: {e}")
