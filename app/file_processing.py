@@ -157,8 +157,10 @@ def parse_iis_log(file_path, opensearch_key, file_id, filename):
                     'Computer': computer_name
                 }
                 
-                # Add normalized timestamp (backup for sorting)
+                # Add normalized fields for search/dedup (v1.14.0 FIX)
                 event['normalized_timestamp'] = timestamp_str
+                event['normalized_computer'] = computer_name
+                event['normalized_event_id'] = 'IIS'  # IIS logs don't have traditional event IDs
                 
                 # Add metadata for filtering and tracking
                 event['opensearch_key'] = opensearch_key
