@@ -2635,4 +2635,87 @@
       "Case 13 fully reset (5,285 files) with new normalization"
     ]
   }
+},
+  "v1.14.0_fixes": {
+    "date": "2025-11-14",
+    "title": "IIS Event Detail View - Critical Bug Fixes",
+    "type": "critical_fix",
+    "problems_solved": {
+      "event_detail_404": {
+        "issue": "IIS event detail modal showed 'Event not found' error",
+        "root_cause": "URL encoding issue with % character in IPv6 zone IDs",
+        "technical_details": {
+          "ipv6_zone_ids": "IPv6 addresses can have zone IDs: fe80::3030:91a0:15ce:d3eb%18",
+          "computer_name": "Became: IIS-fe80::3030:91a0:15ce:d3eb%18",
+          "document_id": "Embedded in _id: case_20_evt_IIS_IIS-fe80::...%18_2025-11-06...",
+          "url_decoding": "Browser passed %18 through URL → decoded to \\u0018 (control char)",
+          "opensearch_404": "OpenSearch couldn't find document with decoded ID"
+        },
+        "user_report": "this did work prior to changes with what is shown"
+      },
+      "missing_normalized_fields": {
+        "issue": "IIS events had malformed document IDs with 'evt_unknown'",
+        "root_cause": "parse_iis_log() missing normalized_computer and normalized_event_id",
+        "impact": "Document IDs used 'unknown' instead of proper values"
+      }
+    },
+    "solutions": {
+      "url_safe_computer_names": {
+        "file": "app/file_processing.py lines 69-71",
+        "approach": "Sanitize computer names before embedding in document IDs",
+        "code": "computer_name = computer_name.replace('%', '_').replace('/', '_').replace('\\\\', '_')",
+        "result": "IIS-fe80::3030:91a0:15ce:d3eb_18 (URL-safe with underscore)",
+        "function": "extract_computer_name_iis()"
+      },
+      "add_normalized_fields": {
+        "file": "app/file_processing.py lines 160-163",
+        "fields_added": [
+          "normalized_timestamp",
+          "normalized_computer",
+          "normalized_event_id = 'IIS'"
+        ],
+        "why": "Required for document ID generation and search consistency",
+        "function": "parse_iis_log()"
+      }
+    },
+    "testing_results": {
+      "before": {
+        "document_id": "case_20_evt_IIS_IIS-fe80::...%18_2025-11-06...",
+        "url_encoded": "Browser decoded %18 to \\u0018",
+        "opensearch_get": "404 - found: false",
+        "ui_result": "❌ Event not found"
+      },
+      "after": {
+        "document_id": "case_20_evt_IIS_IIS-fe80::..._18_2025-11-06...",
+        "url_encoded": "No special characters, no decoding",
+        "opensearch_get": "200 - found: true",
+        "ui_result": "✅ Event details displayed correctly"
+      }
+    },
+    "verification": {
+      "method": "curl GET to OpenSearch with sanitized document ID",
+      "result": "Document retrieved successfully with full event details",
+      "user_confirmation": "its working i can see now"
+    },
+    "files_modified": [
+      "app/file_processing.py - extract_computer_name_iis() URL sanitization",
+      "app/file_processing.py - parse_iis_log() normalized field additions"
+    ],
+    "commits": [
+      "57d1171 - v1.14.0 FIX: Add normalized fields to IIS events for proper document IDs",
+      "9615fbf - v1.14.0 FIX: Sanitize % from IIS computer names to prevent URL encoding issues"
+    ],
+    "impact": {
+      "event_detail_view": "FIXED - IIS events now viewable in modal",
+      "document_ids": "URL-safe and stable",
+      "search": "Unaffected - continues to work",
+      "deduplication": "Improved - proper normalized fields now present"
+    },
+    "lessons_learned": [
+      "IPv6 zone IDs use % character (RFC 4007)",
+      "URL encoding/decoding affects OpenSearch document _id retrieval",
+      "Computer names should be sanitized for URL safety before embedding in IDs",
+      "Always test with real-world data containing special characters"
+    ]
+  }
 }

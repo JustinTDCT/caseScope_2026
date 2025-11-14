@@ -17287,3 +17287,146 @@ completed = db.session.query(CaseFile).filter(
 
 ---
 
+
+---
+
+## 🐛 v1.14.0 Critical Bug Fixes - IIS Event Detail View (2025-11-14)
+
+**Issue**: IIS event detail modal displayed "Event not found" error when clicking to view event details.
+
+**User Report**: *"this did work prior to changes with what is shown"*
+
+### Root Cause Analysis
+
+#### Problem 1: URL Encoding Issue with IPv6 Zone IDs
+
+**Technical Details**:
+1. **IPv6 Addresses with Zone IDs**: IPv6 link-local addresses can have zone identifiers (RFC 4007)
+   ```
+   fe80::3030:91a0:15ce:d3eb%18
+   ```
+   The `%18` identifies the network interface.
+
+2. **Computer Name Extraction**: `extract_computer_name_iis()` used the server IP as fallback:
+   ```python
+   computer_name = f"IIS-{first_event['s-ip']}"
+   # Result: "IIS-fe80::3030:91a0:15ce:d3eb%18"
+   ```
+
+3. **Document ID Generation**: Computer name embedded in OpenSearch `_id`:
+   ```
+   case_20_evt_IIS_IIS-fe80::3030:91a0:15ce:d3eb%18_2025-11-06T02_25_05_9f03177f8661b91e
+   ```
+
+4. **URL Decoding Problem**: When JavaScript called `/case/20/search/event/{id}`:
+   - Browser URL-decoded `%18` → `\u0018` (control character)
+   - OpenSearch received: `IIS-fe80::3030:91a0:15ce:d3eb\u0018` (different from stored ID)
+   - Result: 404 "Event not found"
+
+**OpenSearch Logs**:
+```
+GET http://localhost:9200/case_20/_doc/case_20_evt_IIS_IIS-fe80__3030_91a0_15ce_d3eb%18_... [status:404 request:0.003s]
+```
+
+#### Problem 2: Missing Normalized Fields
+
+**Issue**: `parse_iis_log()` was missing normalized fields required for document ID generation.
+
+**Missing Fields**:
+- `normalized_computer` - Used in document IDs and search
+- `normalized_event_id` - Used in document IDs (should be 'IIS' for IIS logs)
+
+**Impact**: Document IDs contained `evt_unknown` instead of `evt_IIS`, causing confusion and potential deduplication issues.
+
+### Solutions Implemented
+
+#### Fix 1: URL-Safe Computer Name Sanitization
+
+**File**: `app/file_processing.py` (lines 69-71)
+
+**Change**:
+```python
+def extract_computer_name_iis(filename: str, first_event: dict = None) -> str:
+    # ... existing logic ...
+    
+    # v1.14.0 FIX: Sanitize for URL safety and document IDs
+    # Remove/replace characters that break URL encoding or OpenSearch _id
+    computer_name = computer_name.replace('%', '_').replace('/', '_').replace('\\', '_')
+    
+    return computer_name
+```
+
+**Result**:
+```
+BEFORE: IIS-fe80::3030:91a0:15ce:d3eb%18  ❌ (URL encoding breaks retrieval)
+AFTER:  IIS-fe80::3030:91a0:15ce:d3eb_18  ✅ (URL-safe, retrieval works)
+```
+
+#### Fix 2: Add Normalized Fields to IIS Events
+
+**File**: `app/file_processing.py` (lines 160-163)
+
+**Change**:
+```python
+# Add normalized fields for search/dedup (v1.14.0 FIX)
+event['normalized_timestamp'] = timestamp_str
+event['normalized_computer'] = computer_name
+event['normalized_event_id'] = 'IIS'  # IIS logs don't have traditional event IDs
+```
+
+**Result**: Document IDs now properly formatted:
+```
+case_20_evt_IIS_IIS-fe80::3030:91a0:15ce:d3eb_18_2025-11-06T02_25_05_9f03177f8661b91e
+```
+
+### Testing & Verification
+
+**Before Fix**:
+```bash
+curl "http://localhost:9200/case_20/_doc/case_20_evt_IIS_IIS-fe80__3030_91a0_15ce_d3eb%18_..."
+# Response: {"found": false}  ❌
+```
+
+**After Fix**:
+```bash
+curl "http://localhost:9200/case_20/_doc/case_20_evt_IIS_IIS-fe80__3030_91a0_15ce_d3eb_18_..."
+# Response: {"found": true, "_source": {...}}  ✅
+```
+
+**User Confirmation**: *"its working i can see now"* ✅
+
+### Impact
+
+| Component | Status |
+|-----------|--------|
+| Event Detail View | ✅ FIXED - IIS events now viewable in modal |
+| Document IDs | ✅ URL-safe and stable |
+| Search | ✅ Unaffected - continues to work |
+| Deduplication | ✅ Improved - proper normalized fields |
+| Event Retrieval | ✅ Works with URL-encoded parameters |
+
+### Files Modified
+
+1. **`app/file_processing.py`**:
+   - `extract_computer_name_iis()` (lines 36-73): Added URL sanitization for computer names
+   - `parse_iis_log()` (lines 160-163): Added normalized fields to IIS events
+
+### Commits
+
+- `57d1171` - v1.14.0 FIX: Add normalized fields to IIS events for proper document IDs
+- `9615fbf` - v1.14.0 FIX: Sanitize % from IIS computer names to prevent URL encoding issues
+
+### Lessons Learned
+
+1. **IPv6 Zone IDs**: Link-local IPv6 addresses use `%` for zone identifiers (RFC 4007)
+2. **URL Encoding**: Special characters in document IDs can break URL-based retrieval
+3. **Sanitization**: Always sanitize user-derived data before embedding in IDs or URLs
+4. **Real-World Testing**: Test with actual production data containing special characters
+5. **Normalized Fields**: Critical for consistent search, deduplication, and document ID generation
+
+### Related Standards
+
+- **RFC 4007**: IPv6 Scoped Address Architecture (defines zone IDs with `%`)
+- **RFC 3986**: URI Generic Syntax (defines URL encoding with `%`)
+- **OpenSearch**: Document `_id` field supports most characters but URL encoding affects retrieval
+
