@@ -95,8 +95,8 @@ def get_logins_by_event_id(opensearch_client, case_id: int, event_id: str,
         if date_filter:
             must_conditions.append(date_filter)
         
+        # Use Scroll API for unlimited results (bypasses 10,000 limit)
         query = {
-            "size": 10000,  # Max results to process
             "_source": [
                 "normalized_timestamp",
                 "normalized_event_id",
@@ -121,16 +121,46 @@ def get_logins_by_event_id(opensearch_client, case_id: int, event_id: str,
         }
         
         logger.info(f"[LOGIN_ANALYSIS] Searching for Event ID {event_id} in case {case_id}")
-        result = opensearch_client.search(index=index_pattern, body=query)
         
-        total_events = result['hits']['total']['value']
-        logger.info(f"[LOGIN_ANALYSIS] Found {total_events} Event ID {event_id} events")
+        # Use scroll API to get all results
+        scroll_id = None
+        all_hits = []
+        try:
+            result = opensearch_client.search(
+                index=index_pattern, 
+                body=query,
+                scroll='2m',  # Keep scroll context alive for 2 minutes
+                size=1000  # Batch size per scroll
+            )
+            
+            total_events = result['hits']['total']['value']
+            logger.info(f"[LOGIN_ANALYSIS] Found {total_events} Event ID {event_id} events")
+            
+            scroll_id = result['_scroll_id']
+            all_hits.extend(result['hits']['hits'])
+            
+            # Continue scrolling until no more results
+            while len(result['hits']['hits']) > 0:
+                result = opensearch_client.scroll(scroll_id=scroll_id, scroll='2m')
+                scroll_id = result['_scroll_id']
+                all_hits.extend(result['hits']['hits'])
+                if len(result['hits']['hits']) == 0:
+                    break
+            
+            logger.info(f"[LOGIN_ANALYSIS] Retrieved {len(all_hits)} total events via scroll")
+        finally:
+            # Clean up scroll context
+            if scroll_id:
+                try:
+                    opensearch_client.clear_scroll(scroll_id=scroll_id)
+                except:
+                    pass
         
         # Process results to extract distinct username/computer pairs
         seen_combinations = set()  # (username, computer) tuples
         distinct_logins = []
         
-        for hit in result['hits']['hits']:
+        for hit in all_hits:
             source = hit['_source']
             
             # Extract computer name
