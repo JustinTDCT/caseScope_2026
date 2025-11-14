@@ -47,21 +47,30 @@ def extract_computer_name_iis(filename: str, first_event: dict = None) -> str:
         first_event: First parsed event (for s-ip fallback)
         
     Returns:
-        Computer name string
+        Computer name string (sanitized for use in document IDs)
     """
+    computer_name = None
+    
     # Try filename prefix
     if '_' in filename:
         prefix = filename.split('_')[0]
         # Validate it's not just "u", "ex", or IIS service name
         if prefix not in ['u', 'ex', 'ncsa', 'W3SVC1', 'W3SVC2', 'W3SVC3', 'W3SVC4', 'W3SVC5']:
-            return prefix
+            computer_name = prefix
     
     # Try server IP from first event
-    if first_event and 's-ip' in first_event:
-        return f"IIS-{first_event['s-ip']}"
+    if not computer_name and first_event and 's-ip' in first_event:
+        computer_name = f"IIS-{first_event['s-ip']}"
     
     # Fallback
-    return 'IIS-Server'
+    if not computer_name:
+        computer_name = 'IIS-Server'
+    
+    # v1.14.0 FIX: Sanitize for URL safety and document IDs
+    # Remove/replace characters that break URL encoding or OpenSearch _id
+    computer_name = computer_name.replace('%', '_').replace('/', '_').replace('\\', '_')
+    
+    return computer_name
 
 
 def parse_iis_log(file_path, opensearch_key, file_id, filename):
