@@ -2634,8 +2634,7 @@
       "New indices will have UserData/EventData as TEXT with JSON string content",
       "Case 13 fully reset (5,285 files) with new normalization"
     ]
-  }
-},
+  },
   "v1.14.0_fixes": {
     "date": "2025-11-14",
     "title": "IIS Event Detail View - Critical Bug Fixes",
