@@ -623,6 +623,11 @@ def extract_event_fields(event_source: Dict[str, Any]) -> Dict[str, Any]:
         fields['source_type'] = 'CSV'
         if 'event_id' not in fields:
             fields['event_id'] = 'CSV'
+    elif event_source.get('source_file_type') == 'IIS':
+        # IIS log file (v1.14.0)
+        fields['source_type'] = 'IIS'
+        if 'event_id' not in fields:
+            fields['event_id'] = 'IIS'
     elif isinstance(event_source, dict) and len(event_source) > 0:
         # Generic JSON file
         fields['source_type'] = 'JSON'
@@ -745,6 +750,46 @@ def extract_event_fields(event_source: Dict[str, Any]) -> Dict[str, Any]:
         if csv_desc_parts:
             description = ' | '.join(csv_desc_parts)
     
+    # IIS specific description building (v1.14.0)
+    if not description and fields.get('source_type') == 'IIS':
+        iis_desc_parts = []
+        
+        # Priority 1: cs-uri-query (query string parameters - most descriptive for web requests)
+        if 'cs-uri-query' in event_source and event_source['cs-uri-query']:
+            query = str(event_source['cs-uri-query'])
+            if query and query != '-':  # IIS uses '-' for empty fields
+                iis_desc_parts.append(f"Query: {query[:150]}")  # Limit length
+        
+        # Priority 2: cs-uri-stem (URL path)
+        if not iis_desc_parts and 'cs-uri-stem' in event_source and event_source['cs-uri-stem']:
+            uri_stem = str(event_source['cs-uri-stem'])
+            if uri_stem and uri_stem != '-':
+                iis_desc_parts.append(f"Path: {uri_stem}")
+        
+        # Add HTTP method and status for context
+        method_status = []
+        if 'cs-method' in event_source and event_source['cs-method']:
+            method = str(event_source['cs-method'])
+            if method and method != '-':
+                method_status.append(method)
+        
+        if 'sc-status' in event_source and event_source['sc-status']:
+            status = str(event_source['sc-status'])
+            if status and status != '-':
+                method_status.append(f"Status {status}")
+        
+        if method_status:
+            iis_desc_parts.append(' '.join(method_status))
+        
+        # Add client IP for additional context
+        if 'c-ip' in event_source and event_source['c-ip']:
+            client_ip = str(event_source['c-ip'])
+            if client_ip and client_ip != '-':
+                iis_desc_parts.append(f"Client: {client_ip}")
+        
+        if iis_desc_parts:
+            description = ' | '.join(iis_desc_parts)
+    
     # EVTX specific description building (for events without friendly descriptions)
     if not description and fields.get('source_type') == 'EVTX':
         evtx_desc_parts = []
@@ -809,7 +854,9 @@ def extract_event_fields(event_source: Dict[str, Any]) -> Dict[str, Any]:
             'is_hidden', 'hidden_by', 'hidden_at',  # Skip hidden metadata fields
             'normalized_timestamp', 'normalized_computer', 'normalized_event_id',  # Skip normalized fields
             'source_file_type',  # Skip this metadata field
-            'source_file', 'file_id'  # CRITICAL (v1.13.7): Skip v1.13.1 consolidated index metadata fields
+            'source_file', 'file_id',  # CRITICAL (v1.13.7): Skip v1.13.1 consolidated index metadata fields
+            'row_number', 'System',  # Skip IIS metadata fields (v1.14.0)
+            'date', 'time'  # Skip IIS raw date/time fields (v1.14.0) - we use combined normalized_timestamp
         }
         meaningful = []
         for key, val in event_source.items():
