@@ -4240,6 +4240,12 @@ def init_db():
         print("✓ Database already initialized")
 
 
+@app.route('/search-instructions')
+def search_instructions():
+    """Display comprehensive search instructions and examples"""
+    return render_template('search_instructions.html')
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
 
