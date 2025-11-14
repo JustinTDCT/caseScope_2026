@@ -159,6 +159,7 @@ def get_logins_by_event_id(opensearch_client, case_id: int, event_id: str,
         # Process results to extract distinct username/computer pairs
         seen_combinations = set()  # (username, computer) tuples
         distinct_logins = []
+        filtered_count = 0  # Track how many filtered out
         
         for hit in all_hits:
             source = hit['_source']
@@ -168,6 +169,10 @@ def get_logins_by_event_id(opensearch_client, case_id: int, event_id: str,
             
             # Extract username (TargetUserName is the logged-in user)
             username = _extract_username(source)
+            
+            # Track filtering
+            if username and not _is_valid_username(username):
+                filtered_count += 1
             
             # Extract LogonType for 4624 events
             logon_type = _extract_logon_type(source)
@@ -201,6 +206,7 @@ def get_logins_by_event_id(opensearch_client, case_id: int, event_id: str,
                     })
         
         logger.info(f"[LOGIN_ANALYSIS] Found {len(distinct_logins)} distinct username/computer combinations")
+        logger.info(f"[LOGIN_ANALYSIS] Filtered out {filtered_count} machine/system accounts")
         
         # Enrich with Known User and IOC data
         from known_user_utils import enrich_login_records
@@ -210,7 +216,8 @@ def get_logins_by_event_id(opensearch_client, case_id: int, event_id: str,
             'success': True,
             'logins': enriched_logins,
             'total_events': total_events,
-            'distinct_count': len(enriched_logins)
+            'distinct_count': len(enriched_logins),
+            'filtered_count': filtered_count
         }
         
     except Exception as e:

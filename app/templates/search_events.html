@@ -1664,12 +1664,17 @@ function showLoginsOK() {
             }
             
             if (data.logins.length === 0) {
+                const filteredMsg = data.filtered_count > 0 
+                    ? `<p class="text-muted" style="margin-top: var(--spacing-md); color: var(--color-warning);">⚠️ ${data.filtered_count.toLocaleString()} machine/system accounts excluded (accounts ending in $, SYSTEM, etc.)</p>`
+                    : '';
+                
                 modalBody.innerHTML = `
                     <div style="text-align: center; padding: var(--spacing-2xl);">
                         <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">🔍</div>
-                        <h3>No Event ID 4624 logins found</h3>
-                        <p class="text-muted">No successful Windows logon events were found in the selected date range.</p>
+                        <h3>No user logins found</h3>
+                        <p class="text-muted">No successful user Windows logon events were found in the selected date range.</p>
                         <p class="text-muted" style="margin-top: var(--spacing-md);">Total 4624 events: ${data.total_events.toLocaleString()}</p>
+                        ${filteredMsg}
                     </div>
                 `;
                 return;
