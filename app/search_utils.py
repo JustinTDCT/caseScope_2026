@@ -127,8 +127,8 @@ def build_search_query(
             query["bool"]["filter"].append({"term": {"_id": "no_tagged_events_found"}})
     
     # Filter by file types (with structure-based detection for backward compatibility)
-    if file_types and len(file_types) > 0 and len(file_types) < 4:
-        # Only filter if not all 4 types are selected
+    if file_types and len(file_types) > 0 and len(file_types) < 5:
+        # Only filter if not all 5 types are selected (EVTX, EDR, JSON, CSV, IIS)
         should_clauses = []
         
         # Events with source_file_type field matching selected types (use .keyword for exact match)

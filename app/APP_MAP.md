@@ -1,3 +1,152 @@
+## 🐛 v1.14.2 - BUG FIX: IIS File Type Checkbox Not Working (2025-11-15)
+
+**Change**: Fixed IIS file type checkbox not being checked by default and not filtering results when toggled.
+
+### 1. Problem
+
+**Symptoms**:
+- IIS checkbox unchecked by default (all other types checked)
+- Checking/unchecking IIS checkbox has no effect on search results
+- IIS events displayed regardless of checkbox state
+- File type filter completely non-functional when 4 or 5 types selected
+
+**User Impact**:
+- Cannot filter out IIS logs from search results
+- IIS checkbox appears broken/non-functional
+- Inconsistent with other file type checkboxes
+- Users cannot isolate non-IIS events for analysis
+
+### 2. Root Cause
+
+**Issue 1: Default File Types Missing IIS** (main.py lines 1696-1698, 1945-1947):
+```python
+# OLD CODE:
+file_types = request.args.getlist('file_types')
+if not file_types:
+    file_types = ['EVTX', 'EDR', 'JSON', 'CSV']  # ❌ IIS missing from default
+```
+
+When no file_types parameter in URL (first page load), defaults to only 4 types, excluding IIS.
+
+**Issue 2: File Type Filter Logic Outdated** (search_utils.py line 130):
+```python
+# OLD CODE:
+if file_types and len(file_types) > 0 and len(file_types) < 4:
+    # Only filter if not all 4 types are selected  # ❌ Should be 5 types now
+```
+
+**Why This Broke**:
+- v1.14.0 added IIS as 5th file type
+- Filter logic still checked for `< 4` types
+- When 4 types selected (IIS unchecked): `len(file_types) == 4` → NOT `< 4` → NO FILTER APPLIED
+- When 5 types selected (all checked): `len(file_types) == 5` → NOT `< 4` → NO FILTER APPLIED
+- Result: File type filter bypassed entirely when IIS involved
+
+**Performance Optimization Conflict** (main.py line 1765):
+```python
+# OLD CODE:
+if not search_text and filter_type == 'all' and date_range == 'all' and len(file_types) == 5:
+    query_dsl = {"query": {"match_all": {}}}  # Bypass filtering for speed
+```
+This was correctly updated to check for 5 types, but the filter in search_utils.py was not.
+
+### 3. Solution
+
+**Fix 1: Add IIS to Default File Types** (main.py):
+
+Updated 2 locations where default file_types are set:
+
+```python
+# NEW CODE (lines 1696-1698):
+file_types = request.args.getlist('file_types')  # ['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']
+if not file_types:  # Default: all types checked
+    file_types = ['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']  # ✓ IIS included
+```
+
+```python
+# NEW CODE (lines 1945-1947):
+file_types = request.args.getlist('file_types')
+if not file_types:
+    file_types = ['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']  # ✓ IIS included
+```
+
+**Fix 2: Update Filter Logic** (search_utils.py line 130):
+
+```python
+# NEW CODE:
+if file_types and len(file_types) > 0 and len(file_types) < 5:
+    # Only filter if not all 5 types are selected (EVTX, EDR, JSON, CSV, IIS)
+```
+
+**Result**:
+- Default includes all 5 types → IIS checked by default ✓
+- When IIS unchecked: `len(file_types) == 4` → IS `< 5` → Filter applied ✓
+- When all checked: `len(file_types) == 5` → NOT `< 5` → No filter (show all) ✓
+- File type filtering works correctly for all combinations ✓
+
+### 4. Files Modified
+
+**Backend**:
+- `app/main.py`:
+  - Line 1698: Added 'IIS' to default file_types (search_events route)
+  - Line 1947: Added 'IIS' to default file_types (export_events route)
+  - Updated comments to reflect 5 file types instead of 4
+
+- `app/search_utils.py`:
+  - Line 130: Changed `< 4` to `< 5` in file type filter condition
+  - Line 131: Updated comment to reflect 5 file types (EVTX, EDR, JSON, CSV, IIS)
+
+**Documentation**:
+- `app/APP_MAP.md`: This entry (v1.14.2)
+- `app/version.json`: Added v1.14.2 changelog entry
+
+### 5. Impact
+
+**Before Fix**:
+- ❌ IIS checkbox unchecked by default
+- ❌ IIS events shown regardless of checkbox state
+- ❌ File type filter non-functional with 4-5 types selected
+- ❌ Cannot isolate non-IIS events
+- ❌ Inconsistent checkbox behavior
+
+**After Fix**:
+- ✅ IIS checkbox checked by default (consistent with other types)
+- ✅ Unchecking IIS excludes IIS events from results
+- ✅ File type filter works for all combinations (1-5 types)
+- ✅ Can isolate specific file types as needed
+- ✅ Consistent checkbox behavior across all file types
+
+### 6. Testing
+
+**Test Case 1: Default State**
+1. Navigate to case search page
+2. **BEFORE**: IIS checkbox unchecked
+3. **AFTER**: IIS checkbox checked (along with EVTX, EDR, JSON, CSV)
+
+**Test Case 2: Uncheck IIS**
+1. Uncheck IIS checkbox
+2. Search for events
+3. **BEFORE**: IIS events still shown in results
+4. **AFTER**: IIS events excluded from results
+
+**Test Case 3: Check Only IIS**
+1. Uncheck all types except IIS
+2. Search for events
+3. **BEFORE**: All events shown (filter bypassed)
+4. **AFTER**: Only IIS events shown
+
+**Test Case 4: Performance Optimization**
+1. Select all 5 file types
+2. Use "All Events" filter with no date restriction
+3. **Result**: Should use optimized match_all query (no filtering needed)
+
+### 7. Related Issues
+
+- **v1.14.0**: IIS Log Support added 5th file type but didn't update all filter logic
+- **v1.13.x**: File type filter worked correctly for 4 types (EVTX, EDR, JSON, CSV)
+
+---
+
 
 ## 🐛 v1.14.1 - CRITICAL FIX: Login Analysis Broken After v1.13.9 EventData Stringification (2025-11-14)
 

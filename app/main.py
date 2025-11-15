@@ -1693,9 +1693,9 @@ def search_events(case_id):
     search_text = request.args.get('q', '')
     filter_type = request.args.get('filter', 'all')  # all, sigma, ioc, sigma_and_ioc, tagged
     date_range = request.args.get('date_range', 'all')
-    file_types = request.args.getlist('file_types')  # ['EVTX', 'EDR', 'JSON', 'CSV']
+    file_types = request.args.getlist('file_types')  # ['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']
     if not file_types:  # Default: all types checked
-        file_types = ['EVTX', 'EDR', 'JSON', 'CSV']
+        file_types = ['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']
     hidden_filter = request.args.get('hidden_filter', 'hide')  # 'hide', 'show', 'only'
     sort_field = request.args.get('sort', 'normalized_timestamp')  # Use normalized field
     sort_order = request.args.get('order', 'desc')
@@ -1944,7 +1944,7 @@ def export_search_results(case_id):
     date_range = request.args.get('date_range', 'all')
     file_types = request.args.getlist('file_types')
     if not file_types:
-        file_types = ['EVTX', 'EDR', 'JSON', 'CSV']
+        file_types = ['EVTX', 'EDR', 'JSON', 'CSV', 'IIS']
     sort_field = request.args.get('sort', 'normalized_timestamp')
     sort_order = request.args.get('order', 'desc')
     
