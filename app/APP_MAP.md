@@ -1,3 +1,96 @@
+## 🎨 v1.14.3 - UX IMPROVEMENT: Case Deletion Confirmation Feedback (2025-11-15)
+
+**Change**: Added clear feedback message when user doesn't type "DELETE" correctly in case deletion confirmation.
+
+### 1. Problem
+
+**User Experience Issue**:
+- Case deletion requires typing "DELETE" (all caps) in prompt to confirm
+- If user types anything else (e.g., case name, "delete" lowercase, etc.), deletion silently cancels with no feedback
+- User confusion: "Did it work? Is something broken? Should I try again?"
+- No indication of what they did wrong or what they should type
+
+**User Impact**:
+- User typed case name "IIS TEST" instead of "DELETE" and thought deletion failed
+- No error message or guidance
+- Unclear if deletion was cancelled, failed, or pending
+
+### 2. Solution
+
+**Enhanced Confirmation Flow** (admin_cases.html lines 112-134):
+
+1. **Clarified Prompt Text**:
+```javascript
+// OLD: Type "DELETE" to confirm:
+// NEW: Type "DELETE" (all caps) to confirm:
+```
+
+2. **Handle Cancel Button**:
+```javascript
+if (confirmation === null) {
+    // User clicked Cancel - silently return (expected behavior)
+    return;
+}
+```
+
+3. **Show Feedback for Wrong Input**:
+```javascript
+if (confirmation !== 'DELETE') {
+    alert(`❌ Case deletion cancelled.\n\n` +
+          `You typed: "${confirmation}"\n\n` +
+          `You must type exactly "DELETE" (all caps) to confirm deletion.`);
+    return;
+}
+```
+
+**Result**:
+- User sees exactly what they typed
+- Clear instruction on what to type instead
+- No confusion about whether deletion was cancelled or failed
+- Improved UX for accidental wrong input
+
+### 3. Files Modified
+
+**Frontend**:
+- `app/templates/admin_cases.html`:
+  - Line 123: Added "(all caps)" to prompt text for clarity
+  - Lines 126-129: Handle Cancel button (confirmation === null)
+  - Lines 131-134: Show alert with user's input and correct format
+  - Shows what user typed and what they should type instead
+
+**Documentation**:
+- `app/APP_MAP.md`: This entry (v1.14.3)
+- `app/version.json`: Changelog entry
+
+### 4. Testing
+
+**Test Case 1: Type Wrong Input**
+- Click delete button
+- Type "test" or case name
+- ✅ Alert shows: "You typed: 'test'" and "You must type exactly 'DELETE'"
+
+**Test Case 2: Click Cancel**
+- Click delete button
+- Click Cancel on prompt
+- ✅ Silently returns (no alert, expected behavior)
+
+**Test Case 3: Type DELETE Correctly**
+- Click delete button
+- Type "DELETE" (all caps)
+- ✅ Deletion starts with progress modal
+
+### 5. Impact
+
+**User Experience**:
+- ✅ Clear feedback for incorrect input
+- ✅ No more confusion about silent cancellation
+- ✅ Shows user exactly what they typed wrong
+- ✅ Guides user to correct format
+
+**Related Changes**: None - standalone UX improvement
+
+---
+
 ## 🐛 v1.14.2 - BUG FIX: IIS File Type Checkbox Not Working (2025-11-15)
 
 **Change**: Fixed IIS file type checkbox not being checked by default and not filtering results when toggled.

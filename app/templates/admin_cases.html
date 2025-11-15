@@ -120,10 +120,16 @@ function deleteCase(caseId, caseName) {
         `• All systems & timeline tags\n` +
         `• All AI reports\n` +
         `• All search history\n\n` +
-        `Type "DELETE" to confirm:`
+        `Type "DELETE" (all caps) to confirm:`
     );
     
+    if (confirmation === null) {
+        // User clicked Cancel
+        return;
+    }
+    
     if (confirmation !== 'DELETE') {
+        alert(`❌ Case deletion cancelled.\n\nYou typed: "${confirmation}"\n\nYou must type exactly "DELETE" (all caps) to confirm deletion.`);
         return;
     }
     
