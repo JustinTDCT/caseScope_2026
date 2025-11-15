@@ -1,117 +1,189 @@
 """
-Bulk Operations Module
-Reusable functions for bulk file operations (reindex, rechainsaw, rehunt)
+Unified Bulk Operations Module (v1.15.0 - Phase 1 Refactoring)
+Handles bulk file operations for both case-specific and global scopes
+
+REFACTORING GOALS:
+- Eliminate duplicate code between bulk_operations.py and bulk_operations_global.py
+- Single source of truth for all bulk operations
+- Scope parameter ('case' or 'global') determines behavior
+- All routes use same unified functions
 """
 
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
 
-def clear_case_opensearch_indices(opensearch_client, case_id: int, files: List[Any]) -> int:
+# ============================================================================
+# FILE RETRIEVAL (scope-aware)
+# ============================================================================
+
+def get_files(db, scope: str = 'case', case_id: Optional[int] = None, 
+              file_ids: Optional[List[int]] = None,
+              include_deleted: bool = False, 
+              include_hidden: bool = False) -> List[Any]:
     """
-    Clear all OpenSearch indices for a case's files
+    Get files based on scope (unified function for case/global)
+    
+    Args:
+        db: Database session
+        scope: 'case' (single case) or 'global' (all cases)
+        case_id: Required if scope='case'
+        file_ids: Optional list of specific file IDs (for selected files)
+        include_deleted: Include soft-deleted files
+        include_hidden: Include hidden (0-event) files
+        
+    Returns:
+        List of CaseFile objects
+    """
+    from models import CaseFile
+    
+    query = db.session.query(CaseFile)
+    
+    # Apply scope filter
+    if scope == 'case':
+        if case_id is None:
+            raise ValueError("case_id required when scope='case'")
+        query = query.filter_by(case_id=case_id)
+    elif scope == 'global':
+        pass  # No filter - get all cases
+    else:
+        raise ValueError(f"Invalid scope: {scope}. Must be 'case' or 'global'")
+    
+    # Apply file_ids filter (for selected files)
+    if file_ids:
+        query = query.filter(CaseFile.id.in_(file_ids))
+    
+    # Apply deleted/hidden filters
+    if not include_deleted:
+        query = query.filter_by(is_deleted=False)
+    
+    if not include_hidden:
+        query = query.filter_by(is_hidden=False)
+    
+    files = query.all()
+    
+    scope_desc = f"case {case_id}" if scope == 'case' else "all cases"
+    logger.info(f"[BULK OPS] [{scope.upper()}] Retrieved {len(files)} file(s) from {scope_desc}")
+    
+    return files
+
+
+# ============================================================================
+# OPENSEARCH OPERATIONS (scope-aware)
+# ============================================================================
+
+def clear_opensearch_events(opensearch_client, files: List[Any], 
+                            scope: str = 'case', case_id: Optional[int] = None) -> int:
+    """
+    Clear OpenSearch events for files (unified for case/global)
     
     Args:
         opensearch_client: OpenSearch client instance
-        case_id: Case ID
         files: List of CaseFile objects
+        scope: 'case' or 'global'
+        case_id: Required if scope='case' (for optimization)
     
     Returns:
-        Number of indices deleted
+        Number of events deleted
     """
     from utils import make_index_name
     
-    # v1.13.1: Delete events by file_id (not entire index - it's shared by all files in case)
-    index_name = make_index_name(case_id)  # Gets case index
-    deleted_count = 0
+    if scope == 'case' and case_id:
+        # Optimized: single case, single index
+        index_name = make_index_name(case_id)
+        deleted_count = 0
+        
+        for f in files:
+            if f.opensearch_key:
+                try:
+                    result = opensearch_client.delete_by_query(
+                        index=index_name,
+                        body={"query": {"term": {"file_id": f.id}}},
+                        conflicts='proceed',
+                        ignore=[404]
+                    )
+                    event_count = result.get('deleted', 0) if isinstance(result, dict) else 0
+                    logger.debug(f"[BULK OPS] [{scope.upper()}] Deleted {event_count} events for file {f.id}")
+                    deleted_count += event_count
+                except Exception as e:
+                    logger.warning(f"[BULK OPS] [{scope.upper()}] Could not delete events for file {f.id}: {e}")
+        
+        logger.info(f"[BULK OPS] [{scope.upper()}] Deleted {deleted_count} events from case {case_id}")
+        return deleted_count
     
-    for f in files:
-        if f.opensearch_key:
-            try:
-                # Delete events for this file only
-                result = opensearch_client.delete_by_query(
-                    index=index_name,
-                    body={"query": {"term": {"file_id": f.id}}},
-                    conflicts='proceed',
-                    ignore=[404]
-                )
-                event_count = result.get('deleted', 0) if isinstance(result, dict) else 0
-                logger.info(f"[BULK OPS] Deleted {event_count} events for file {f.id}")
-                deleted_count += 1
-            except Exception as e:
-                logger.warning(f"[BULK OPS] Could not delete events for file {f.id}: {e}")
-    
-    return deleted_count
+    else:
+        # Global or multi-case: group files by case_id
+        files_by_case = {}
+        for f in files:
+            if f.case_id not in files_by_case:
+                files_by_case[f.case_id] = []
+            files_by_case[f.case_id].append(f)
+        
+        total_deleted = 0
+        
+        for cid, case_files in files_by_case.items():
+            index_name = make_index_name(cid)
+            
+            for f in case_files:
+                if f.opensearch_key:
+                    try:
+                        result = opensearch_client.delete_by_query(
+                            index=index_name,
+                            body={"query": {"term": {"file_id": f.id}}},
+                            conflicts='proceed',
+                            ignore=[404]
+                        )
+                        event_count = result.get('deleted', 0) if isinstance(result, dict) else 0
+                        total_deleted += event_count
+                    except Exception as e:
+                        logger.warning(f"[BULK OPS] [{scope.upper()}] Could not delete events for file {f.id}: {e}")
+        
+        logger.info(f"[BULK OPS] [{scope.upper()}] Deleted {total_deleted} events across {len(files_by_case)} case(s)")
+        return total_deleted
 
 
-def clear_case_sigma_violations(db, case_id: int) -> int:
+def clear_ioc_flags_in_opensearch(opensearch_client, files: List[Any],
+                                 scope: str = 'case', case_id: Optional[int] = None) -> int:
     """
-    Clear all SIGMA violations for a case
-    
-    Args:
-        db: Database session
-        case_id: Case ID
-    
-    Returns:
-        Number of violations deleted
-    """
-    from models import SigmaViolation
-    
-    count = db.session.query(SigmaViolation).filter_by(case_id=case_id).delete()
-    logger.info(f"[BULK OPS] Cleared {count} SIGMA violations for case {case_id}")
-    return count
-
-
-def clear_case_ioc_matches(db, case_id: int) -> int:
-    """
-    Clear all IOC matches for a case
-    
-    Args:
-        db: Database session
-        case_id: Case ID
-    
-    Returns:
-        Number of IOC matches deleted
-    """
-    from models import IOCMatch
-    
-    count = db.session.query(IOCMatch).filter_by(case_id=case_id).delete()
-    logger.info(f"[BULK OPS] Cleared {count} IOC matches for case {case_id}")
-    return count
-
-
-def clear_case_ioc_flags_in_opensearch(opensearch_client, case_id: int, files: list) -> int:
-    """
-    Clear has_ioc flags from all OpenSearch indices for a case
-    This ensures old IOC flags are removed before re-hunting
+    Clear has_ioc flags from OpenSearch events (unified for case/global)
     
     Args:
         opensearch_client: OpenSearch client
-        case_id: Case ID
         files: List of CaseFile objects
-    
+        scope: 'case' or 'global'
+        case_id: Required if scope='case'
+        
     Returns:
         Number of events updated
     """
+    from utils import make_index_name
+    
+    # Group files by case_id
+    files_by_case = {}
+    for f in files:
+        if f.case_id not in files_by_case:
+            files_by_case[f.case_id] = []
+        files_by_case[f.case_id].append(f)
+    
     total_updated = 0
     
-    for case_file in files:
-        if not case_file.is_indexed or not case_file.opensearch_key:
-            continue
-        
-        # Generate index name from opensearch_key
-        # v1.13.1: Use consolidated case index and filter by file_id
-        from utils import make_index_name
-        index_name = make_index_name(case_id)
+    for cid, case_files in files_by_case.items():
+        index_name = make_index_name(cid)
         
         try:
             # Check if index exists
             if not opensearch_client.indices.exists(index=index_name):
                 continue
             
-            # Clear has_ioc flag and ioc_count for all events in THIS FILE
+            # Build file_id list for this case
+            file_ids = [f.id for f in case_files if f.opensearch_key]
+            
+            if not file_ids:
+                continue
+            
+            # Clear has_ioc flag for all files at once
             update_body = {
                 "script": {
                     "source": "ctx._source.remove('has_ioc'); ctx._source.remove('ioc_count')",
@@ -120,7 +192,7 @@ def clear_case_ioc_flags_in_opensearch(opensearch_client, case_id: int, files: l
                 "query": {
                     "bool": {
                         "must": [
-                            {"term": {"file_id": case_file.id}},
+                            {"terms": {"file_id": file_ids}},
                             {"term": {"has_ioc": True}}
                         ]
                     }
@@ -137,66 +209,55 @@ def clear_case_ioc_flags_in_opensearch(opensearch_client, case_id: int, files: l
             total_updated += updated
             
             if updated > 0:
-                logger.info(f"[BULK OPS] Cleared has_ioc flags from {updated} events in {index_name}")
+                logger.info(f"[BULK OPS] [{scope.upper()}] Cleared has_ioc flags from {updated} events in {index_name}")
         
         except Exception as e:
-            logger.warning(f"[BULK OPS] Could not clear has_ioc flags in {index_name}: {e}")
+            logger.warning(f"[BULK OPS] [{scope.upper()}] Could not clear has_ioc flags in {index_name}: {e}")
             continue
     
-    logger.info(f"[BULK OPS] ✓ Cleared has_ioc flags from {total_updated} total events across all indices")
+    logger.info(f"[BULK OPS] [{scope.upper()}] ✓ Cleared has_ioc flags from {total_updated} total events")
     return total_updated
 
 
-def clear_file_sigma_violations(db, file_id: int) -> int:
+def clear_sigma_flags_in_opensearch(opensearch_client, files: List[Any],
+                                   scope: str = 'case', case_id: Optional[int] = None) -> int:
     """
-    Clear SIGMA violations for a specific file
-    
-    Args:
-        db: Database session
-        file_id: File ID
-    
-    Returns:
-        Number of violations deleted
-    """
-    from models import SigmaViolation
-    
-    count = db.session.query(SigmaViolation).filter_by(file_id=file_id).delete()
-    logger.info(f"[BULK OPS] Cleared {count} SIGMA violations for file {file_id}")
-    return count
-
-
-def clear_case_sigma_flags_in_opensearch(opensearch_client, case_id: int, files: list) -> int:
-    """
-    Clear has_sigma flags and sigma_rule fields from all OpenSearch indices for a case
-    This ensures old SIGMA flags are removed before re-running SIGMA detection
+    Clear has_sigma flags and sigma_rule fields from OpenSearch events (unified)
     
     Args:
         opensearch_client: OpenSearch client
-        case_id: Case ID
         files: List of CaseFile objects
-    
+        scope: 'case' or 'global'
+        case_id: Required if scope='case'
+        
     Returns:
         Number of events updated
     """
+    from utils import make_index_name
+    
+    # Group files by case_id
+    files_by_case = {}
+    for f in files:
+        if f.case_id not in files_by_case:
+            files_by_case[f.case_id] = []
+        files_by_case[f.case_id].append(f)
+    
     total_updated = 0
     
-    for case_file in files:
-        if not case_file.is_indexed or not case_file.opensearch_key:
-            continue
-        
-        # Generate index name from opensearch_key
-        # opensearch_key format: "case2_ATN76254_filename" or "case2_log_..."
-        # Need to remove the "case2_" prefix and convert to lowercase
-        # v1.13.1: Use consolidated case index and filter by file_id
-        from utils import make_index_name
-        index_name = make_index_name(case_id)
+    for cid, case_files in files_by_case.items():
+        index_name = make_index_name(cid)
         
         try:
             # Check if index exists
             if not opensearch_client.indices.exists(index=index_name):
                 continue
             
-            # Clear has_sigma flag and sigma_rule field for all events in THIS FILE
+            # Clear has_sigma flag and sigma_rule field for all files
+            file_ids = [f.id for f in case_files if f.is_indexed and f.opensearch_key]
+            
+            if not file_ids:
+                continue
+            
             update_body = {
                 "script": {
                     "source": "ctx._source.remove('has_sigma'); ctx._source.remove('sigma_rule')",
@@ -205,7 +266,7 @@ def clear_case_sigma_flags_in_opensearch(opensearch_client, case_id: int, files:
                 "query": {
                     "bool": {
                         "must": [
-                            {"term": {"file_id": case_file.id}},
+                            {"terms": {"file_id": file_ids}},
                             {"term": {"has_sigma": True}}
                         ]
                     }
@@ -222,115 +283,134 @@ def clear_case_sigma_flags_in_opensearch(opensearch_client, case_id: int, files:
             total_updated += updated
             
             if updated > 0:
-                logger.info(f"[BULK OPS] Cleared has_sigma flags from {updated} events in {index_name}")
+                logger.info(f"[BULK OPS] [{scope.upper()}] Cleared has_sigma flags from {updated} events in {index_name}")
         
         except Exception as e:
-            logger.warning(f"[BULK OPS] Could not clear has_sigma flags in {index_name}: {e}")
+            logger.warning(f"[BULK OPS] [{scope.upper()}] Could not clear has_sigma flags in {index_name}: {e}")
             continue
     
-    logger.info(f"[BULK OPS] ✓ Cleared has_sigma flags from {total_updated} total events across all indices")
+    logger.info(f"[BULK OPS] [{scope.upper()}] ✓ Cleared has_sigma flags from {total_updated} total events")
     return total_updated
 
 
-def clear_file_sigma_flags_in_opensearch(opensearch_client, case_id: int, file_obj) -> int:
-    """
-    Clear has_sigma flags and sigma_rule fields from OpenSearch index for a specific file
-    This ensures old SIGMA flags are removed before re-running SIGMA detection
-    
-    Args:
-        opensearch_client: OpenSearch client
-        case_id: Case ID
-        file_obj: CaseFile object
-    
-    Returns:
-        Number of events updated
-    """
-    if not file_obj.is_indexed or not file_obj.opensearch_key:
-        return 0
-    
-    # v1.13.1: Use consolidated case index and filter by file_id
-    from utils import make_index_name
-    index_name = make_index_name(case_id)
-    
-    try:
-        # Check if index exists
-        if not opensearch_client.indices.exists(index=index_name):
-            return 0
-        
-        # Clear has_sigma flag and sigma_rule field for all events in THIS FILE
-        update_body = {
-            "script": {
-                "source": "ctx._source.remove('has_sigma'); ctx._source.remove('sigma_rule')",
-                "lang": "painless"
-            },
-            "query": {
-                "bool": {
-                    "must": [
-                        {"term": {"file_id": file_obj.id}},
-                        {"term": {"has_sigma": True}}
-                    ]
-                }
-            }
-        }
-        
-        response = opensearch_client.update_by_query(
-            index=index_name,
-            body=update_body,
-            conflicts='proceed'
-        )
-        
-        updated = response.get('updated', 0)
-        
-        if updated > 0:
-            logger.info(f"[BULK OPS] Cleared has_sigma flags from {updated} events in {index_name}")
-        
-        return updated
-    
-    except Exception as e:
-        logger.warning(f"[BULK OPS] Could not clear has_sigma flags in {index_name}: {e}")
-        return 0
+# ============================================================================
+# DATABASE OPERATIONS (scope-aware)
+# ============================================================================
 
-
-def clear_file_ioc_matches(db, file_id: int) -> int:
+def clear_sigma_violations(db, scope: str = 'case', case_id: Optional[int] = None,
+                          file_ids: Optional[List[int]] = None) -> int:
     """
-    Clear IOC matches for a specific file
+    Clear SIGMA violations (unified for case/global/file-specific)
     
     Args:
         db: Database session
-        file_id: File ID
+        scope: 'case' or 'global'
+        case_id: Required if scope='case'
+        file_ids: Optional list of specific file IDs
+        
+    Returns:
+        Number of violations deleted
+    """
+    from models import SigmaViolation
     
+    query = db.session.query(SigmaViolation)
+    
+    if scope == 'case' and case_id:
+        query = query.filter_by(case_id=case_id)
+    elif scope == 'global':
+        pass  # No filter
+    else:
+        raise ValueError(f"Invalid scope: {scope}")
+    
+    if file_ids:
+        query = query.filter(SigmaViolation.case_file_id.in_(file_ids))
+    
+    count = query.delete(synchronize_session=False)
+    db.session.commit()
+    
+    scope_desc = f"case {case_id}" if scope == 'case' else "all cases"
+    logger.info(f"[BULK OPS] [{scope.upper()}] Cleared {count} SIGMA violations from {scope_desc}")
+    
+    return count
+
+
+def clear_ioc_matches(db, scope: str = 'case', case_id: Optional[int] = None,
+                     file_ids: Optional[List[int]] = None) -> int:
+    """
+    Clear IOC matches (unified for case/global/file-specific)
+    
+    Args:
+        db: Database session
+        scope: 'case' or 'global'
+        case_id: Required if scope='case'
+        file_ids: Optional list of specific file IDs
+        
     Returns:
         Number of IOC matches deleted
     """
     from models import IOCMatch
     
-    count = db.session.query(IOCMatch).filter_by(file_id=file_id).delete()
-    logger.info(f"[BULK OPS] Cleared {count} IOC matches for file {file_id}")
+    query = db.session.query(IOCMatch)
+    
+    if scope == 'case' and case_id:
+        query = query.filter_by(case_id=case_id)
+    elif scope == 'global':
+        pass  # No filter
+    else:
+        raise ValueError(f"Invalid scope: {scope}")
+    
+    if file_ids:
+        query = query.filter(IOCMatch.case_file_id.in_(file_ids))
+    
+    count = query.delete(synchronize_session=False)
+    db.session.commit()
+    
+    scope_desc = f"case {case_id}" if scope == 'case' else "all cases"
+    logger.info(f"[BULK OPS] [{scope.upper()}] Cleared {count} IOC matches from {scope_desc}")
+    
     return count
 
 
-def clear_case_timeline_tags(db, case_id: int) -> int:
+def clear_timeline_tags(db, scope: str = 'case', case_id: Optional[int] = None) -> int:
     """
-    Clear all timeline tags for a case
+    Clear timeline tags (unified for case/global)
     Timeline tags reference event_id and index_name which change during reindex
     
     Args:
         db: Database session
-        case_id: Case ID
-    
+        scope: 'case' or 'global'
+        case_id: Required if scope='case'
+        
     Returns:
         Number of tags deleted
     """
     from models import TimelineTag
     
-    count = db.session.query(TimelineTag).filter_by(case_id=case_id).delete()
-    logger.info(f"[BULK OPS] Cleared {count} timeline tag(s) for case {case_id}")
+    query = db.session.query(TimelineTag)
+    
+    if scope == 'case' and case_id:
+        query = query.filter_by(case_id=case_id)
+    elif scope == 'global':
+        pass  # Clear all tags
+    else:
+        raise ValueError(f"Invalid scope: {scope}")
+    
+    count = query.delete()
+    db.session.commit()
+    
+    scope_desc = f"case {case_id}" if scope == 'case' else "all cases"
+    logger.info(f"[BULK OPS] [{scope.upper()}] Cleared {count} timeline tag(s) from {scope_desc}")
+    
     return count
 
 
+# ============================================================================
+# FILE METADATA OPERATIONS
+# ============================================================================
+
 def reset_file_metadata(file_obj: Any, reset_opensearch_key: bool = True):
     """
-    Reset file processing metadata
+    Reset file processing metadata (same for case/global)
     
     Args:
         file_obj: CaseFile object
@@ -340,52 +420,145 @@ def reset_file_metadata(file_obj: Any, reset_opensearch_key: bool = True):
     file_obj.violation_count = 0
     file_obj.ioc_event_count = 0
     file_obj.is_indexed = False
-    file_obj.indexing_status = 'Queued'  # Reset status to Queued for reprocessing
+    file_obj.indexing_status = 'Queued'
     
     if reset_opensearch_key:
         file_obj.opensearch_key = None
     
-    logger.debug(f"[BULK OPS] Reset metadata for file {file_obj.id} (opensearch_key cleared: {reset_opensearch_key}, status set to Queued)")
+    logger.debug(f"[BULK OPS] Reset metadata for file {file_obj.id} (opensearch_key cleared: {reset_opensearch_key})")
 
 
-def get_case_files(db, case_id: int, include_deleted: bool = False, include_hidden: bool = False) -> List[Any]:
+def prepare_files_for_reindex(db, files: List[Any], scope: str = 'case') -> int:
     """
-    Get all files for a case
+    Prepare files for re-indexing (unified for case/global)
     
     Args:
         db: Database session
-        case_id: Case ID
-        include_deleted: Whether to include deleted files
-        include_hidden: Whether to include hidden files (0-event/CyLR artifacts)
-    
+        files: List of CaseFile objects
+        scope: 'case' or 'global' (for logging)
+        
     Returns:
-        List of CaseFile objects
+        Number of files prepared
+    """
+    for f in files:
+        reset_file_metadata(f, reset_opensearch_key=True)
+        f.error_message = None
+        f.celery_task_id = None
+    
+    db.session.commit()
+    logger.info(f"[BULK OPS] [{scope.upper()}] Prepared {len(files)} file(s) for re-indexing")
+    
+    return len(files)
+
+
+def prepare_files_for_rechainsaw(db, files: List[Any], scope: str = 'case') -> int:
+    """
+    Prepare files for re-SIGMA (unified for case/global)
+    
+    Args:
+        db: Database session
+        files: List of CaseFile objects
+        scope: 'case' or 'global' (for logging)
+        
+    Returns:
+        Number of files prepared
+    """
+    for f in files:
+        f.indexing_status = 'Queued'
+        f.celery_task_id = None
+        f.violation_count = 0
+    
+    db.session.commit()
+    logger.info(f"[BULK OPS] [{scope.upper()}] Prepared {len(files)} file(s) for re-SIGMA")
+    
+    return len(files)
+
+
+def prepare_files_for_rehunt(db, files: List[Any], scope: str = 'case') -> int:
+    """
+    Prepare files for IOC re-hunting (unified for case/global)
+    
+    Args:
+        db: Database session
+        files: List of CaseFile objects
+        scope: 'case' or 'global' (for logging)
+        
+    Returns:
+        Number of files prepared
+    """
+    for f in files:
+        f.indexing_status = 'Queued'
+        f.celery_task_id = None
+        f.ioc_event_count = 0
+    
+    db.session.commit()
+    logger.info(f"[BULK OPS] [{scope.upper()}] Prepared {len(files)} file(s) for IOC re-hunting")
+    
+    return len(files)
+
+
+def requeue_failed_files(db, scope: str = 'case', case_id: Optional[int] = None) -> int:
+    """
+    Requeue all failed files (unified for case/global)
+    
+    Args:
+        db: Database session
+        scope: 'case' or 'global'
+        case_id: Required if scope='case'
+        
+    Returns:
+        Number of files requeued
     """
     from models import CaseFile
     
-    query = db.session.query(CaseFile).filter_by(case_id=case_id)
+    # Get failed files (any status not in known good statuses)
+    known_statuses = ['Completed', 'Indexing', 'SIGMA Testing', 'IOC Hunting', 'Queued']
+    query = db.session.query(CaseFile).filter(
+        CaseFile.is_deleted == False,
+        CaseFile.is_hidden == False,
+        ~CaseFile.indexing_status.in_(known_statuses)
+    )
     
-    if not include_deleted:
-        query = query.filter_by(is_deleted=False)
+    if scope == 'case' and case_id:
+        query = query.filter_by(case_id=case_id)
+    elif scope == 'global':
+        pass  # No filter
+    else:
+        raise ValueError(f"Invalid scope: {scope}")
     
-    if not include_hidden:
-        query = query.filter_by(is_hidden=False)
+    failed_files = query.all()
     
-    files = query.all()
-    logger.info(f"[BULK OPS] Found {len(files)} file(s) for case {case_id} (include_hidden={include_hidden})")
-    return files
+    count = 0
+    for f in failed_files:
+        f.indexing_status = 'Queued'
+        f.celery_task_id = None
+        f.error_message = None
+        count += 1
+    
+    db.session.commit()
+    
+    scope_desc = f"case {case_id}" if scope == 'case' else "all cases"
+    logger.info(f"[BULK OPS] [{scope.upper()}] Requeued {count} failed file(s) from {scope_desc}")
+    
+    return count
 
 
-def queue_file_processing(process_file_task, files: List[Any], operation: str = 'full', db_session=None):
+# ============================================================================
+# TASK QUEUING (unified)
+# ============================================================================
+
+def queue_file_processing(process_file_task, files: List[Any], operation: str = 'full', 
+                         db_session=None, scope: str = 'case') -> int:
     """
-    Queue file processing tasks for multiple files
+    Queue file processing tasks for multiple files (unified for case/global)
     
     Args:
         process_file_task: Celery task (process_file)
         files: List of CaseFile objects
         operation: Operation type ('full', 'chainsaw_only', 'ioc_only')
         db_session: Optional database session (if None, will not commit)
-    
+        scope: 'case' or 'global' (for logging)
+        
     Returns:
         Number of tasks queued
     """
@@ -395,10 +568,8 @@ def queue_file_processing(process_file_task, files: List[Any], operation: str = 
     
     for f in files:
         # CRITICAL: Prevent duplicate queuing for 'full' operation
-        # Skip files that are already indexed (unless they've been reset for re-index)
-        # Re-index operations call reset_file_metadata() first, which sets is_indexed=False
         if operation == 'full' and f.is_indexed:
-            logger.debug(f"[BULK OPS] Skipping file {f.id} (already indexed, use re-index to re-process)")
+            logger.debug(f"[BULK OPS] [{scope.upper()}] Skipping file {f.id} (already indexed)")
             skipped_count += 1
             continue
         
@@ -408,50 +579,204 @@ def queue_file_processing(process_file_task, files: List[Any], operation: str = 
             from celery_app import celery_app
             old_task = AsyncResult(f.celery_task_id, app=celery_app)
             
-            # If old task is still active, skip this file
             if old_task.state in ['PENDING', 'STARTED', 'RETRY']:
-                logger.debug(f"[BULK OPS] Skipping file {f.id} (already queued: {f.celery_task_id}, state: {old_task.state})")
+                logger.debug(f"[BULK OPS] [{scope.upper()}] Skipping file {f.id} (already queued: {old_task.state})")
                 skipped_count += 1
                 continue
             else:
-                # Old task is finished, clear it and continue
-                logger.debug(f"[BULK OPS] File {f.id} has stale task_id {f.celery_task_id} (state: {old_task.state}), clearing before requeue")
+                logger.debug(f"[BULK OPS] [{scope.upper()}] File {f.id} has stale task_id, clearing")
                 f.celery_task_id = None
         
         try:
             result = process_file_task.delay(f.id, operation=operation)
-            # Store task ID in database for tracking
-            if hasattr(f, 'celery_task_id'):
-                f.celery_task_id = result.id
-            logger.debug(f"[BULK OPS] Queued {operation} processing for file {f.id} (task_id: {result.id})")
+            f.celery_task_id = result.id
+            logger.debug(f"[BULK OPS] [{scope.upper()}] Queued {operation} for file {f.id} (task: {result.id})")
             queued_count += 1
         except Exception as e:
             error_msg = f"Failed to queue file {f.id}: {e}"
-            logger.error(f"[BULK OPS] {error_msg}")
+            logger.error(f"[BULK OPS] [{scope.upper()}] {error_msg}")
             errors.append(error_msg)
-            # CRITICAL: Clear task_id if queuing failed
-            if hasattr(f, 'celery_task_id'):
-                f.celery_task_id = None
-            # Continue with other files even if one fails
+            f.celery_task_id = None
     
-    # CRITICAL: Commit the task_id changes to database
+    # Commit task_id changes
     if db_session and queued_count > 0:
         try:
             db_session.commit()
-            logger.debug(f"[BULK OPS] Committed {queued_count} task_id assignments to database")
+            logger.debug(f"[BULK OPS] [{scope.upper()}] Committed {queued_count} task_id assignments")
         except Exception as e:
-            logger.error(f"[BULK OPS] Failed to commit task_ids: {e}")
+            logger.error(f"[BULK OPS] [{scope.upper()}] Failed to commit task_ids: {e}")
             db_session.rollback()
     
     if errors:
-        logger.warning(f"[BULK OPS] Queued {queued_count}/{len(files)} files successfully. {len(errors)} errors occurred, {skipped_count} skipped.")
-        for error in errors[:10]:  # Log first 10 errors
-            logger.warning(f"[BULK OPS]   - {error}")
+        logger.warning(f"[BULK OPS] [{scope.upper()}] Queued {queued_count}/{len(files)} files. {len(errors)} errors, {skipped_count} skipped.")
     else:
         if skipped_count > 0:
-            logger.info(f"[BULK OPS] Successfully queued {operation} processing for {queued_count} file(s), skipped {skipped_count} already-indexed/queued files")
+            logger.info(f"[BULK OPS] [{scope.upper()}] Queued {queued_count} file(s) for {operation}, skipped {skipped_count}")
         else:
-            logger.info(f"[BULK OPS] Successfully queued {operation} processing for {queued_count} file(s)")
+            logger.info(f"[BULK OPS] [{scope.upper()}] Queued {queued_count} file(s) for {operation}")
     
     return queued_count
 
+
+# ============================================================================
+# FILE DELETION (unified)
+# ============================================================================
+
+def delete_files(db, opensearch_client, files: List[Any], 
+                scope: str = 'case', case_id: Optional[int] = None) -> Dict[str, int]:
+    """
+    Delete files and all associated data (unified for case/global)
+    
+    Args:
+        db: Database session
+        opensearch_client: OpenSearch client
+        files: List of CaseFile objects
+        scope: 'case' or 'global'
+        case_id: Optional case_id (for logging)
+        
+    Returns:
+        Dict with deletion counts
+    """
+    import os
+    from utils import make_index_name
+    
+    stats = {
+        'files_deleted': 0,
+        'events_deleted': 0,
+        'sigma_deleted': 0,
+        'ioc_deleted': 0,
+        'disk_deleted': 0
+    }
+    
+    # Group files by case for efficient OpenSearch deletion
+    files_by_case = {}
+    for f in files:
+        if f.case_id not in files_by_case:
+            files_by_case[f.case_id] = []
+        files_by_case[f.case_id].append(f)
+    
+    # Delete from OpenSearch
+    for cid, case_files in files_by_case.items():
+        index_name = make_index_name(cid)
+        
+        for f in case_files:
+            if f.opensearch_key:
+                try:
+                    result = opensearch_client.delete_by_query(
+                        index=index_name,
+                        body={"query": {"term": {"file_id": f.id}}},
+                        conflicts='proceed',
+                        ignore=[404]
+                    )
+                    stats['events_deleted'] += result.get('deleted', 0) if isinstance(result, dict) else 0
+                except Exception as e:
+                    logger.warning(f"[BULK OPS] [{scope.upper()}] Could not delete OpenSearch events for file {f.id}: {e}")
+    
+    # Delete SIGMA violations and IOC matches
+    from models import SigmaViolation, IOCMatch
+    
+    file_ids = [f.id for f in files]
+    
+    stats['sigma_deleted'] = db.session.query(SigmaViolation).filter(
+        SigmaViolation.case_file_id.in_(file_ids)
+    ).delete(synchronize_session=False)
+    
+    stats['ioc_deleted'] = db.session.query(IOCMatch).filter(
+        IOCMatch.case_file_id.in_(file_ids)
+    ).delete(synchronize_session=False)
+    
+    # Delete from filesystem and database
+    for f in files:
+        # Delete from filesystem
+        file_path = f.file_path if hasattr(f, 'file_path') else None
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                stats['disk_deleted'] += 1
+            except Exception as e:
+                logger.warning(f"[BULK OPS] [{scope.upper()}] Could not delete file from disk: {e}")
+        
+        # Delete from database
+        db.session.delete(f)
+        stats['files_deleted'] += 1
+    
+    db.session.commit()
+    
+    scope_desc = f"case {case_id}" if scope == 'case' and case_id else f"{len(files_by_case)} case(s)"
+    logger.info(f"[BULK OPS] [{scope.upper()}] Deleted {stats['files_deleted']} files, "
+                f"{stats['events_deleted']} events, {stats['sigma_deleted']} SIGMA, "
+                f"{stats['ioc_deleted']} IOC matches from {scope_desc}")
+    
+    return stats
+
+
+# ============================================================================
+# LEGACY COMPATIBILITY (for single-file operations)
+# ============================================================================
+
+def clear_file_sigma_violations(db, file_id: int) -> int:
+    """Clear SIGMA violations for a specific file (legacy wrapper)"""
+    return clear_sigma_violations(db, scope='case', file_ids=[file_id])
+
+
+def clear_file_ioc_matches(db, file_id: int) -> int:
+    """Clear IOC matches for a specific file (legacy wrapper)"""
+    return clear_ioc_matches(db, scope='case', file_ids=[file_id])
+
+
+def clear_file_sigma_flags_in_opensearch(opensearch_client, case_id: int, file_obj) -> int:
+    """
+    Clear has_sigma flags for a specific file (legacy wrapper)
+    
+    Args:
+        opensearch_client: OpenSearch client
+        case_id: Case ID
+        file_obj: CaseFile object
+        
+    Returns:
+        Number of events updated
+    """
+    if not file_obj.is_indexed or not file_obj.opensearch_key:
+        return 0
+    
+    return clear_sigma_flags_in_opensearch(opensearch_client, [file_obj], scope='case', case_id=case_id)
+
+
+# ============================================================================
+# BACKWARD COMPATIBILITY ALIASES (for case-specific operations)
+# ============================================================================
+
+def get_case_files(db, case_id: int, include_deleted: bool = False, include_hidden: bool = False) -> List[Any]:
+    """Legacy wrapper for get_files with scope='case'"""
+    return get_files(db, scope='case', case_id=case_id, 
+                    include_deleted=include_deleted, include_hidden=include_hidden)
+
+
+def clear_case_opensearch_indices(opensearch_client, case_id: int, files: List[Any]) -> int:
+    """Legacy wrapper for clear_opensearch_events with scope='case'"""
+    return clear_opensearch_events(opensearch_client, files, scope='case', case_id=case_id)
+
+
+def clear_case_sigma_violations(db, case_id: int) -> int:
+    """Legacy wrapper for clear_sigma_violations with scope='case'"""
+    return clear_sigma_violations(db, scope='case', case_id=case_id)
+
+
+def clear_case_ioc_matches(db, case_id: int) -> int:
+    """Legacy wrapper for clear_ioc_matches with scope='case'"""
+    return clear_ioc_matches(db, scope='case', case_id=case_id)
+
+
+def clear_case_ioc_flags_in_opensearch(opensearch_client, case_id: int, files: list) -> int:
+    """Legacy wrapper for clear_ioc_flags_in_opensearch with scope='case'"""
+    return clear_ioc_flags_in_opensearch(opensearch_client, files, scope='case', case_id=case_id)
+
+
+def clear_case_sigma_flags_in_opensearch(opensearch_client, case_id: int, files: list) -> int:
+    """Legacy wrapper for clear_sigma_flags_in_opensearch with scope='case'"""
+    return clear_sigma_flags_in_opensearch(opensearch_client, files, scope='case', case_id=case_id)
+
+
+def clear_case_timeline_tags(db, case_id: int) -> int:
+    """Legacy wrapper for clear_timeline_tags with scope='case'"""
+    return clear_timeline_tags(db, scope='case', case_id=case_id)

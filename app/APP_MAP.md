@@ -1,3 +1,223 @@
+## 🔧 v1.15.0 - REFACTORING: Unified Bulk Operations Module (Phase 1) (2025-11-15)
+
+**Change**: Consolidated `bulk_operations.py` and `bulk_operations_global.py` into a single unified module with scope parameter, eliminating duplicate code and improving maintainability.
+
+### 1. Problem
+
+**Code Duplication**:
+- Had 2 separate modules: `bulk_operations.py` (case-specific) and `bulk_operations_global.py` (global)
+- Functions duplicated across both files with nearly identical logic
+- ~885 total lines of code with significant duplication
+- Changes had to be made in 2 places (easy to miss one, causing bugs)
+- Example: IIS checkbox bug (v1.14.2) showed how easy it is to update one function but miss the duplicate
+
+**Maintenance Issues**:
+- When fixing bugs, had to remember to fix in BOTH files
+- When adding features, had to implement twice
+- Risk of divergence between case/global implementations
+- Harder to test and validate changes
+
+**Examples of Duplicated Functions**:
+- `clear_case_opensearch_indices()` vs `clear_global_opensearch_events()`
+- `clear_case_sigma_violations()` vs `clear_global_sigma_violations()`
+- `clear_case_ioc_matches()` vs `clear_global_ioc_matches()`
+- `get_case_files()` vs `get_all_files()` + `get_selected_files_global()`
+- `prepare_files_for_reindex()` duplicated in both files
+- And 10+ more duplicate function pairs
+
+### 2. Solution (Phase 1 Refactoring)
+
+**Unified Module with Scope Parameter**:
+
+Created a single `bulk_operations.py` with scope-aware functions:
+
+```python
+def get_files(db, scope='case', case_id=None, file_ids=None, 
+              include_deleted=False, include_hidden=False):
+    """
+    Get files based on scope (unified function for case/global)
+    
+    Args:
+        scope: 'case' (single case) or 'global' (all cases)
+        case_id: Required if scope='case'
+        file_ids: Optional for selected files
+    """
+    query = db.session.query(CaseFile)
+    
+    if scope == 'case':
+        query = query.filter_by(case_id=case_id)
+    elif scope == 'global':
+        pass  # No filter - all cases
+    
+    # ... rest of logic is identical for both scopes
+```
+
+**Key Design Principles**:
+1. **Single Source of Truth**: One function per operation, works for both scopes
+2. **Scope Parameter**: `'case'` or `'global'` determines behavior
+3. **Backward Compatibility**: Legacy wrapper functions for existing code
+4. **Clear Logging**: Log messages include scope for debugging
+
+**Unified Functions** (scope-aware):
+- `get_files(db, scope, case_id=None, file_ids=None, ...)`
+- `clear_opensearch_events(opensearch_client, files, scope, case_id=None)`
+- `clear_sigma_violations(db, scope, case_id=None, file_ids=None)`
+- `clear_ioc_matches(db, scope, case_id=None, file_ids=None)`
+- `clear_ioc_flags_in_opensearch(opensearch_client, files, scope, case_id=None)`
+- `clear_sigma_flags_in_opensearch(opensearch_client, files, scope, case_id=None)`
+- `clear_timeline_tags(db, scope, case_id=None)`
+- `prepare_files_for_reindex(db, files, scope)`
+- `prepare_files_for_rechainsaw(db, files, scope)`
+- `prepare_files_for_rehunt(db, files, scope)`
+- `requeue_failed_files(db, scope, case_id=None)`
+- `queue_file_processing(process_file_task, files, operation, db_session, scope)`
+- `delete_files(db, opensearch_client, files, scope, case_id=None)`
+
+**Backward Compatibility Wrappers** (for existing code):
+```python
+def get_case_files(db, case_id, include_deleted=False, include_hidden=False):
+    """Legacy wrapper for get_files with scope='case'"""
+    return get_files(db, scope='case', case_id=case_id, 
+                    include_deleted=include_deleted, include_hidden=include_hidden)
+
+def clear_case_opensearch_indices(opensearch_client, case_id, files):
+    """Legacy wrapper for clear_opensearch_events with scope='case'"""
+    return clear_opensearch_events(opensearch_client, files, scope='case', case_id=case_id)
+```
+
+These wrappers ensure `main.py` and other existing code continues to work without changes.
+
+### 3. Files Modified
+
+**Core Module**:
+- `app/bulk_operations.py`:
+  - Completely rewritten as unified module (782 lines)
+  - Added scope parameter to all functions
+  - Includes backward compatibility wrappers for legacy code
+  - Clear docstrings explaining scope behavior
+
+**Routes Updated** (`app/routes/files.py`):
+- Updated 10 global bulk operation routes (lines 1447-1797):
+  - `/files/global/requeue_failed` - uses `requeue_failed_files(scope='global')`
+  - `/files/global/bulk_reindex` - uses unified functions with `scope='global'`
+  - `/files/global/bulk_rechainsaw` - uses unified functions with `scope='global'`
+  - `/files/global/bulk_rehunt_iocs` - uses unified functions with `scope='global'`
+  - `/files/global/bulk_delete_files` - uses `delete_files(scope='global')`
+  - `/files/global/bulk_reindex_selected` - uses `get_files(scope='global', file_ids=...)`
+  - `/files/global/bulk_rechainsaw_selected` - uses unified functions with `scope='global'`
+  - `/files/global/bulk_rehunt_selected` - uses unified functions with `scope='global'`
+  - `/files/global/bulk_hide_selected` - uses `get_files(scope='global', file_ids=...)`
+  - All imports changed from `bulk_operations_global` to `bulk_operations`
+
+**Archived**:
+- `app/bulk_operations_global.py` → `app/bulk_operations_global.py.backup_v1.14.3`
+  - Removed from active codebase
+  - Kept as backup for reference
+
+**Unchanged** (uses backward compatibility wrappers):
+- `app/main.py`:
+  - Still uses `get_case_files()`, `clear_case_opensearch_indices()`, etc.
+  - Works without modification thanks to wrapper functions
+
+**Documentation**:
+- `app/APP_MAP.md`: This entry (v1.15.0)
+- `app/version.json`: Changelog entry
+
+### 4. Testing
+
+**Service Restart Test**:
+- ✅ `sudo systemctl restart casescope` - SUCCESS
+- ✅ Service started with no errors
+- ✅ All workers initialized correctly
+- ✅ No import errors or missing modules
+
+**Import Verification**:
+- ✅ No remaining references to `bulk_operations_global`
+- ✅ All routes use new unified `bulk_operations` module
+- ✅ Backward compatibility wrappers working
+
+**Linter Check**:
+- ✅ No linting errors in `bulk_operations.py`
+- ✅ No linting errors in `routes/files.py`
+
+### 5. Impact
+
+**Code Quality**:
+- ✅ Eliminated ~103 lines of duplicate code
+- ✅ Single source of truth for all bulk operations
+- ✅ Easier to maintain and test
+- ✅ Bug fixes now apply to both case and global scopes automatically
+- ✅ Clear, consistent API with scope parameter
+
+**Developer Experience**:
+- ✅ Only one file to modify for bulk operation changes
+- ✅ Clearer function signatures with explicit scope parameter
+- ✅ Better logging (includes scope in all log messages)
+- ✅ Backward compatibility ensures no breaking changes
+
+**Future Benefits**:
+- ✅ Ready for Phase 2: Further consolidation of worker tasks
+- ✅ Easier to add new bulk operations (single implementation)
+- ✅ Reduced technical debt
+- ✅ Foundation for additional refactoring
+
+### 6. Architecture Notes
+
+**Before Refactoring**:
+```
+bulk_operations.py (458 lines)
+├── Case-specific functions
+└── Duplicated logic
+
+bulk_operations_global.py (427 lines)
+├── Global functions
+└── Duplicated logic (nearly identical)
+
+Total: ~885 lines with duplication
+```
+
+**After Refactoring**:
+```
+bulk_operations.py (782 lines)
+├── Unified scope-aware functions
+├── Backward compatibility wrappers
+└── Single source of truth
+
+Total: 782 lines (no duplication)
+```
+
+**Design Pattern: Scope Parameter Strategy**:
+- Functions accept `scope='case'` or `scope='global'`
+- Logic branches based on scope where needed
+- Most logic is identical between scopes (no duplication)
+- Clear separation of concerns
+
+**Example Usage**:
+```python
+# Case-specific operation
+files = get_files(db, scope='case', case_id=20)
+clear_opensearch_events(opensearch_client, files, scope='case', case_id=20)
+
+# Global operation (all cases)
+files = get_files(db, scope='global')
+clear_opensearch_events(opensearch_client, files, scope='global')
+
+# Selected files (cross-case)
+files = get_files(db, scope='global', file_ids=[1, 2, 3])
+```
+
+### 7. Related Issues
+
+**IIS Checkbox Bug (v1.14.2)**: 
+This refactoring prevents similar bugs where case-specific code gets updated but global code doesn't (or vice versa). Now there's only ONE place to make changes.
+
+**Future Refactoring** (Phase 2 - Not Implemented Yet):
+- Worker task consolidation (single `process_file` for all operations)
+- Route simplification (unified bulk operation endpoint)
+- Further reduction of code duplication in other modules
+
+---
+
 ## 🎨 v1.14.3 - UX IMPROVEMENT: Case Deletion Confirmation Feedback (2025-11-15)
 
 **Change**: Added clear feedback message when user doesn't type "DELETE" correctly in case deletion confirmation.

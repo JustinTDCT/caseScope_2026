@@ -1449,10 +1449,10 @@ def requeue_failed_files(case_id):
 def requeue_failed_files_global_route():
     """Requeue all failed files across ALL cases"""
     from main import db
-    from bulk_operations_global import requeue_failed_files_global
+    from bulk_operations import requeue_failed_files
     
     try:
-        count = requeue_failed_files_global(db)
+        count = requeue_failed_files(db, scope='global')
         
         flash(f'✅ Requeued {count} failed file(s) across all cases', 'success')
         return redirect(url_for('files.global_files'))
@@ -1467,9 +1467,10 @@ def requeue_failed_files_global_route():
 @login_required
 def bulk_reindex_global_route():
     """Re-index all files across ALL cases"""
-    from main import db, celery_app
+    from main import db, celery_app, opensearch_client
     from celery_health import check_workers_available
-    from bulk_operations_global import get_all_files, clear_global_opensearch_events, clear_global_sigma_violations, clear_global_ioc_matches, prepare_files_for_reindex_global, queue_files_for_processing_global
+    from bulk_operations import (get_files, clear_opensearch_events, clear_sigma_violations, 
+                                 clear_ioc_matches, prepare_files_for_reindex, queue_file_processing)
     from tasks import process_file
     
     # Safety check
@@ -1480,23 +1481,22 @@ def bulk_reindex_global_route():
     
     try:
         # Get all indexed files across all cases
-        files = [f for f in get_all_files(db, include_hidden=False) if f.is_indexed]
+        files = [f for f in get_files(db, scope='global', include_hidden=False) if f.is_indexed]
         
         if not files:
             flash('No indexed files found globally', 'warning')
             return redirect(url_for('files.global_files'))
         
         # Clear OpenSearch events
-        from main import opensearch_client
-        clear_global_opensearch_events(opensearch_client, files)
+        clear_opensearch_events(opensearch_client, files, scope='global')
         
         # Clear SIGMA and IOC data
-        clear_global_sigma_violations(db)
-        clear_global_ioc_matches(db)
+        clear_sigma_violations(db, scope='global')
+        clear_ioc_matches(db, scope='global')
         
         # Prepare and queue files
-        prepare_files_for_reindex_global(db, files)
-        queued = queue_files_for_processing_global(process_file, files, 'full', db.session)
+        prepare_files_for_reindex(db, files, scope='global')
+        queued = queue_file_processing(process_file, files, 'full', db.session, scope='global')
         
         flash(f'✅ Re-indexing queued for {queued} file(s) across all cases ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
@@ -1513,7 +1513,8 @@ def bulk_rechainsaw_global_route():
     """Re-run SIGMA on all files across ALL cases"""
     from main import db
     from celery_health import check_workers_available
-    from bulk_operations_global import get_all_files, clear_global_sigma_violations, prepare_files_for_rechainsaw_global, queue_files_for_processing_global
+    from bulk_operations import (get_files, clear_sigma_violations, 
+                                 prepare_files_for_rechainsaw, queue_file_processing)
     from tasks import process_file
     
     # Safety check
@@ -1523,18 +1524,18 @@ def bulk_rechainsaw_global_route():
         return redirect(url_for('files.global_files'))
     
     try:
-        files = [f for f in get_all_files(db, include_hidden=False) if f.is_indexed]
+        files = [f for f in get_files(db, scope='global', include_hidden=False) if f.is_indexed]
         
         if not files:
             flash('No indexed files found globally', 'warning')
             return redirect(url_for('files.global_files'))
         
         # Clear SIGMA data
-        clear_global_sigma_violations(db)
+        clear_sigma_violations(db, scope='global')
         
         # Prepare and queue files
-        prepare_files_for_rechainsaw_global(db, files)
-        queued = queue_files_for_processing_global(process_file, files, 'sigma_only', db.session)
+        prepare_files_for_rechainsaw(db, files, scope='global')
+        queued = queue_file_processing(process_file, files, 'sigma_only', db.session, scope='global')
         
         flash(f'✅ Re-SIGMA queued for {queued} file(s) across all cases ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
@@ -1551,7 +1552,8 @@ def bulk_rehunt_iocs_global_route():
     """Re-hunt IOCs on all files across ALL cases"""
     from main import db, opensearch_client
     from celery_health import check_workers_available
-    from bulk_operations_global import get_all_files, clear_global_ioc_matches, clear_global_ioc_flags_in_opensearch, prepare_files_for_rehunt_global, queue_files_for_processing_global
+    from bulk_operations import (get_files, clear_ioc_matches, clear_ioc_flags_in_opensearch,
+                                 prepare_files_for_rehunt, queue_file_processing)
     from tasks import process_file
     
     # Safety check
@@ -1567,19 +1569,19 @@ def bulk_rehunt_iocs_global_route():
         except Exception as e:
             logger.warning(f"[GLOBAL BULK] Failed to clear OpenSearch cache: {e}")
         
-        files = [f for f in get_all_files(db, include_hidden=False) if f.is_indexed]
+        files = [f for f in get_files(db, scope='global', include_hidden=False) if f.is_indexed]
         
         if not files:
             flash('No indexed files found globally', 'warning')
             return redirect(url_for('files.global_files'))
         
         # Clear IOC data
-        clear_global_ioc_matches(db)
-        clear_global_ioc_flags_in_opensearch(opensearch_client, files)
+        clear_ioc_matches(db, scope='global')
+        clear_ioc_flags_in_opensearch(opensearch_client, files, scope='global')
         
         # Prepare and queue files
-        prepare_files_for_rehunt_global(db, files)
-        queued = queue_files_for_processing_global(process_file, files, 'ioc_only', db.session)
+        prepare_files_for_rehunt(db, files, scope='global')
+        queued = queue_file_processing(process_file, files, 'ioc_only', db.session, scope='global')
         
         flash(f'✅ IOC re-hunting queued for {queued} file(s) across all cases ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
@@ -1595,7 +1597,7 @@ def bulk_rehunt_iocs_global_route():
 def bulk_delete_files_global_route():
     """Delete all files across ALL cases - ADMIN ONLY"""
     from main import db, opensearch_client
-    from bulk_operations_global import get_all_files, delete_files_globally
+    from bulk_operations import get_files, delete_files
     
     # Admin check
     if current_user.role != 'administrator':
@@ -1603,14 +1605,14 @@ def bulk_delete_files_global_route():
         return redirect(url_for('files.global_files'))
     
     try:
-        files = get_all_files(db, include_deleted=False, include_hidden=True)
+        files = get_files(db, scope='global', include_deleted=False, include_hidden=True)
         
         if not files:
             flash('No files to delete', 'info')
             return redirect(url_for('files.global_files'))
         
         # Delete files
-        stats = delete_files_globally(db, opensearch_client, files)
+        stats = delete_files(db, opensearch_client, files, scope='global')
         
         flash(f'✅ Deleted {stats["files_deleted"]} files, {stats["events_deleted"]} events, '
               f'{stats["sigma_deleted"]} SIGMA violations, {stats["ioc_deleted"]} IOC matches', 'success')
@@ -1633,7 +1635,8 @@ def bulk_reindex_selected_global_route():
     """Re-index selected files (cross-case)"""
     from main import db, opensearch_client
     from celery_health import check_workers_available
-    from bulk_operations_global import get_selected_files_global, clear_global_opensearch_events, clear_global_sigma_violations, clear_global_ioc_matches, prepare_files_for_reindex_global, queue_files_for_processing_global
+    from bulk_operations import (get_files, clear_opensearch_events, clear_sigma_violations,
+                                 clear_ioc_matches, prepare_files_for_reindex, queue_file_processing)
     from tasks import process_file
     
     file_ids = request.form.getlist('file_ids[]', type=int)
@@ -1648,20 +1651,20 @@ def bulk_reindex_selected_global_route():
         return redirect(url_for('files.global_files'))
     
     try:
-        files = get_selected_files_global(db, file_ids)
+        files = get_files(db, scope='global', file_ids=file_ids)
         
         if not files:
             flash('Selected files not found', 'warning')
             return redirect(url_for('files.global_files'))
         
         # Clear data
-        clear_global_opensearch_events(opensearch_client, files)
-        clear_global_sigma_violations(db, file_ids)
-        clear_global_ioc_matches(db, file_ids)
+        clear_opensearch_events(opensearch_client, files, scope='global')
+        clear_sigma_violations(db, scope='global', file_ids=file_ids)
+        clear_ioc_matches(db, scope='global', file_ids=file_ids)
         
         # Prepare and queue
-        prepare_files_for_reindex_global(db, files)
-        queued = queue_files_for_processing_global(process_file, files, 'full', db.session)
+        prepare_files_for_reindex(db, files, scope='global')
+        queued = queue_file_processing(process_file, files, 'full', db.session, scope='global')
         
         flash(f'✅ Re-indexing queued for {queued} selected file(s) ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
@@ -1678,7 +1681,8 @@ def bulk_rechainsaw_selected_global_route():
     """Re-SIGMA selected files (cross-case)"""
     from main import db
     from celery_health import check_workers_available
-    from bulk_operations_global import get_selected_files_global, clear_global_sigma_violations, prepare_files_for_rechainsaw_global, queue_files_for_processing_global
+    from bulk_operations import (get_files, clear_sigma_violations, 
+                                 prepare_files_for_rechainsaw, queue_file_processing)
     from tasks import process_file
     
     file_ids = request.form.getlist('file_ids[]', type=int)
@@ -1693,18 +1697,18 @@ def bulk_rechainsaw_selected_global_route():
         return redirect(url_for('files.global_files'))
     
     try:
-        files = get_selected_files_global(db, file_ids)
+        files = get_files(db, scope='global', file_ids=file_ids)
         
         if not files:
             flash('Selected files not found', 'warning')
             return redirect(url_for('files.global_files'))
         
         # Clear SIGMA data
-        clear_global_sigma_violations(db, file_ids)
+        clear_sigma_violations(db, scope='global', file_ids=file_ids)
         
         # Prepare and queue
-        prepare_files_for_rechainsaw_global(db, files)
-        queued = queue_files_for_processing_global(process_file, files, 'sigma_only', db.session)
+        prepare_files_for_rechainsaw(db, files, scope='global')
+        queued = queue_file_processing(process_file, files, 'sigma_only', db.session, scope='global')
         
         flash(f'✅ Re-SIGMA queued for {queued} selected file(s) ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
@@ -1721,7 +1725,8 @@ def bulk_rehunt_iocs_selected_global_route():
     """Re-hunt IOCs on selected files (cross-case)"""
     from main import db, opensearch_client
     from celery_health import check_workers_available
-    from bulk_operations_global import get_selected_files_global, clear_global_ioc_matches, clear_global_ioc_flags_in_opensearch, prepare_files_for_rehunt_global, queue_files_for_processing_global
+    from bulk_operations import (get_files, clear_ioc_matches, clear_ioc_flags_in_opensearch,
+                                 prepare_files_for_rehunt, queue_file_processing)
     from tasks import process_file
     
     file_ids = request.form.getlist('file_ids[]', type=int)
@@ -1736,19 +1741,19 @@ def bulk_rehunt_iocs_selected_global_route():
         return redirect(url_for('files.global_files'))
     
     try:
-        files = get_selected_files_global(db, file_ids)
+        files = get_files(db, scope='global', file_ids=file_ids)
         
         if not files:
             flash('Selected files not found', 'warning')
             return redirect(url_for('files.global_files'))
         
         # Clear IOC data
-        clear_global_ioc_matches(db, file_ids)
-        clear_global_ioc_flags_in_opensearch(opensearch_client, files)
+        clear_ioc_matches(db, scope='global', file_ids=file_ids)
+        clear_ioc_flags_in_opensearch(opensearch_client, files, scope='global')
         
         # Prepare and queue
-        prepare_files_for_rehunt_global(db, files)
-        queued = queue_files_for_processing_global(process_file, files, 'ioc_only', db.session)
+        prepare_files_for_rehunt(db, files, scope='global')
+        queued = queue_file_processing(process_file, files, 'ioc_only', db.session, scope='global')
         
         flash(f'✅ IOC re-hunting queued for {queued} selected file(s) ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
@@ -1764,7 +1769,7 @@ def bulk_rehunt_iocs_selected_global_route():
 def bulk_hide_selected_global_route():
     """Hide selected files (cross-case)"""
     from main import db
-    from bulk_operations_global import get_selected_files_global
+    from bulk_operations import get_files
     
     file_ids = request.form.getlist('file_ids[]', type=int)
     if not file_ids:
@@ -1772,7 +1777,7 @@ def bulk_hide_selected_global_route():
         return redirect(url_for('files.global_files'))
     
     try:
-        files = get_selected_files_global(db, file_ids)
+        files = get_files(db, scope='global', file_ids=file_ids)
         
         if not files:
             flash('Selected files not found', 'warning')
