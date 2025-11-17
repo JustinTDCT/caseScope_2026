@@ -291,10 +291,10 @@ def test_iris():
 @login_required
 @admin_required
 def sync_now():
-    """Force sync all cases to DFIR-IRIS"""
+    """Force sync all cases, IOCs, timeline events, and systems to DFIR-IRIS"""
     from flask import jsonify
     from dfir_iris import DFIRIrisClient, sync_case_to_dfir_iris
-    from models import Case
+    from models import Case, System
     import logging
     
     logger = logging.getLogger(__name__)
@@ -329,31 +329,62 @@ def sync_now():
                 'message': '✓ No active cases to sync'
             })
         
-        synced = 0
-        failed = 0
+        cases_synced = 0
+        cases_failed = 0
+        systems_synced = 0
+        systems_failed = 0
         
+        # Sync cases (which includes IOCs and timeline events)
         for case in active_cases:
             try:
                 result = sync_case_to_dfir_iris(db.session, opensearch_client, case.id, client)
                 if result.get('success'):
-                    synced += 1
+                    cases_synced += 1
                     logger.info(f"Synced case: {case.name} (ID: {case.id})")
                 else:
-                    failed += 1
+                    cases_failed += 1
                     logger.error(f"Failed to sync case: {case.name} (ID: {case.id})")
             except Exception as e:
-                failed += 1
+                cases_failed += 1
                 logger.error(f"Error syncing case {case.name} (ID: {case.id}): {e}")
         
-        if failed == 0:
+        # Sync all systems as assets
+        from routes.systems import sync_to_dfir_iris
+        all_systems = db.session.query(System).all()
+        
+        for system in all_systems:
+            try:
+                result = sync_to_dfir_iris(system)
+                if result:
+                    systems_synced += 1
+                else:
+                    systems_failed += 1
+            except Exception as e:
+                systems_failed += 1
+                logger.error(f"Error syncing system {system.system_name} (ID: {system.id}): {e}")
+        
+        # Build response message
+        messages = []
+        if cases_synced > 0:
+            messages.append(f'{cases_synced} case(s)')
+        if systems_synced > 0:
+            messages.append(f'{systems_synced} system(s)')
+        
+        if cases_failed == 0 and systems_failed == 0:
             return jsonify({
                 'success': True,
-                'message': f'✓ Successfully synced {synced} case(s) to DFIR-IRIS'
+                'message': f'✓ Successfully synced {", ".join(messages)} to DFIR-IRIS'
             })
         else:
+            fail_messages = []
+            if cases_failed > 0:
+                fail_messages.append(f'{cases_failed} case(s) failed')
+            if systems_failed > 0:
+                fail_messages.append(f'{systems_failed} system(s) failed')
+            
             return jsonify({
-                'success': False if synced == 0 else True,
-                'message': f'⚠️ Synced {synced} case(s), {failed} failed. Check logs for details.'
+                'success': True if cases_synced > 0 or systems_synced > 0 else False,
+                'message': f'⚠️ Synced {", ".join(messages)}. Failed: {", ".join(fail_messages)}. Check logs for details.'
             })
     
     except Exception as e:

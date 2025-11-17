@@ -15,7 +15,7 @@
             <div class="card-header">
                 <h2 class="card-title">🔗 DFIR-IRIS Integration</h2>
                 <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
-                    Sync cases, IOCs, and timeline events with DFIR-IRIS platform
+                    Sync cases, IOCs, timeline events, and systems with DFIR-IRIS platform
                 </p>
             </div>
             
@@ -705,7 +705,7 @@ function syncNow() {
     const resultDiv = document.getElementById('test-result');
     const button = event.target;
     
-    if (!confirm('This will sync all active cases, IOCs, and tagged timeline events to DFIR-IRIS. Continue?')) {
+    if (!confirm('This will sync ALL data to DFIR-IRIS:\n• All cases\n• All IOCs\n• All tagged timeline events\n• All systems (as assets)\n\nThis provides complete synchronization. Continue?')) {
         return;
     }
     

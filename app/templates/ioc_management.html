@@ -16,6 +16,11 @@
             <button onclick="confirmRehuntAllFiles()" class="btn" style="background: var(--color-warning); color: white;">
                 🎯 Re-Hunt All Files
             </button>
+            {% if dfir_iris_enabled %}
+            <button onclick="bulkSyncAllIOCs()" class="btn" style="background: #8b5cf6; color: white;">
+                🔄 Sync All to DFIR-IRIS
+            </button>
+            {% endif %}
             <a href="{{ url_for('ioc.export_iocs_csv', case_id=case.id) }}" class="btn" style="background: var(--color-success); color: white;">
                 📥 Export CSV
             </a>
@@ -435,6 +440,38 @@ function confirmRehuntAllFiles() {
         document.body.appendChild(form);
         form.submit();
     }
+}
+
+function bulkSyncAllIOCs() {
+    if (!confirm('Sync all active IOCs in this case to DFIR-IRIS? This will create/update IOCs in DFIR-IRIS.')) {
+        return;
+    }
+    
+    const button = event.target.closest('button');
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span>🔄</span><span> Syncing...</span>';
+    
+    fetch(`/case/${CASE_ID}/iocs/sync_all`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            
+            if (data.success) {
+                showFlash(data.message, 'success');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showFlash(data.message || 'Sync failed', 'error');
+            }
+        })
+        .catch(error => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            showFlash('Failed to sync IOCs: ' + error, 'error');
+        });
 }
 
 // View OpenCTI enrichment details

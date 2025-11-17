@@ -344,6 +344,131 @@ def enrich_ioc(case_id, ioc_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@ioc_bp.route('/case/<int:case_id>/iocs/sync_all', methods=['POST'])
+@login_required
+def bulk_sync_iocs_to_iris(case_id):
+    """Bulk sync all active IOCs in a case to DFIR-IRIS"""
+    from main import db
+    from models import IOC, Case, SystemSettings
+    from dfir_iris import DFIRIrisClient
+    from flask import jsonify
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    # Check if DFIR-IRIS is enabled
+    dfir_iris_enabled = SystemSettings.query.filter_by(setting_key='dfir_iris_enabled').first()
+    if not dfir_iris_enabled or dfir_iris_enabled.setting_value != 'true':
+        return jsonify({
+            'success': False,
+            'message': '✗ DFIR-IRIS integration is not enabled'
+        })
+    
+    # Get DFIR-IRIS configuration
+    dfir_iris_url = SystemSettings.query.filter_by(setting_key='dfir_iris_url').first()
+    dfir_iris_api_key = SystemSettings.query.filter_by(setting_key='dfir_iris_api_key').first()
+    
+    if not dfir_iris_url or not dfir_iris_api_key:
+        return jsonify({
+            'success': False,
+            'message': '✗ DFIR-IRIS URL and API key must be configured'
+        })
+    
+    # Get all active IOCs for this case
+    iocs = IOC.query.filter_by(case_id=case_id, is_active=True).all()
+    
+    if not iocs:
+        return jsonify({
+            'success': True,
+            'message': 'No active IOCs to sync',
+            'synced': 0,
+            'failed': 0
+        })
+    
+    synced = 0
+    failed = 0
+    errors = []
+    
+    try:
+        # Initialize DFIR-IRIS client
+        client = DFIRIrisClient(dfir_iris_url.setting_value, dfir_iris_api_key.setting_value)
+        
+        # Get or create customer and case in DFIR-IRIS
+        company_name = case.company or 'Unknown Company'
+        customer_id = client.get_or_create_customer(company_name)
+        if not customer_id:
+            return jsonify({
+                'success': False,
+                'message': '✗ Failed to get/create customer in DFIR-IRIS'
+            })
+        
+        iris_case_id = client.get_or_create_case(customer_id, case.name, case.description or '', company_name)
+        if not iris_case_id:
+            return jsonify({
+                'success': False,
+                'message': '✗ Failed to get/create case in DFIR-IRIS'
+            })
+        
+        # Sync each IOC
+        for ioc in iocs:
+            try:
+                ioc_id = client.sync_ioc(
+                    iris_case_id,
+                    ioc.ioc_value,
+                    ioc.ioc_type,
+                    ioc.description or '',
+                    ioc.threat_level or 'medium'
+                )
+                if ioc_id:
+                    synced += 1
+                else:
+                    failed += 1
+                    errors.append(f"Failed to sync {ioc.ioc_value}")
+            except Exception as e:
+                failed += 1
+                errors.append(f"Error syncing {ioc.ioc_value}: {str(e)}")
+                logger.error(f"[IOC] Error syncing IOC {ioc.id}: {e}")
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('bulk_sync_iocs_to_iris', resource_type='case', resource_id=case_id,
+                  resource_name=case.name, details={
+                      'total_iocs': len(iocs),
+                      'synced': synced,
+                      'failed': failed
+                  })
+        
+        if failed == 0:
+            message = f'✓ Successfully synced {synced} IOC(s) to DFIR-IRIS'
+            return jsonify({
+                'success': True,
+                'message': message,
+                'synced': synced,
+                'failed': failed
+            })
+        else:
+            message = f'⚠️ Synced {synced} IOC(s), {failed} failed'
+            return jsonify({
+                'success': True,
+                'message': message,
+                'synced': synced,
+                'failed': failed,
+                'errors': errors[:5]  # Return first 5 errors
+            })
+    
+    except Exception as e:
+        logger.error(f"[IOC] Bulk sync failed: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'✗ Sync failed: {str(e)}'
+        })
+
+
 @ioc_bp.route('/case/<int:case_id>/ioc/<int:ioc_id>/sync', methods=['POST'])
 @login_required
 def sync_ioc_to_iris(case_id, ioc_id):
