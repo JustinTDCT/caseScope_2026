@@ -161,7 +161,9 @@ def cleanup_queue(db, CaseFile, case_id: Optional[int] = None) -> Dict:
             from bulk_operations import queue_file_processing
             from tasks import process_file
             
-            queued_count = queue_file_processing(process_file, queued_files, operation='full', db_session=db.session)
+            # v1.15.0: queue_file_processing now requires 'scope' parameter
+            queued_count = queue_file_processing(process_file, queued_files, operation='full', 
+                                                 db_session=db.session, scope='case')
             
             result['queued_requeued'] = queued_count
             result['queued_files'] = [f.id for f in queued_files]
