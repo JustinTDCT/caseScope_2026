@@ -719,14 +719,14 @@ def rehunt_iocs_single_file(case_id, file_id):
         log_file_action('rehunt_iocs_file', file_id, case_file.original_filename, details={
             'case_id': case_id,
             'case_name': case_file.case.name,
-            'ioc_matches_found': result.get('ioc_matches', 0) if result.get('status') == 'success' else None
+            'ioc_matches_found': result.get('matches', 0) if result.get('status') == 'success' else None
         })
         
         if result['status'] == 'success':
             # Update status back to Completed
             case_file.indexing_status = 'Completed'
             db.session.commit()
-            flash(f'IOC re-hunting complete for "{case_file.original_filename}". Found {result.get("ioc_matches", 0)} IOC match(es).', 'success')
+            flash(f'IOC re-hunting complete for "{case_file.original_filename}". Found {result.get("matches", 0)} IOC match(es).', 'success')
         else:
             case_file.indexing_status = f'Failed: {result.get("message", "Unknown error")}'
             db.session.commit()
