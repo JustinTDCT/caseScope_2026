@@ -1,3 +1,160 @@
+## 🐛 v1.15.6 - BUG FIX: IOC Re-Hunt Popup Shows Wrong Count (2025-11-17)
+
+**Change**: Fixed IOC re-hunt popup showing "Found 0 IOC match(es)" when IOCs were actually found (same bug pattern as SIGMA violations in v1.15.4).
+
+### Problem
+
+User reported IOC re-hunt (🎯 button) popup always showed:
+```
+IOC re-hunting complete. Found 0 IOC match(es).
+```
+
+Even when the file actually had **354 IOC matches** detected and displayed in the file list.
+
+**Root Cause**:
+- `hunt_iocs()` function returns result dictionary with key `'matches'`
+- Route was trying to read `result.get('ioc_matches', 0)`
+- Wrong key name = always returned default value of 0
+- Exact same bug as v1.15.4 SIGMA violations bug
+
+### Solution
+
+**Fixed Key Name in Two Locations** (routes/files.py):
+
+```python
+# Line 722: Audit log
+log_file_action('rehunt_iocs_file', file_id, case_file.original_filename, details={
+    'ioc_matches_found': result.get('matches', 0)  # ← Changed from 'ioc_matches' to 'matches'
+})
+
+# Line 729: Flash message
+flash(f'Found {result.get("matches", 0)} IOC match(es).', 'success')  # ← Changed from 'ioc_matches' to 'matches'
+```
+
+**What hunt_iocs() Actually Returns**:
+```python
+{
+    'status': 'success',
+    'message': 'Found X matches',
+    'matches': total_matches  # ← THIS is the correct key
+}
+```
+
+### Files Modified
+
+- `app/routes/files.py`:
+  - Line 722: Fixed audit log to use `result.get('matches', 0)`
+  - Line 729: Fixed flash message to use `result.get('matches', 0)`
+
+### Testing
+
+✅ IOC re-hunt popup now shows correct match count  
+✅ Audit log records correct count  
+✅ Same pattern as v1.15.4 SIGMA fix
+
+### Impact
+
+- **Bug Severity**: LOW - Functional process worked, only UI message was incorrect
+- **Users Affected**: Anyone using single file IOC re-hunt button
+- **Fix Complexity**: Trivial - 2 lines changed
+- **Risk**: None - Only affects display message
+
+---
+
+## 🐛 v1.15.5 - BUG FIX: Missing IOC Re-Hunt Single File Route (2025-11-17)
+
+**Change**: Created missing route for IOC re-hunting on individual files - the 🎯 button existed but route was completely missing.
+
+### Problem
+
+User clicked 🎯 **Re-Hunt IOCs** button on single file, nothing happened:
+
+```javascript
+// template: case_files.html line 874
+form.action = `/case/${CASE_ID}/file/${fileId}/rehunt_iocs`;
+```
+
+**Route did not exist** - resulted in 404 error or no action.
+
+**Root Cause**:
+- SIGMA re-detection route existed: `rechainsaw_single_file()` 
+- IOC re-hunt route was **never created**
+- Button was visible and clickable but non-functional
+
+### Solution
+
+**Created Complete Route** (routes/files.py lines 634-740):
+
+```python
+@files_bp.route('/case/<int:case_id>/file/<int:file_id>/rehunt_iocs', methods=['POST'])
+@login_required
+def rehunt_iocs_single_file(case_id, file_id):
+    """Re-hunt IOCs on a single file (clears IOC matches and OpenSearch flags first)"""
+```
+
+**What It Does**:
+
+1. **Validates File** (lines 643-651):
+   - Checks file exists and belongs to case
+   - Verifies file is already indexed
+
+2. **Clears Database IOC Matches** (line 654):
+   ```python
+   clear_file_ioc_matches(db, file_id)  # Deletes all IOCMatch records for file
+   ```
+
+3. **Clears OpenSearch has_ioc Flags** (lines 660-695):
+   - Searches for all events with `has_ioc=True` for this file
+   - Updates events to `has_ioc=False`, clears `matched_iocs` arrays
+   - Bulk updates in batches of 100
+
+4. **Resets IOC Count** (lines 700-703):
+   ```python
+   case_file.ioc_event_count = 0
+   case_file.indexing_status = 'IOC Hunting'
+   ```
+
+5. **Re-runs IOC Hunt** (lines 707-715):
+   ```python
+   result = hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, 
+                     file_id=file_id, index_name=index_name)
+   ```
+   - Searches file's events for all active IOCs
+   - Creates new IOCMatch records
+   - Updates OpenSearch events with new has_ioc flags
+
+6. **Updates Status & Flash Message** (lines 725-729):
+   ```python
+   case_file.indexing_status = 'Completed'
+   flash(f'IOC re-hunting complete. Found {result.get("ioc_matches", 0)} IOC match(es).', 'success')
+   ```
+   *(Note: This initially had the wrong key - fixed in v1.15.6)*
+
+7. **Audit Logs Operation** (lines 718-723)
+
+### Files Modified
+
+- `app/routes/files.py`:
+  - Lines 634-740: Created new route `rehunt_iocs_single_file()`
+
+### Testing
+
+✅ 🎯 IOC re-hunt button now works  
+✅ Old IOC matches cleared before re-hunting  
+✅ New IOC matches found and recorded  
+✅ Status updates correctly  
+✅ OpenSearch has_ioc flags updated  
+✅ Flash message displayed (count was wrong until v1.15.6)
+
+### Impact
+
+- **Bug Severity**: HIGH - Feature completely missing
+- **Users Affected**: Anyone trying to re-hunt IOCs on single files
+- **Fix Complexity**: Moderate - Full route implementation (109 lines)
+- **Risk**: Low - New code, no impact on existing functionality
+
+---
+
 ## 🐛 v1.15.1 - BUG FIX: Single File Operations Broken After v1.15.0 Refactoring (2025-11-17)
 
 **Change**: Fixed 500 errors in single file re-index and re-SIGMA operations caused by THREE bugs after v1.15.0 refactoring.
