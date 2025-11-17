@@ -631,6 +631,115 @@ def rechainsaw_single_file(case_id, file_id):
     return redirect(url_for('files.case_files', case_id=case_id))
 
 
+@files_bp.route('/case/<int:case_id>/file/<int:file_id>/rehunt_iocs', methods=['POST'])
+@login_required
+def rehunt_iocs_single_file(case_id, file_id):
+    """Re-hunt IOCs on a single file (clears IOC matches and OpenSearch flags first)"""
+    from main import db, CaseFile, opensearch_client
+    from bulk_operations import clear_file_ioc_matches
+    from file_processing import hunt_iocs
+    from models import IOC, IOCMatch
+    
+    case_file = db.session.get(CaseFile, file_id)
+    
+    if not case_file or case_file.case_id != case_id:
+        flash('File not found', 'error')
+        return redirect(url_for('files.case_files', case_id=case_id))
+    
+    if not case_file.is_indexed:
+        flash('File must be indexed before IOC hunting', 'warning')
+        return redirect(url_for('files.case_files', case_id=case_id))
+    
+    # Clear existing IOC matches (database)
+    clear_file_ioc_matches(db, file_id)
+    
+    # Clear OpenSearch IOC flags
+    from utils import make_index_name
+    index_name = make_index_name(case_id)
+    
+    try:
+        # Clear has_ioc flags in OpenSearch for this file's events
+        from opensearchpy.helpers import scan as opensearch_scan, bulk as opensearch_bulk
+        
+        query = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {"file_id": file_id}},
+                        {"term": {"has_ioc": True}}
+                    ]
+                }
+            },
+            "_source": False
+        }
+        
+        actions = []
+        for hit in opensearch_scan(opensearch_client, index=index_name, query=query, scroll='5m'):
+            actions.append({
+                '_op_type': 'update',
+                '_index': index_name,
+                '_id': hit['_id'],
+                'doc': {
+                    'has_ioc': False,
+                    'matched_iocs': []
+                }
+            })
+            
+            if len(actions) >= 100:
+                opensearch_bulk(opensearch_client, actions, raise_on_error=False)
+                actions = []
+        
+        if actions:
+            opensearch_bulk(opensearch_client, actions, raise_on_error=False)
+        
+        logger.info(f"[REHUNT IOCS SINGLE] Cleared IOC flags from events for file {file_id}")
+    
+    except Exception as e:
+        logger.warning(f"[REHUNT IOCS SINGLE] Could not clear OpenSearch IOC flags: {e}")
+    
+    # Reset IOC count
+    case_file.ioc_event_count = 0
+    case_file.indexing_status = 'IOC Hunting'
+    db.session.commit()
+    
+    # Run IOC hunting synchronously
+    try:
+        result = hunt_iocs(
+            db=db,
+            opensearch_client=opensearch_client,
+            CaseFile=CaseFile,
+            IOC=IOC,
+            IOCMatch=IOCMatch,
+            file_id=file_id,
+            index_name=index_name
+        )
+        
+        # Audit log
+        from audit_logger import log_file_action
+        log_file_action('rehunt_iocs_file', file_id, case_file.original_filename, details={
+            'case_id': case_id,
+            'case_name': case_file.case.name,
+            'ioc_matches_found': result.get('ioc_matches', 0) if result.get('status') == 'success' else None
+        })
+        
+        if result['status'] == 'success':
+            # Update status back to Completed
+            case_file.indexing_status = 'Completed'
+            db.session.commit()
+            flash(f'IOC re-hunting complete for "{case_file.original_filename}". Found {result.get("ioc_matches", 0)} IOC match(es).', 'success')
+        else:
+            case_file.indexing_status = f'Failed: {result.get("message", "Unknown error")}'
+            db.session.commit()
+            flash(f'IOC re-hunting failed: {result.get("message")}', 'error')
+    except Exception as e:
+        logger.error(f"[REHUNT IOCS SINGLE] Error: {e}", exc_info=True)
+        case_file.indexing_status = f'Failed: {str(e)[:100]}'
+        db.session.commit()
+        flash(f'IOC re-hunting failed: {str(e)}', 'error')
+    
+    return redirect(url_for('files.case_files', case_id=case_id))
+
+
 @files_bp.route('/case/<int:case_id>/file/<int:file_id>/details')
 @login_required
 def file_details(case_id, file_id):
