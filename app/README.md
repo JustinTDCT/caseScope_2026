@@ -74,277 +74,36 @@ CaseScope 2026 is a complete rewrite of CaseScope 7.x, designed from the ground 
 
 ## 📦 Installation
 
-### Prerequisites
+**📘 For complete installation instructions, see [INSTALL.md](INSTALL.md)**
+
+### Quick Start
+
 ```bash
-# Ubuntu 24.04 LTS
-sudo apt update
-sudo apt install -y python3 python3-pip python3-venv redis-server postgresql postgresql-contrib
+# Download installation script
+wget https://raw.githubusercontent.com/YOUR_REPO/caseScope_2026/main/fresh_install.sh
+
+# Run automated installation (Ubuntu 24.04 LTS)
+sudo bash fresh_install.sh
 ```
 
-### Install PostgreSQL
-```bash
-# PostgreSQL should be installed from prerequisites
-# Create database and user
-sudo -u postgres psql << EOF
-CREATE DATABASE casescope;
-CREATE USER casescope WITH PASSWORD 'casescope_secure_2026';
-GRANT ALL PRIVILEGES ON DATABASE casescope TO casescope;
-\c casescope
-GRANT ALL ON SCHEMA public TO casescope;
-ALTER DATABASE casescope OWNER TO casescope;
-EOF
+Installation takes ~15-20 minutes and includes:
+- PostgreSQL 16 database
+- OpenSearch 2.11.0 search engine  
+- Redis message broker
+- CaseScope application
+- Forensic tools (evtx_dump, chainsaw)
+- SIGMA detection rules
+- System services
 
-# Verify connection
-psql -U casescope -d casescope -c "SELECT version();"
+After installation:
+```
+http://YOUR_SERVER:5000
+Default login: admin / admin
 ```
 
-### Install OpenSearch
-```bash
-# Download and install OpenSearch
-wget https://artifacts.opensearch.org/releases/bundle/opensearch/2.11.0/opensearch-2.11.0-linux-x64.tar.gz
-tar -xzf opensearch-2.11.0-linux-x64.tar.gz
-sudo mv opensearch-2.11.0 /opt/opensearch
+⚠️ **Change the default password immediately!**
 
-# Configure
-echo "discovery.type: single-node" | sudo tee -a /opt/opensearch/config/opensearch.yml
-echo "plugins.security.disabled: true" | sudo tee -a /opt/opensearch/config/opensearch.yml
-
-# Set heap size to 8GB
-sudo sed -i 's/-Xms[0-9]*[gGmM]/-Xms8g/' /opt/opensearch/config/jvm.options
-sudo sed -i 's/-Xmx[0-9]*[gGmM]/-Xmx8g/' /opt/opensearch/config/jvm.options
-
-# Increase circuit breaker limit
-curl -X PUT "localhost:9200/_cluster/settings" -H 'Content-Type: application/json' -d'
-{
-  "persistent": {
-    "indices.breaker.total.limit": "95%"
-  }
-}'
-
-# Create opensearch user and set permissions
-sudo useradd -r -s /bin/bash opensearch
-sudo chown -R opensearch:opensearch /opt/opensearch
-
-# Create systemd service
-sudo tee /etc/systemd/system/opensearch.service > /dev/null << 'EOF'
-[Unit]
-Description=OpenSearch
-After=network.target
-
-[Service]
-Type=simple
-User=opensearch
-Group=opensearch
-ExecStart=/opt/opensearch/bin/opensearch
-Restart=on-failure
-LimitNOFILE=65536
-LimitNPROC=4096
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable opensearch
-sudo systemctl start opensearch
-```
-
-### Install CaseScope 2026
-```bash
-# Create casescope user and group
-sudo useradd -r -s /bin/bash -m -d /home/casescope casescope
-
-# Create directories
-sudo mkdir -p /opt/casescope/{app,data,uploads,staging,archive,local_uploads,logs,bin,sigma_rules}
-sudo chown -R casescope:casescope /opt/casescope
-
-# Switch to casescope user
-sudo -u casescope bash
-
-# Clone repository
-cd /opt/casescope/app
-git clone https://github.com/YOUR_REPO/caseScope_2026.git .
-
-# Create virtual environment
-python3 -m venv /opt/casescope/venv
-source /opt/casescope/venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure database connection
-cat > /opt/casescope/app/config.py << 'CONFIGEOF'
-import os
-
-class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
-    
-    # PostgreSQL Configuration
-    SQLALCHEMY_DATABASE_URI = 'postgresql://casescope:casescope_secure_2026@localhost/casescope'
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_size': 10,          # 10 persistent connections
-        'max_overflow': 20,        # +20 on-demand connections
-        'pool_pre_ping': True,     # Health check before use
-        'pool_recycle': 3600       # Recycle after 1 hour
-    }
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    
-    # Celery Configuration
-    CELERY_BROKER_URL = 'redis://localhost:6379/0'
-    CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
-    
-    # Upload Configuration
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024 * 1024  # 16GB max upload
-    UPLOAD_FOLDER = '/opt/casescope/uploads'
-CONFIGEOF
-
-# Initialize database
-python << 'PYEOF'
-from main import app, db
-with app.app_context():
-    db.create_all()
-    print("Database tables created successfully")
-PYEOF
-
-# Create admin user
-python << 'PYEOF'
-from main import app, db, User
-import bcrypt
-
-with app.app_context():
-    admin = User.query.filter_by(username='admin').first()
-    if not admin:
-        hashed = bcrypt.hashpw('admin'.encode('utf-8'), bcrypt.gensalt())
-        admin = User(
-            username='admin',
-            password_hash=hashed.decode('utf-8'),
-            role='admin'
-        )
-        db.session.add(admin)
-        db.session.commit()
-        print("Admin user created: admin/admin")
-    else:
-        print("Admin user already exists")
-PYEOF
-
-# Download evtx_dump and chainsaw binaries
-cd /opt/casescope/bin
-wget https://github.com/omerbenamram/evtx/releases/download/v0.8.2/evtx_dump-v0.8.2-x86_64-unknown-linux-gnu
-mv evtx_dump-v0.8.2-x86_64-unknown-linux-gnu evtx_dump
-chmod +x evtx_dump
-
-wget https://github.com/WithSecureLabs/chainsaw/releases/download/v2.13.1/chainsaw_x86_64-unknown-linux-gnu.tar.gz
-tar -xzf chainsaw_x86_64-unknown-linux-gnu.tar.gz
-mv chainsaw/chainsaw_x86_64-unknown-linux-gnu chainsaw
-chmod +x chainsaw
-rm -rf chainsaw_x86_64-unknown-linux-gnu.tar.gz chainsaw/
-
-# Clone SIGMA rules
-cd /opt/casescope
-git clone https://github.com/SigmaHQ/sigma.git sigma_rules_repo
-
-# Exit casescope user
-exit
-```
-
-### Create Systemd Services
-
-**CaseScope Web (casescope.service)**
-```bash
-sudo tee /etc/systemd/system/casescope.service > /dev/null << 'EOF'
-[Unit]
-Description=CaseScope 2026 Web Application
-After=network.target opensearch.service redis.service postgresql.service
-
-[Service]
-Type=simple
-User=casescope
-Group=casescope
-WorkingDirectory=/opt/casescope/app
-Environment="PATH=/opt/casescope/venv/bin"
-ExecStart=/opt/casescope/venv/bin/gunicorn -w 4 -b 0.0.0.0:5000 --timeout 300 wsgi:app
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-**CaseScope Worker (casescope-worker.service)**
-```bash
-sudo tee /etc/systemd/system/casescope-worker.service > /dev/null << 'EOF'
-[Unit]
-Description=CaseScope 2026 Celery Worker
-After=network.target redis.service opensearch.service postgresql.service
-
-[Service]
-Type=simple
-User=casescope
-Group=casescope
-WorkingDirectory=/opt/casescope/app
-Environment="PATH=/opt/casescope/venv/bin:/usr/local/bin:/usr/bin:/bin"
-Environment="PYTHONPATH=/opt/casescope/app"
-ExecStart=/opt/casescope/venv/bin/celery -A celery_app worker --loglevel=info --concurrency=4
-Restart=always
-RestartSec=10
-
-# Memory Limits (adjust based on available RAM)
-MemoryHigh=10G
-MemoryMax=12G
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-**Enable and start services**
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable casescope casescope-worker
-sudo systemctl start casescope casescope-worker
-```
-
-### Create wsgi.py
-```bash
-sudo -u casescope tee /opt/casescope/app/wsgi.py > /dev/null << 'EOF'
-from main import app
-
-if __name__ == "__main__":
-    app.run()
-EOF
-```
-
-### Optional: Install Ollama for AI Reports
-```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull default model
-ollama pull phi3:mini
-
-# Create systemd service
-sudo tee /etc/systemd/system/ollama.service > /dev/null << 'EOF'
-[Unit]
-Description=Ollama Service
-After=network.target
-
-[Service]
-Type=simple
-User=ollama
-Group=ollama
-ExecStart=/usr/local/bin/ollama serve
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable ollama
-sudo systemctl start ollama
-```
+For manual installation or troubleshooting, see the complete [Installation Guide](INSTALL.md).
 
 ---
 
@@ -781,13 +540,12 @@ This is a complete rewrite. Contributions welcome!
 
 ## 📚 Additional Documentation
 
-- **APP_MAP.md** - Comprehensive changelog, bug fixes, and technical details (12,000+ lines)
-- **DEPLOYMENT_GUIDE.md** - Production deployment guide
-- **QUICK_REFERENCE.md** - Command reference and troubleshooting  
-- **UI_SYSTEM.md** - UI/UX documentation
-- **EVTX_DESCRIPTIONS_README.md** - EVTX event descriptions system
-- **FRESH_INSTALL_USAGE.md** - Fresh install / reset guide
-- **AI_RESOURCE_LOCKING_SUMMARY.md** - AI training auto-deployment system
+- **[INSTALL.md](INSTALL.md)** - Complete installation guide (automated & manual)
+- **[APP_MAP.md](APP_MAP.md)** - Comprehensive changelog, bug fixes, and technical details (12,000+ lines)
+- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Command reference and troubleshooting  
+- **[UI_SYSTEM.md](UI_SYSTEM.md)** - UI/UX documentation
+- **[EVTX_DESCRIPTIONS_README.md](EVTX_DESCRIPTIONS_README.md)** - EVTX event descriptions system
+- **[AI_RESOURCE_LOCKING_SUMMARY.md](AI_RESOURCE_LOCKING_SUMMARY.md)** - AI training auto-deployment system
 
 ---
 
