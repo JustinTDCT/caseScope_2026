@@ -609,7 +609,7 @@ def rechainsaw_single_file(case_id, file_id):
         log_file_action('rechainsaw_file', file_id, case_file.original_filename, details={
             'case_id': case_id,
             'case_name': case_file.case.name,
-            'violations_found': result.get('violations_found', 0) if result.get('status') == 'success' else None,
+            'violations_found': result.get('violations', 0) if result.get('status') == 'success' else None,
             'flags_cleared': flags_cleared
         })
         
@@ -617,7 +617,7 @@ def rechainsaw_single_file(case_id, file_id):
             # Update status back to Completed
             case_file.indexing_status = 'Completed'
             db.session.commit()
-            flash(f'SIGMA re-processing complete for "{case_file.original_filename}". Found {result.get("violations_found", 0)} violations.', 'success')
+            flash(f'SIGMA re-processing complete for "{case_file.original_filename}". Found {result.get("violations", 0)} violations.', 'success')
         else:
             case_file.indexing_status = f'Failed: {result.get("message", "Unknown error")}'
             db.session.commit()
