@@ -38,7 +38,7 @@ class Case(db.Model):
     name = db.Column(db.String(200), nullable=False, index=True)
     description = db.Column(db.Text)
     company = db.Column(db.String(200))
-    status = db.Column(db.String(20), default='active')  # active, closed, archived
+    status = db.Column(db.String(20), default='New')  # New, Assigned, In Progress, Completed (legacy: active, closed)
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     assigned_to = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

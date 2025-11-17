@@ -277,7 +277,7 @@ def toggle_file_hidden(case_id, file_id):
 @login_required
 def bulk_unhide(case_id):
     """Bulk unhide files"""
-    from main import db
+    from main import db, Case
     from hidden_files import bulk_unhide_files
     
     file_ids = request.form.getlist('file_ids', type=int)
@@ -289,6 +289,13 @@ def bulk_unhide(case_id):
     result = bulk_unhide_files(db.session, case_id, file_ids, current_user.id)
     
     if result['success']:
+        # Audit log
+        from audit_logger import log_action
+        case = db.session.get(Case, case_id)
+        log_action('bulk_unhide_files', resource_type='file', resource_id=None,
+                  resource_name=f"{case.name if case else f'Case #{case_id}'} - Bulk Unhide",
+                  details={'file_count': result['count'], 'case_id': case_id, 'file_ids': file_ids})
+        
         flash(f"✓ Unhid {result['count']} file(s)", 'success')
     else:
         flash(result['error'], 'error')
@@ -300,7 +307,7 @@ def bulk_unhide(case_id):
 @login_required
 def bulk_delete_hidden(case_id):
     """Bulk delete hidden files permanently"""
-    from main import db
+    from main import db, Case
     from hidden_files import bulk_delete_hidden_files
     
     file_ids = request.form.getlist('file_ids', type=int)
@@ -312,6 +319,19 @@ def bulk_delete_hidden(case_id):
     result = bulk_delete_hidden_files(db.session, case_id, file_ids, current_user.id)
     
     if result['success']:
+        # Audit log - CRITICAL: Permanent file deletion
+        from audit_logger import log_action
+        case = db.session.get(Case, case_id)
+        log_action('bulk_delete_hidden_files', resource_type='file', resource_id=None,
+                  resource_name=f"{case.name if case else f'Case #{case_id}'} - Bulk Delete Hidden",
+                  details={
+                      'file_count': result['count'],
+                      'case_id': case_id,
+                      'file_ids': file_ids,
+                      'errors': result.get('errors', []),
+                      'operation': 'PERMANENT_DELETE'
+                  })
+        
         if result.get('errors'):
             flash(f"✓ Deleted {result['count']} file(s) with {len(result['errors'])} error(s)", 'warning')
             for error in result['errors'][:3]:  # Show first 3 errors
@@ -1619,6 +1639,17 @@ def bulk_reindex_global_route():
         prepare_files_for_reindex(db, files, scope='global')
         queued = queue_file_processing(process_file, files, 'full', db.session, scope='global')
         
+        # Audit log - HIGH: Global reindex operation
+        from audit_logger import log_action
+        log_action('bulk_reindex_global', resource_type='file', resource_id=None,
+                  resource_name='Global Bulk Re-Index (ALL CASES)',
+                  details={
+                      'file_count': len(files),
+                      'queued_count': queued,
+                      'worker_count': worker_count,
+                      'operation': 'GLOBAL_REINDEX'
+                  })
+        
         flash(f'✅ Re-indexing queued for {queued} file(s) across all cases ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
     
@@ -1657,6 +1688,17 @@ def bulk_rechainsaw_global_route():
         # Prepare and queue files
         prepare_files_for_rechainsaw(db, files, scope='global')
         queued = queue_file_processing(process_file, files, 'sigma_only', db.session, scope='global')
+        
+        # Audit log - HIGH: Global re-SIGMA operation
+        from audit_logger import log_action
+        log_action('bulk_rechainsaw_global', resource_type='file', resource_id=None,
+                  resource_name='Global Bulk Re-SIGMA (ALL CASES)',
+                  details={
+                      'file_count': len(files),
+                      'queued_count': queued,
+                      'worker_count': worker_count,
+                      'operation': 'GLOBAL_RESIGMA'
+                  })
         
         flash(f'✅ Re-SIGMA queued for {queued} file(s) across all cases ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
@@ -1704,6 +1746,17 @@ def bulk_rehunt_iocs_global_route():
         prepare_files_for_rehunt(db, files, scope='global')
         queued = queue_file_processing(process_file, files, 'ioc_only', db.session, scope='global')
         
+        # Audit log - HIGH: Global IOC re-hunting operation
+        from audit_logger import log_action
+        log_action('bulk_rehunt_iocs_global', resource_type='file', resource_id=None,
+                  resource_name='Global Bulk Re-Hunt IOCs (ALL CASES)',
+                  details={
+                      'file_count': len(files),
+                      'queued_count': queued,
+                      'worker_count': worker_count,
+                      'operation': 'GLOBAL_REHUNT_IOCS'
+                  })
+        
         flash(f'✅ IOC re-hunting queued for {queued} file(s) across all cases ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
     
@@ -1732,8 +1785,23 @@ def bulk_delete_files_global_route():
             flash('No files to delete', 'info')
             return redirect(url_for('files.global_files'))
         
+        file_count = len(files)
+        
         # Delete files
         stats = delete_files(db, opensearch_client, files, scope='global')
+        
+        # Audit log - CRITICAL: Global file deletion (admin only)
+        from audit_logger import log_action
+        log_action('bulk_delete_files_global', resource_type='file', resource_id=None,
+                  resource_name='Global Bulk Delete (ALL CASES)',
+                  details={
+                      'files_deleted': stats['files_deleted'],
+                      'events_deleted': stats['events_deleted'],
+                      'sigma_deleted': stats['sigma_deleted'],
+                      'ioc_deleted': stats['ioc_deleted'],
+                      'operation': 'GLOBAL_PERMANENT_DELETE',
+                      'admin_only': True
+                  })
         
         flash(f'✅ Deleted {stats["files_deleted"]} files, {stats["events_deleted"]} events, '
               f'{stats["sigma_deleted"]} SIGMA violations, {stats["ioc_deleted"]} IOC matches', 'success')
@@ -1787,6 +1855,18 @@ def bulk_reindex_selected_global_route():
         prepare_files_for_reindex(db, files, scope='global')
         queued = queue_file_processing(process_file, files, 'full', db.session, scope='global')
         
+        # Audit log - MEDIUM: Global reindex selected files
+        from audit_logger import log_action
+        log_action('bulk_reindex_selected_global', resource_type='file', resource_id=None,
+                  resource_name='Global Re-Index Selected Files (Cross-Case)',
+                  details={
+                      'file_count': len(files),
+                      'queued_count': queued,
+                      'file_ids': file_ids,
+                      'worker_count': worker_count,
+                      'operation': 'GLOBAL_REINDEX_SELECTED'
+                  })
+        
         flash(f'✅ Re-indexing queued for {queued} selected file(s) ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
     
@@ -1830,6 +1910,18 @@ def bulk_rechainsaw_selected_global_route():
         # Prepare and queue
         prepare_files_for_rechainsaw(db, files, scope='global')
         queued = queue_file_processing(process_file, files, 'sigma_only', db.session, scope='global')
+        
+        # Audit log - MEDIUM: Global re-SIGMA selected files
+        from audit_logger import log_action
+        log_action('bulk_rechainsaw_selected_global', resource_type='file', resource_id=None,
+                  resource_name='Global Re-SIGMA Selected Files (Cross-Case)',
+                  details={
+                      'file_count': len(files),
+                      'queued_count': queued,
+                      'file_ids': file_ids,
+                      'worker_count': worker_count,
+                      'operation': 'GLOBAL_RESIGMA_SELECTED'
+                  })
         
         flash(f'✅ Re-SIGMA queued for {queued} selected file(s) ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
@@ -1876,6 +1968,18 @@ def bulk_rehunt_iocs_selected_global_route():
         prepare_files_for_rehunt(db, files, scope='global')
         queued = queue_file_processing(process_file, files, 'ioc_only', db.session, scope='global')
         
+        # Audit log - MEDIUM: Global re-hunt IOCs selected files
+        from audit_logger import log_action
+        log_action('bulk_rehunt_selected_global', resource_type='file', resource_id=None,
+                  resource_name='Global Re-Hunt IOCs Selected Files (Cross-Case)',
+                  details={
+                      'file_count': len(files),
+                      'queued_count': queued,
+                      'file_ids': file_ids,
+                      'worker_count': worker_count,
+                      'operation': 'GLOBAL_REHUNT_SELECTED'
+                  })
+        
         flash(f'✅ IOC re-hunting queued for {queued} selected file(s) ({worker_count} worker(s) available)', 'success')
         return redirect(url_for('files.global_files'))
     
@@ -1909,6 +2013,16 @@ def bulk_hide_selected_global_route():
             f.is_hidden = True
         
         db.session.commit()
+        
+        # Audit log - MEDIUM: Global hide selected files
+        from audit_logger import log_action
+        log_action('bulk_hide_selected_global', resource_type='file', resource_id=None,
+                  resource_name='Global Hide Selected Files (Cross-Case)',
+                  details={
+                      'file_count': len(files),
+                      'file_ids': file_ids,
+                      'operation': 'GLOBAL_HIDE_SELECTED'
+                  })
         
         flash(f'✅ Hidden {len(files)} selected file(s)', 'success')
         return redirect(url_for('files.global_files'))

@@ -81,7 +81,19 @@
             </div>
             <div>
                 <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: var(--spacing-xs);">Status</div>
-                <div><span class="status-badge status-success">{{ case.status|title }}</span></div>
+                <div>
+                    {% if case.status == 'New' %}
+                        <span class="status-badge" style="background: rgba(99, 102, 241, 0.1); color: #6366f1; font-weight: 600;">🆕 New</span>
+                    {% elif case.status == 'Assigned' %}
+                        <span class="status-badge" style="background: rgba(251, 191, 36, 0.1); color: #f59e0b; font-weight: 600;">👤 Assigned</span>
+                    {% elif case.status == 'In Progress' %}
+                        <span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; font-weight: 600;">⚙️ In Progress</span>
+                    {% elif case.status == 'Completed' %}
+                        <span class="status-badge" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6; font-weight: 600;">✅ Completed</span>
+                    {% else %}
+                        <span class="status-badge status-success">{{ case.status|title }}</span>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>

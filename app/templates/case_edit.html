@@ -34,11 +34,20 @@
                 </div>
                 
                 <div class="form-group">
-                    <label for="status">Status</label>
+                    <label for="status">Case Status</label>
                     <select id="status" name="status">
-                        <option value="active" {% if case.status == 'active' %}selected{% endif %}>Active</option>
-                        <option value="closed" {% if case.status == 'closed' %}selected{% endif %}>Closed</option>
+                        <option value="New" {% if case.status == 'New' %}selected{% endif %}>New - Newly created case</option>
+                        <option value="Assigned" {% if case.status == 'Assigned' %}selected{% endif %}>Assigned - Case assigned to user</option>
+                        <option value="In Progress" {% if case.status == 'In Progress' %}selected{% endif %}>In Progress - Actively being worked on</option>
+                        <option value="Completed" {% if case.status == 'Completed' %}selected{% endif %}>Completed - Case is done</option>
+                        <!-- Legacy status values for backward compatibility -->
+                        {% if case.status not in ['New', 'Assigned', 'In Progress', 'Completed'] %}
+                        <option value="{{ case.status }}" selected>{{ case.status|title }}</option>
+                        {% endif %}
                     </select>
+                    <small style="display: block; margin-top: 4px; color: var(--color-text-secondary);">
+                        Note: Assigning a user to a "New" case will automatically change status to "Assigned"
+                    </small>
                 </div>
                 
                 {% if current_user.role == 'administrator' %}

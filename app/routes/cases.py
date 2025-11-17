@@ -87,7 +87,28 @@ def edit_case(case_id):
         case.name = request.form.get('name', case.name)
         case.description = request.form.get('description', case.description)
         case.company = request.form.get('company', case.company)
-        case.status = request.form.get('status', case.status)
+        
+        # Get requested status change
+        requested_status = request.form.get('status', case.status)
+        
+        # Handle assignment changes (admin only)
+        if current_user.role == 'administrator':
+            assigned_to = request.form.get('assigned_to')
+            new_assigned_to = int(assigned_to) if assigned_to and assigned_to != '' else None
+            
+            # Auto-status logic: When assignment changes, auto-transition to "Assigned"
+            if old_assigned_to != new_assigned_to and new_assigned_to is not None:
+                # User was assigned - automatically set status to "Assigned" if currently "New"
+                if case.status == 'New':
+                    requested_status = 'Assigned'
+                    changes['status_auto'] = {'reason': 'user_assigned', 'from': 'New', 'to': 'Assigned'}
+            
+            case.assigned_to = new_assigned_to
+            if old_assigned_to != case.assigned_to:
+                changes['assigned_to'] = {'from': old_assigned_to, 'to': case.assigned_to}
+        
+        # Apply status change
+        case.status = requested_status
         
         # Track what changed
         if old_name != case.name:
@@ -98,13 +119,6 @@ def edit_case(case_id):
             changes['company'] = {'from': old_company, 'to': case.company}
         if old_status != case.status:
             changes['status'] = {'from': old_status, 'to': case.status}
-        
-        # Only admin can change assignment
-        if current_user.role == 'administrator':
-            assigned_to = request.form.get('assigned_to')
-            case.assigned_to = int(assigned_to) if assigned_to and assigned_to != '' else None
-            if old_assigned_to != case.assigned_to:
-                changes['assigned_to'] = {'from': old_assigned_to, 'to': case.assigned_to}
         
         db.session.commit()
         

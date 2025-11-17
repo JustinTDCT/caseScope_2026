@@ -55,6 +55,7 @@
                         <th style="width: 80px;">ID</th>
                         <th>Case Name</th>
                         <th>Company</th>
+                        <th>Status</th>
                         <th>Files</th>
                         <th>Events</th>
                         <th>Assigned To</th>
@@ -83,6 +84,19 @@
                             </span>
                             {% else %}
                             <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if stat.case.status == 'New' %}
+                                <span class="status-badge" style="background: rgba(99, 102, 241, 0.1); color: #6366f1; font-size: 0.875rem;">🆕 New</span>
+                            {% elif stat.case.status == 'Assigned' %}
+                                <span class="status-badge" style="background: rgba(251, 191, 36, 0.1); color: #f59e0b; font-size: 0.875rem;">👤 Assigned</span>
+                            {% elif stat.case.status == 'In Progress' %}
+                                <span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; font-size: 0.875rem;">⚙️ In Progress</span>
+                            {% elif stat.case.status == 'Completed' %}
+                                <span class="status-badge" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6; font-size: 0.875rem;">✅ Completed</span>
+                            {% else %}
+                                <span class="status-badge" style="font-size: 0.875rem;">{{ stat.case.status|title }}</span>
                             {% endif %}
                         </td>
                         <td>

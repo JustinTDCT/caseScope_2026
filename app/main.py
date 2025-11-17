@@ -612,6 +612,7 @@ def create_case():
             name=name,
             description=description,
             company=company,
+            status='New',  # v1.16.0: Default status for new cases
             created_by=current_user.id
         )
         db.session.add(case)

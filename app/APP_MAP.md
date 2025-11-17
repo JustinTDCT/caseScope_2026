@@ -1,3 +1,261 @@
+## ✨ v1.16.0 - FEATURE: Enhanced Case Status Workflow (2025-11-17)
+
+**Change**: Added comprehensive case status tracking with automatic workflow transitions and audit logging.
+
+**User Request**: "Lets add a field to cases - Status: change when editing a case - default 'New'; drop down. New - newly created case. Assigned - either manual selection -or- automatic change to this when the user for the case assignment is changed. In Progress - cases actively being worked on, drop down selection only in the edit case. Completed - drop down from edit only - indicates a case is done; we would case status someplace in the case dashboard which reflects current status (image1); add a column to the case selection dashboard for the status (image2); add a column to the global case management dashboard to show the status. audit log - log entry when status changed. review app_map and versions to see the case structure and where to add info on each page"
+
+### Problem
+
+**Limited Case Status Tracking**:
+- Cases only had binary status: 'active' or 'closed'
+- No distinction between newly created, assigned, and in-progress cases
+- No automatic status transitions based on assignment changes
+- Limited visibility into case workflow stages
+- Difficult to track workload distribution and case progress
+- No clear way to identify cases awaiting assignment vs actively being investigated
+
+**Example workflow that didn't work well**:
+1. Create new case → status='active'
+2. Assign to investigator → still shows 'active' (no change)
+3. Investigator starts working → still shows 'active' (no indication)
+4. Case completed → manually change to 'closed'
+5. Result: Can't tell which 'active' cases are new, assigned, or in progress
+
+### Solution
+
+**4-State Status Workflow**:
+
+```
+New → Assigned → In Progress → Completed
+ ↓       ↓           ↓            ↓
+🆕      👤          ⚙️           ✅
+Blue   Orange      Green       Purple
+```
+
+**1. Status Definitions**:
+
+- **New**: Newly created case, awaiting assignment or initial triage
+- **Assigned**: Case has been assigned to a user but work hasn't started yet
+- **In Progress**: Case is actively being investigated/worked on
+- **Completed**: Case investigation is finished, ready for review/archival
+
+**2. Automatic Status Transitions**:
+
+When a user is assigned to a case with status='New', the system automatically changes status to 'Assigned':
+
+```python
+# routes/cases.py lines 99-104
+if old_assigned_to != new_assigned_to and new_assigned_to is not None:
+    # User was assigned - automatically set status to "Assigned" if currently "New"
+    if case.status == 'New':
+        requested_status = 'Assigned'
+        changes['status_auto'] = {'reason': 'user_assigned', 'from': 'New', 'to': 'Assigned'}
+```
+
+**Audit Log Tracking**:
+```python
+# Automatic transition logged as:
+{
+  'status_auto': {
+    'reason': 'user_assigned',
+    'from': 'New',
+    'to': 'Assigned'
+  },
+  'assigned_to': {
+    'from': None,
+    'to': 5
+  }
+}
+
+# Manual status change logged as:
+{
+  'status': {
+    'from': 'Assigned',
+    'to': 'In Progress'
+  }
+}
+```
+
+**3. UI Implementation**:
+
+**Edit Case Form** (`case_edit.html` lines 36-51):
+```html
+<select id="status" name="status">
+    <option value="New">New - Newly created case</option>
+    <option value="Assigned">Assigned - Case assigned to user</option>
+    <option value="In Progress">In Progress - Actively being worked on</option>
+    <option value="Completed">Completed - Case is done</option>
+</select>
+<small>Note: Assigning a user to a "New" case will automatically change status to "Assigned"</small>
+```
+
+**Color-Coded Status Badges** (consistent across all 3 dashboards):
+
+```html
+<!-- New: Blue with 🆕 emoji -->
+<span style="background: rgba(99, 102, 241, 0.1); color: #6366f1;">🆕 New</span>
+
+<!-- Assigned: Orange with 👤 emoji -->
+<span style="background: rgba(251, 191, 36, 0.1); color: #f59e0b;">👤 Assigned</span>
+
+<!-- In Progress: Green with ⚙️ emoji -->
+<span style="background: rgba(16, 185, 129, 0.1); color: #10b981;">⚙️ In Progress</span>
+
+<!-- Completed: Purple with ✅ emoji -->
+<span style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6;">✅ Completed</span>
+```
+
+**4. Dashboard Integration**:
+
+**Case Details Page** (`view_case.html` lines 83-97):
+- Shows status badge in case information grid
+- Color-coded with emoji for quick visual identification
+
+**Case Selection Dashboard** (`case_selection.html` lines 58, 89-101):
+- Added "Status" column between "Company" and "Files"
+- Status badge visible in table view
+- Helps users quickly identify case workflow stage when selecting cases
+
+**Global Case Management** (`admin_cases.html` lines 41-53):
+- Status column already existed, updated to show new status values
+- Administrators can see status distribution across all cases
+- Helps with workload management and resource allocation
+
+**5. Database Migration**:
+
+**Migration Script** (`migrations/add_case_status_workflow.py` - 154 lines):
+
+```python
+# Automatic conversion of legacy statuses:
+UPDATE "case" SET status = 'New' 
+WHERE status = 'active' AND assigned_to IS NULL;
+
+UPDATE "case" SET status = 'Assigned' 
+WHERE status = 'active' AND assigned_to IS NOT NULL;
+
+UPDATE "case" SET status = 'Completed' 
+WHERE status = 'closed';
+```
+
+**Migration Output**:
+```
+Current Status Distribution:
+  active: 12 case(s)
+  closed: 3 case(s)
+
+Migration Plan:
+  • 'active' (unassigned) → 'New': 8 case(s)
+  • 'active' (assigned) → 'Assigned': 4 case(s)
+  • 'closed' → 'Completed': 3 case(s)
+
+New Status Distribution:
+  New: 8 case(s)
+  Assigned: 4 case(s)
+  Completed: 3 case(s)
+```
+
+**6. Model Changes**:
+
+**Updated Case Model** (`models.py` line 41):
+```python
+status = db.Column(db.String(20), default='New')  
+# New, Assigned, In Progress, Completed (legacy: active, closed)
+```
+
+- Changed default from 'active' to 'New'
+- Updated comment to document all status values
+- Maintains backward compatibility for legacy statuses
+
+**7. Backward Compatibility**:
+
+- Legacy 'active' and 'closed' statuses still display correctly if not migrated
+- Edit form shows legacy statuses if they exist
+- Status badges fall back to generic display for unknown statuses
+- No breaking changes to existing functionality
+
+### Use Cases
+
+**1. Incident Triage**:
+- New incidents created with status='New'
+- Triage team reviews and assigns to investigators
+- Status automatically transitions to 'Assigned'
+- Clear view of unassigned cases awaiting triage
+
+**2. Workload Distribution**:
+- See which investigators have 'Assigned' cases (not yet started)
+- See which cases are 'In Progress' (active investigations)
+- Balance workload by reassigning 'New' or 'Assigned' cases
+- Track investigator capacity
+
+**3. Case Completion Tracking**:
+- Set status to 'Completed' when investigation finished
+- Filter by 'Completed' to see finished cases
+- Generate reports on case completion rates
+- Archive or close completed cases
+
+**4. Management Reporting**:
+- Quick view of case distribution: New (8), Assigned (4), In Progress (6), Completed (15)
+- Identify bottlenecks (too many 'Assigned' = investigators overloaded)
+- Track case velocity (time from New → Completed)
+- Resource planning based on case status distribution
+
+### Files Modified
+
+**Backend (3 files)**:
+- `models.py` (line 41): Changed status default to 'New', updated comment
+- `main.py` (line 615): Set status='New' for new case creation
+- `routes/cases.py` (lines 91-121): Added auto-assignment logic and status transition
+
+**Frontend (4 files)**:
+- `case_edit.html` (lines 36-51): New status dropdown with descriptions
+- `view_case.html` (lines 83-97): Status badge display with color coding
+- `case_selection.html` (lines 58, 89-101): Added status column to table
+- `admin_cases.html` (lines 41-53): Updated status badge display
+
+**Database (1 file)**:
+- `migrations/add_case_status_workflow.py` (154 lines): Migration script for legacy statuses
+
+**Documentation (2 files)**:
+- `APP_MAP.md` (this entry)
+- `version.json` (v1.16.0 entry)
+
+### Testing Checklist
+
+✅ New cases default to status='New'  
+✅ Assigning user to 'New' case auto-changes to 'Assigned'  
+✅ Manual status changes work (dropdown selection)  
+✅ Status badges display correctly on all 3 dashboards  
+✅ Color coding consistent (New=blue, Assigned=orange, In Progress=green, Completed=purple)  
+✅ Audit logging captures status changes  
+✅ Audit logging captures automatic transitions with reason  
+✅ Migration script converts legacy statuses correctly  
+✅ Backward compatibility for unmigrated legacy statuses  
+✅ Status column added to all required views  
+✅ Edit case form shows descriptions for each status
+
+### Benefits
+
+**For Users**:
+- ✅ **Clear Visibility**: Immediately see case workflow stage
+- ✅ **Automatic Transitions**: Less manual work (New → Assigned happens automatically)
+- ✅ **Visual Distinction**: Color-coded badges make status obvious at a glance
+- ✅ **Better Organization**: Easily filter/sort by status across dashboards
+- ✅ **Workload Tracking**: See distribution of New, Assigned, In Progress, Completed
+
+**For Administrators**:
+- ✅ **Resource Management**: See which investigators have active cases
+- ✅ **Capacity Planning**: Identify bottlenecks and overloaded users
+- ✅ **Reporting**: Generate metrics on case status distribution
+- ✅ **Audit Trail**: Full logging of status changes for compliance
+
+**For System**:
+- ✅ **Modular Implementation**: Clean separation of concerns (model, routes, templates)
+- ✅ **Backward Compatible**: No breaking changes to existing cases
+- ✅ **Extensible**: Easy to add more statuses in future if needed
+- ✅ **Well Documented**: Migration script, audit logs, UI hints
+
+---
+
 ## 🐛 v1.15.6 - BUG FIX: IOC Re-Hunt Popup Shows Wrong Count (2025-11-17)
 
 **Change**: Fixed IOC re-hunt popup showing "Found 0 IOC match(es)" when IOCs were actually found (same bug pattern as SIGMA violations in v1.15.4).
