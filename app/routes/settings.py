@@ -319,8 +319,9 @@ def sync_now():
     try:
         client = DFIRIrisClient(dfir_iris_url, dfir_iris_api_key)
         
-        # Get all active cases
-        active_cases = db.session.query(Case).filter_by(status='active').all()
+        # Get all cases
+        # v1.16.0+: Get all cases regardless of status
+        active_cases = db.session.query(Case).all()
         
         if not active_cases:
             return jsonify({
@@ -437,8 +438,9 @@ def sync_opencti():
     try:
         client = OpenCTIClient(opencti_url, opencti_api_key)
         
-        # Get all active cases
-        active_cases = db.session.query(Case).filter_by(status='active').all()
+        # Get all cases
+        # v1.16.0+: Get all cases regardless of status
+        active_cases = db.session.query(Case).all()
         
         if not active_cases:
             return jsonify({

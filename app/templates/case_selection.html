@@ -22,7 +22,7 @@
 
 <div class="card">
     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--spacing-md);">
-        <h2 class="card-title">📁 Active Cases</h2>
+        <h2 class="card-title">📁 All Cases</h2>
         <form method="GET" action="{{ url_for('case_selection') }}" style="display: inline-flex; gap: var(--spacing-xs);">
             <input type="text" 
                    id="caseSearch" 
@@ -147,7 +147,7 @@
                 <span>Clear Search</span>
             </a>
             {% else %}
-            <h3>No active cases</h3>
+            <h3>No cases</h3>
             <p style="margin-bottom: var(--spacing-lg);">Create your first case to get started</p>
             <a href="{{ url_for('create_case') }}" class="btn btn-primary">
                 <span>➕</span>

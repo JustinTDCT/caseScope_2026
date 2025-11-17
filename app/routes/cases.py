@@ -153,8 +153,13 @@ def toggle_case_status(case_id):
         return jsonify({'success': False, 'error': 'Case not found'}), 404
     
     # Toggle status
+    # v1.16.0+: Toggle between Completed and In Progress
     old_status = case.status
-    case.status = 'closed' if case.status == 'active' else 'active'
+    if case.status == 'Completed':
+        case.status = 'In Progress'
+    else:
+        # Any active state (New, Assigned, In Progress) -> Completed
+        case.status = 'Completed'
     db.session.commit()
     
     # Audit log

@@ -157,7 +157,8 @@ def inject_global_vars():
         print(f"Error loading version.json: {e}")
     
     if current_user.is_authenticated:
-        available_cases = db.session.query(Case).filter_by(status='active').order_by(Case.created_at.desc()).all()
+        # v1.16.0+: Show all cases regardless of status
+        available_cases = db.session.query(Case).order_by(Case.created_at.desc()).all()
         
         # Determine current case: URL > Session > None
         current_case = None
@@ -348,7 +349,8 @@ def dashboard():
     case_files_space_gb = get_case_files_space()
     
     # CaseScope Status
-    total_cases = db.session.query(Case).filter_by(status='active').count()
+    # v1.16.0+: Count all cases regardless of status
+    total_cases = db.session.query(Case).count()
     total_files = db.session.query(CaseFile).filter_by(is_deleted=False, is_hidden=False).count()
     sigma_info = get_sigma_rules_info()
     total_iocs = db.session.query(IOC).count()
@@ -543,8 +545,9 @@ def case_selection():
     # Get search term from query parameter
     search_term = request.args.get('search', '', type=str).strip()
     
-    # Build query for active cases, ordered alphabetically by name
-    query = db.session.query(Case).filter_by(status='active')
+    # Build query for all cases, ordered alphabetically by name
+    # v1.16.0+: Show all cases regardless of status
+    query = db.session.query(Case)
     
     # Apply search filter if provided
     if search_term:

@@ -697,6 +697,75 @@ def sync_system_to_iris(case_id, system_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@systems_bp.route('/case/<int:case_id>/systems/sync_all', methods=['POST'])
+@login_required
+def bulk_sync_systems_to_iris(case_id):
+    """Bulk sync all systems in a case to DFIR-IRIS"""
+    from main import db
+    from models import System, Case
+    from flask import jsonify
+    
+    # Verify case exists
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    # Get all systems for this case (include hidden)
+    systems = System.query.filter_by(case_id=case_id).all()
+    
+    if not systems:
+        return jsonify({
+            'success': True,
+            'message': 'No systems to sync',
+            'synced': 0,
+            'failed': 0
+        })
+    
+    synced = 0
+    failed = 0
+    errors = []
+    
+    for system in systems:
+        try:
+            result = sync_to_dfir_iris(system)
+            if result:
+                synced += 1
+            else:
+                failed += 1
+                errors.append(f"Failed to sync {system.system_name}")
+        except Exception as e:
+            failed += 1
+            errors.append(f"Error syncing {system.system_name}: {str(e)}")
+            logger.error(f"[Systems] Error syncing system {system.id}: {e}")
+    
+    # Audit log
+    from audit_logger import log_action
+    log_action('bulk_sync_systems_to_iris', resource_type='case', resource_id=case_id,
+              resource_name=case.name, details={
+                  'total_systems': len(systems),
+                  'synced': synced,
+                  'failed': failed
+              })
+    
+    if failed == 0:
+        message = f'✓ Successfully synced {synced} system(s) to DFIR-IRIS'
+        return jsonify({
+            'success': True,
+            'message': message,
+            'synced': synced,
+            'failed': failed
+        })
+    else:
+        message = f'⚠️ Synced {synced} system(s), {failed} failed'
+        return jsonify({
+            'success': True,
+            'message': message,
+            'synced': synced,
+            'failed': failed,
+            'errors': errors[:5]  # Return first 5 errors
+        })
+
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -767,34 +836,180 @@ def enrich_from_opencti(system):
 def sync_to_dfir_iris(system):
     """
     Sync system to DFIR-IRIS as an asset
+    
+    Maps CaseScope system types to DFIR-IRIS asset types:
+    - firewall -> router
+    - workstation -> Windows - Computer
+    - server -> Windows - Server
+    - switch -> switch
+    - actor_system -> Windows - Computer (marked as Compromised)
     """
     from main import db
-    from models import SystemSettings
+    from models import SystemSettings, Case
+    from dfir_iris import DFIRIrisClient
     
     # Check if DFIR-IRIS is enabled
     dfir_iris_enabled = SystemSettings.query.filter_by(setting_key='dfir_iris_enabled').first()
     if not dfir_iris_enabled or dfir_iris_enabled.setting_value != 'true':
+        logger.warning(f"[DFIR-IRIS] Cannot sync system {system.system_name}: DFIR-IRIS not enabled")
         return False
     
     # Get DFIR-IRIS configuration
     dfir_iris_url = SystemSettings.query.filter_by(setting_key='dfir_iris_url').first()
-    dfir_iris_token = SystemSettings.query.filter_by(setting_key='dfir_iris_token').first()
+    dfir_iris_api_key = SystemSettings.query.filter_by(setting_key='dfir_iris_api_key').first()
     
-    if not dfir_iris_url or not dfir_iris_token:
+    if not dfir_iris_url or not dfir_iris_api_key:
+        logger.warning(f"[DFIR-IRIS] Cannot sync system {system.system_name}: Missing URL or API key")
         return False
     
-    # TODO: Implement actual DFIR-IRIS API call to create/update asset
-    # Example: POST to /api/assets with system data
-    
-    # Placeholder: Mark as synced
-    system.dfir_iris_synced = True
-    system.dfir_iris_sync_date = datetime.utcnow()
-    system.dfir_iris_asset_id = f'asset-{system.id}'
-    db.session.commit()
-    
-    logger.info(f"[DFIR-IRIS] System synced: {system.system_name}")
-    
-    return True
+    try:
+        # Initialize DFIR-IRIS client
+        client = DFIRIrisClient(dfir_iris_url.setting_value, dfir_iris_api_key.setting_value)
+        
+        # Get case information
+        case = db.session.get(Case, system.case_id)
+        if not case:
+            logger.error(f"[DFIR-IRIS] Case {system.case_id} not found for system {system.system_name}")
+            return False
+        
+        # Get or create customer (company)
+        company_name = case.company or 'Unknown Company'
+        customer_id = client.get_or_create_customer(company_name)
+        if not customer_id:
+            logger.error(f"[DFIR-IRIS] Failed to get/create customer for system {system.system_name}")
+            return False
+        
+        # Get or create case in DFIR-IRIS
+        iris_case_id = client.get_or_create_case(customer_id, case.name, case.description or '', company_name)
+        if not iris_case_id:
+            logger.error(f"[DFIR-IRIS] Failed to get/create case for system {system.system_name}")
+            return False
+        
+        # Get available asset types from DFIR-IRIS
+        asset_types = client.get_asset_types()
+        if not asset_types:
+            logger.error(f"[DFIR-IRIS] Failed to retrieve asset types")
+            return False
+        
+        # Map CaseScope system type to DFIR-IRIS asset type
+        asset_type_map = {
+            'firewall': 'router',
+            'workstation': 'windows - computer',
+            'server': 'windows - server',
+            'switch': 'switch',
+            'actor_system': 'windows - computer',  # Actor systems are compromised computers
+            'printer': 'other',
+            'unknown': 'other'
+        }
+        
+        target_asset_type = asset_type_map.get(system.system_type.lower(), 'other')
+        asset_type_id = None
+        
+        # Find matching asset type in DFIR-IRIS
+        for asset_type in asset_types:
+            asset_name = asset_type.get('asset_name', '').lower()
+            if target_asset_type in asset_name:
+                asset_type_id = asset_type.get('asset_id')
+                logger.info(f"[DFIR-IRIS] Matched system type '{system.system_type}' -> DFIR asset type '{asset_type.get('asset_name')}' (ID: {asset_type_id})")
+                break
+        
+        if not asset_type_id:
+            logger.warning(f"[DFIR-IRIS] Asset type '{target_asset_type}' not found, using first available")
+            asset_type_id = asset_types[0].get('asset_id') if asset_types else 1
+        
+        # Check if asset already exists in DFIR-IRIS
+        existing_assets = client.get_case_assets(iris_case_id)
+        existing_asset = None
+        
+        for asset in existing_assets:
+            # Match by name (case-insensitive) or by CaseScope ID in tags
+            asset_name_match = asset.get('asset_name', '').lower() == system.system_name.lower()
+            asset_tags = asset.get('asset_tags', '')
+            casescope_id_match = f'casescope_system_id:{system.id}' in asset_tags
+            
+            if asset_name_match or casescope_id_match:
+                existing_asset = asset
+                logger.info(f"[DFIR-IRIS] Found existing asset: {system.system_name} (ID: {asset.get('asset_id')})")
+                break
+        
+        # Prepare asset description
+        asset_description = f"System from CaseScope\nType: {system.system_type}"
+        if system.ip_address:
+            asset_description += f"\nIP: {system.ip_address}"
+        if system.added_by:
+            asset_description += f"\nAdded by: {system.added_by}"
+        
+        # Special handling for actor_system - mark as compromised
+        compromise_status_id = None
+        if system.system_type.lower() == 'actor_system':
+            # DFIR-IRIS uses "Compromise Status" dropdown with values like:
+            # 1 = Not Applicable, 2 = Unknown, 3 = Clean, 4 = Suspected, 5 = Compromised
+            # We'll use ID 5 for Compromised
+            compromise_status_id = 5
+            asset_description += "\n⚠️ COMPROMISED SYSTEM - Actor/attacker controlled"
+        
+        if existing_asset:
+            # Update existing asset
+            asset_id = existing_asset.get('asset_id')
+            update_data = {
+                'asset_name': system.system_name,
+                'asset_type_id': asset_type_id,
+                'asset_description': asset_description,
+                'asset_tags': f'casescope,casescope_system_id:{system.id}',
+                'cid': iris_case_id
+            }
+            
+            # Add IP if available
+            if system.ip_address:
+                update_data['asset_ip'] = system.ip_address
+            
+            # Add compromise status for actor systems
+            if compromise_status_id:
+                update_data['compromise_status_id'] = compromise_status_id
+            
+            result = client._request('POST', f'/case/assets/update/{asset_id}', update_data)
+            if result:
+                logger.info(f"[DFIR-IRIS] Asset updated: {system.system_name} (ID: {asset_id})")
+                system.dfir_iris_synced = True
+                system.dfir_iris_sync_date = datetime.utcnow()
+                system.dfir_iris_asset_id = str(asset_id)
+                db.session.commit()
+                return True
+        else:
+            # Create new asset
+            create_data = {
+                'asset_name': system.system_name,
+                'asset_type_id': asset_type_id,
+                'analysis_status_id': 1,  # 1 = Unspecified
+                'asset_description': asset_description,
+                'asset_tags': f'casescope,casescope_system_id:{system.id}',
+                'cid': iris_case_id
+            }
+            
+            # Add IP if available
+            if system.ip_address:
+                create_data['asset_ip'] = system.ip_address
+            
+            # Add compromise status for actor systems
+            if compromise_status_id:
+                create_data['compromise_status_id'] = compromise_status_id
+            
+            result = client._request('POST', '/case/assets/add', create_data)
+            if result and 'data' in result:
+                asset_id = result['data'].get('asset_id')
+                logger.info(f"[DFIR-IRIS] Asset created: {system.system_name} (ID: {asset_id})")
+                system.dfir_iris_synced = True
+                system.dfir_iris_sync_date = datetime.utcnow()
+                system.dfir_iris_asset_id = str(asset_id)
+                db.session.commit()
+                return True
+        
+        logger.error(f"[DFIR-IRIS] Failed to sync system {system.system_name}")
+        return False
+        
+    except Exception as e:
+        logger.error(f"[DFIR-IRIS] Error syncing system {system.system_name}: {e}", exc_info=True)
+        return False
 
 
 @systems_bp.route('/case/<int:case_id>/systems/export_csv')

@@ -16,6 +16,11 @@
             <button onclick="scanSystems()" class="btn" style="background: var(--color-success); color: white;">
                 🔍 Find Systems
             </button>
+            {% if dfir_iris_enabled %}
+            <button onclick="bulkSyncAllSystems()" class="btn" style="background: #8b5cf6; color: white;">
+                🔄 Sync All to DFIR-IRIS
+            </button>
+            {% endif %}
             <a href="{{ url_for('systems.export_systems_csv', case_id=case.id) }}" class="btn" style="background: var(--color-success); color: white;">
                 📥 Export CSV
             </a>
@@ -601,6 +606,38 @@ function syncSystem(systemId) {
         .catch(err => {
             showFlash('Failed to sync system', 'error');
             console.error(err);
+        });
+}
+
+function bulkSyncAllSystems() {
+    if (!confirm('Sync all systems in this case to DFIR-IRIS? This will create/update assets in DFIR-IRIS.')) {
+        return;
+    }
+    
+    const button = event.target.closest('button');
+    const originalText = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span>🔄</span><span> Syncing...</span>';
+    
+    fetch(`/case/${caseId}/systems/sync_all`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            
+            if (data.success) {
+                showFlash(data.message, 'success');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showFlash(data.message || 'Sync failed', 'error');
+            }
+        })
+        .catch(error => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+            showFlash('Failed to sync systems: ' + error, 'error');
         });
 }
 
