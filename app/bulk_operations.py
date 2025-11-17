@@ -323,7 +323,7 @@ def clear_sigma_violations(db, scope: str = 'case', case_id: Optional[int] = Non
         raise ValueError(f"Invalid scope: {scope}")
     
     if file_ids:
-        query = query.filter(SigmaViolation.case_file_id.in_(file_ids))
+        query = query.filter(SigmaViolation.file_id.in_(file_ids))
     
     count = query.delete(synchronize_session=False)
     db.session.commit()
@@ -360,7 +360,7 @@ def clear_ioc_matches(db, scope: str = 'case', case_id: Optional[int] = None,
         raise ValueError(f"Invalid scope: {scope}")
     
     if file_ids:
-        query = query.filter(IOCMatch.case_file_id.in_(file_ids))
+        query = query.filter(IOCMatch.file_id.in_(file_ids))
     
     count = query.delete(synchronize_session=False)
     db.session.commit()
@@ -716,12 +716,22 @@ def delete_files(db, opensearch_client, files: List[Any],
 
 def clear_file_sigma_violations(db, file_id: int) -> int:
     """Clear SIGMA violations for a specific file (legacy wrapper)"""
-    return clear_sigma_violations(db, scope='case', file_ids=[file_id])
+    from models import CaseFile
+    case_file = db.session.get(CaseFile, file_id)
+    if not case_file:
+        logger.warning(f"[BULK OPS] Cannot clear SIGMA violations - file {file_id} not found")
+        return 0
+    return clear_sigma_violations(db, scope='case', case_id=case_file.case_id, file_ids=[file_id])
 
 
 def clear_file_ioc_matches(db, file_id: int) -> int:
     """Clear IOC matches for a specific file (legacy wrapper)"""
-    return clear_ioc_matches(db, scope='case', file_ids=[file_id])
+    from models import CaseFile
+    case_file = db.session.get(CaseFile, file_id)
+    if not case_file:
+        logger.warning(f"[BULK OPS] Cannot clear IOC matches - file {file_id} not found")
+        return 0
+    return clear_ioc_matches(db, scope='case', case_id=case_file.case_id, file_ids=[file_id])
 
 
 def clear_file_sigma_flags_in_opensearch(opensearch_client, case_id: int, file_obj) -> int:

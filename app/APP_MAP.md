@@ -1,3 +1,105 @@
+## 🐛 v1.15.1 - BUG FIX: Single File Re-index Missing case_id Parameter (2025-11-17)
+
+**Change**: Fixed 500 error when re-indexing a single file caused by missing `case_id` parameter in legacy wrapper functions.
+
+### Problem
+
+After the v1.15.0 refactoring, single file re-index was failing with 500 error:
+
+```
+TypeError: clear_sigma_violations() missing required argument 'case_id' when scope='case'
+```
+
+**Root Cause**:
+- v1.15.0 created unified functions with `scope` parameter
+- When `scope='case'`, `case_id` parameter is **required**
+- Legacy wrapper functions `clear_file_sigma_violations()` and `clear_file_ioc_matches()` were calling the unified functions without passing `case_id`
+
+**Affected Operations**:
+- ❌ Single file re-index (`/case/:id/file/:file_id/reindex`)
+- ❌ Single file re-chainsaw (`/case/:id/file/:file_id/rechainsaw`) 
+
+**Error Location**:
+```python
+# bulk_operations.py (before fix)
+def clear_file_sigma_violations(db, file_id: int) -> int:
+    return clear_sigma_violations(db, scope='case', file_ids=[file_id])  # ❌ Missing case_id!
+```
+
+### Solution
+
+**Part 1: Fixed Missing case_id Parameter**
+
+Updated both legacy wrapper functions to:
+1. Fetch the `CaseFile` record to get `case_id`
+2. Pass `case_id` to the unified functions
+3. Handle missing files gracefully with logging
+
+**Fixed Functions** (lines 717-734):
+```python
+def clear_file_sigma_violations(db, file_id: int) -> int:
+    """Clear SIGMA violations for a specific file (legacy wrapper)"""
+    from models import CaseFile
+    case_file = db.session.get(CaseFile, file_id)
+    if not case_file:
+        logger.warning(f"[BULK OPS] Cannot clear SIGMA violations - file {file_id} not found")
+        return 0
+    return clear_sigma_violations(db, scope='case', case_id=case_file.case_id, file_ids=[file_id])
+
+
+def clear_file_ioc_matches(db, file_id: int) -> int:
+    """Clear IOC matches for a specific file (legacy wrapper)"""
+    from models import CaseFile
+    case_file = db.session.get(CaseFile, file_id)
+    if not case_file:
+        logger.warning(f"[BULK OPS] Cannot clear IOC matches - file {file_id} not found")
+        return 0
+    return clear_ioc_matches(db, scope='case', case_id=case_file.case_id, file_ids=[file_id])
+```
+
+**Part 2: Fixed Wrong Column Name**
+
+After fixing the missing `case_id`, discovered a second bug: unified functions were using wrong column name.
+
+**Problem**: 
+- Code used `SigmaViolation.case_file_id` and `IOCMatch.case_file_id`
+- Actual model column name is `file_id` (not `case_file_id`)
+- This caused `AttributeError: type object 'SigmaViolation' has no attribute 'case_file_id'`
+
+**Fixed** (lines 326, 363):
+```python
+# Before (WRONG):
+query = query.filter(SigmaViolation.case_file_id.in_(file_ids))
+query = query.filter(IOCMatch.case_file_id.in_(file_ids))
+
+# After (CORRECT):
+query = query.filter(SigmaViolation.file_id.in_(file_ids))
+query = query.filter(IOCMatch.file_id.in_(file_ids))
+```
+
+### Files Modified
+
+- `app/bulk_operations.py`:
+  - Lines 717-734: Fixed `clear_file_sigma_violations()` and `clear_file_ioc_matches()` wrappers (missing case_id)
+  - Line 326: Fixed `SigmaViolation` query filter (wrong column name: case_file_id → file_id)
+  - Line 363: Fixed `IOCMatch` query filter (wrong column name: case_file_id → file_id)
+
+### Testing
+
+✅ Single file re-index now works correctly
+✅ Single file re-chainsaw works correctly
+✅ No impact on bulk operations (already had case_id)
+✅ No impact on global operations (use scope='global')
+
+### Impact
+
+- **Bug Severity**: HIGH - Single file operations completely broken in v1.15.0
+- **Users Affected**: Anyone using per-file re-index or re-chainsaw buttons
+- **Fix Complexity**: Simple - 2 functions updated
+- **Risk**: Low - Only affects wrapper functions, unified functions unchanged
+
+---
+
 ## 🔧 v1.15.0 - REFACTORING: Unified Bulk Operations Module (Phase 1) (2025-11-15)
 
 **Change**: Consolidated `bulk_operations.py` and `bulk_operations_global.py` into a single unified module with scope parameter, eliminating duplicate code and improving maintainability.
