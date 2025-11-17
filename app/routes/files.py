@@ -614,11 +614,18 @@ def rechainsaw_single_file(case_id, file_id):
         })
         
         if result['status'] == 'success':
+            # Update status back to Completed
+            case_file.indexing_status = 'Completed'
+            db.session.commit()
             flash(f'SIGMA re-processing complete for "{case_file.original_filename}". Found {result.get("violations_found", 0)} violations.', 'success')
         else:
+            case_file.indexing_status = f'Failed: {result.get("message", "Unknown error")}'
+            db.session.commit()
             flash(f'SIGMA re-processing failed: {result.get("message")}', 'error')
     except Exception as e:
         logger.error(f"[RECHAINSAW SINGLE] Error: {e}", exc_info=True)
+        case_file.indexing_status = f'Failed: {str(e)[:100]}'
+        db.session.commit()
         flash(f'SIGMA re-processing failed: {str(e)}', 'error')
     
     return redirect(url_for('files.case_files', case_id=case_id))

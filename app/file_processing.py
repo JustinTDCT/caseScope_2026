@@ -1178,18 +1178,18 @@ def chainsaw_file(db, opensearch_client, CaseFile, SigmaRule, SigmaViolation,
         logger.info("[CHAINSAW FILE] Using existing SigmaHQ rules...")
         if (sigma_dir / ".git").exists():
             logger.info("[CHAINSAW FILE] Updating SigmaHQ rules...")
-            subprocess.run(["git", "-C", str(sigma_dir), "pull", "--quiet"], 
+            subprocess.run(["/usr/bin/git", "-C", str(sigma_dir), "pull", "--quiet"], 
                          check=False, capture_output=True, timeout=60)
         
         # Clone/update lolrmm rules
         logger.info("[CHAINSAW FILE] Ensuring lolrmm rules are present...")
         if (lolrmm_dir / ".git").exists():
             logger.info("[CHAINSAW FILE] Updating lolrmm rules...")
-            subprocess.run(["git", "-C", str(lolrmm_dir), "pull", "--quiet"],
+            subprocess.run(["/usr/bin/git", "-C", str(lolrmm_dir), "pull", "--quiet"],
                          check=False, capture_output=True, timeout=60)
         elif not lolrmm_dir.exists():
             logger.info("[CHAINSAW FILE] Cloning lolrmm rules...")
-            subprocess.run(["git", "clone", "--quiet", "--depth", "1",
+            subprocess.run(["/usr/bin/git", "clone", "--quiet", "--depth", "1",
                           "https://github.com/magicsword-io/lolrmm.git", str(lolrmm_dir)],
                          check=True, capture_output=True, timeout=300)
         
