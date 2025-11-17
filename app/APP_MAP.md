@@ -1,6 +1,6 @@
-## 🐛 v1.15.1 - BUG FIX: Single File Re-index Missing case_id Parameter (2025-11-17)
+## 🐛 v1.15.1 - BUG FIX: Single File Operations Broken After v1.15.0 Refactoring (2025-11-17)
 
-**Change**: Fixed 500 error when re-indexing a single file caused by missing `case_id` parameter in legacy wrapper functions.
+**Change**: Fixed 500 errors in single file re-index and re-SIGMA operations caused by THREE bugs after v1.15.0 refactoring.
 
 ### Problem
 
@@ -16,8 +16,8 @@ TypeError: clear_sigma_violations() missing required argument 'case_id' when sco
 - Legacy wrapper functions `clear_file_sigma_violations()` and `clear_file_ioc_matches()` were calling the unified functions without passing `case_id`
 
 **Affected Operations**:
-- ❌ Single file re-index (`/case/:id/file/:file_id/reindex`)
-- ❌ Single file re-chainsaw (`/case/:id/file/:file_id/rechainsaw`) 
+- ❌ Single file re-index (`/case/:id/file/:file_id/reindex`) - Bugs #1 and #2
+- ❌ Single file re-chainsaw/re-SIGMA (`/case/:id/file/:file_id/rechainsaw`) - Bugs #1, #2, and #3 
 
 **Error Location**:
 ```python
@@ -77,26 +77,55 @@ query = query.filter(SigmaViolation.file_id.in_(file_ids))
 query = query.filter(IOCMatch.file_id.in_(file_ids))
 ```
 
+**Part 3: Missing index_name in Re-SIGMA Single File**
+
+After fixing bugs #1 and #2, discovered re-SIGMA (rechainsaw) single file was also broken.
+
+**Problem**:
+- `rechainsaw_single_file()` route was calling `chainsaw_file()` without required `index_name` parameter
+- Error: `chainsaw_file() missing 1 required positional argument: 'index_name'`
+- This broke after v1.13.1 consolidated to per-case indices (need to pass `case_21` index name)
+
+**Fixed** (routes/files.py lines 591-604):
+```python
+# Get index name (v1.13.1: consolidated case indices)
+from utils import make_index_name
+index_name = make_index_name(case_id)
+
+# Run chainsaw with index_name
+result = chainsaw_file(
+    db=db,
+    opensearch_client=opensearch_client,
+    CaseFile=CaseFile,
+    SigmaRule=SigmaRule,
+    SigmaViolation=SigmaViolation,
+    file_id=file_id,
+    index_name=index_name  # ← Added
+)
+```
+
 ### Files Modified
 
 - `app/bulk_operations.py`:
   - Lines 717-734: Fixed `clear_file_sigma_violations()` and `clear_file_ioc_matches()` wrappers (missing case_id)
   - Line 326: Fixed `SigmaViolation` query filter (wrong column name: case_file_id → file_id)
   - Line 363: Fixed `IOCMatch` query filter (wrong column name: case_file_id → file_id)
+- `app/routes/files.py`:
+  - Lines 591-604: Fixed `rechainsaw_single_file()` to pass index_name parameter
 
 ### Testing
 
-✅ Single file re-index now works correctly
-✅ Single file re-chainsaw works correctly
-✅ No impact on bulk operations (already had case_id)
+✅ Single file re-index now works correctly (bugs #1 and #2 fixed)
+✅ Single file re-chainsaw works correctly (all 3 bugs fixed)
+✅ No impact on bulk operations (already had case_id and index_name)
 ✅ No impact on global operations (use scope='global')
 
 ### Impact
 
 - **Bug Severity**: HIGH - Single file operations completely broken in v1.15.0
 - **Users Affected**: Anyone using per-file re-index or re-chainsaw buttons
-- **Fix Complexity**: Simple - 2 functions updated
-- **Risk**: Low - Only affects wrapper functions, unified functions unchanged
+- **Fix Complexity**: Simple - 4 locations updated
+- **Risk**: Low - Only affects single-file wrapper/route functions
 
 ---
 

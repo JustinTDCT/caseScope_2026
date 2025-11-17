@@ -588,6 +588,10 @@ def rechainsaw_single_file(case_id, file_id):
     case_file.indexing_status = 'SIGMA Testing'
     db.session.commit()
     
+    # Get index name (v1.13.1: consolidated case indices)
+    from utils import make_index_name
+    index_name = make_index_name(case_id)
+    
     # Run chainsaw synchronously (fast operation)
     try:
         result = chainsaw_file(
@@ -596,7 +600,8 @@ def rechainsaw_single_file(case_id, file_id):
             CaseFile=CaseFile,
             SigmaRule=SigmaRule,
             SigmaViolation=SigmaViolation,
-            file_id=file_id
+            file_id=file_id,
+            index_name=index_name
         )
         
         # Audit log
