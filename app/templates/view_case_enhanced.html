@@ -196,13 +196,13 @@
      ============================================================================ -->
 <div class="card" style="margin-bottom: var(--spacing-lg);">
     <div class="card-header">
-        <h2 class="card-title">🤖 AI Generated Reports</h2>
-        <span class="text-secondary" id="aiReportsCount">Loading...</span>
+        <h2 class="card-title">🤖 AI Analysis</h2>
+        <span class="text-secondary" id="aiContentCount">Loading...</span>
     </div>
     <div class="card-body">
-        <div id="aiReportsList">
+        <div id="aiContentList">
             <p style="color: var(--color-text-muted); text-align: center; padding: var(--spacing-lg);">
-                Loading reports...
+                Loading AI reports and timelines...
             </p>
         </div>
     </div>
@@ -733,11 +733,11 @@ function checkAIReportStatus(reportId, attempts = 0, startTime = null) {
                 // Refresh the reports list to show the new report
                 loadAIReportsList();
                 
-                // Scroll to the AI Reports section
+                // Scroll to the AI Analysis section
                 setTimeout(() => {
-                    const reportsSection = document.getElementById('aiReportsList');
-                    if (reportsSection) {
-                        reportsSection.closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    const contentSection = document.getElementById('aiContentList');
+                    if (contentSection) {
+                        contentSection.closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
                 }, 500);
             } else if (data.status === 'failed') {
@@ -967,36 +967,144 @@ function deleteAIReport(reportId) {
     });
 }
 
+function deleteTimelineFromList(timelineId) {
+    if (!confirm('⚠️ Delete this timeline?\n\nThis action cannot be undone.')) {
+        return;
+    }
+    
+    fetch(`/timeline/${timelineId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert('✅ Timeline deleted successfully');
+            // Reload the AI content list
+            loadAIReportsList();
+        } else {
+            alert(`❌ Error: ${data.error || 'Failed to delete timeline'}`);
+        }
+    })
+    .catch(err => {
+        console.error('Delete error:', err);
+        alert(`❌ Error deleting timeline: ${err.message}`);
+    });
+}
+
 function loadAIReportsList() {
-    fetch('/case/{{ case.id }}/ai/reports')
-        .then(response => {
-            console.log('AI Reports API Response Status:', response.status);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log('AI Reports Data:', data);
-            const reportsList = document.getElementById('aiReportsList');
-            const reportsCount = document.getElementById('aiReportsCount');
+    // Fetch both reports and timelines in parallel
+    Promise.all([
+        fetch('/case/{{ case.id }}/ai/reports').then(r => r.json()),
+        fetch('/case/{{ case.id }}/timelines').then(r => r.json())
+    ])
+    .then(([reportsData, timelinesData]) => {
+        console.log('AI Reports Data:', reportsData);
+        console.log('Timelines Data:', timelinesData);
+        
+        const contentList = document.getElementById('aiContentList');
+        const contentCount = document.getElementById('aiContentCount');
+        
+        const reports = reportsData.reports || [];
+        const timelines = timelinesData.timelines || [];
+        const totalCount = reports.length + timelines.length;
+        
+        if (totalCount === 0) {
+            contentList.innerHTML = `
+                <p style="color: var(--color-text-muted); text-align: center; padding: var(--spacing-lg);">
+                    No AI analysis generated yet. Use the buttons above to create reports or timelines.
+                </p>
+            `;
+            contentCount.textContent = '0 items';
+            return;
+        }
+        
+        contentCount.textContent = `${reports.length} report${reports.length !== 1 ? 's' : ''}, ${timelines.length} timeline${timelines.length !== 1 ? 's' : ''}`;
+        
+        // Build combined list
+        let html = '<div style="display: flex; flex-direction: column; gap: var(--spacing-md);">';
+        
+        // Add timelines first
+        timelines.forEach(timeline => {
+            const statusColors = {
+                'completed': 'var(--color-success)',
+                'generating': 'var(--color-warning)',
+                'failed': 'var(--color-error)',
+                'pending': 'var(--color-info)'
+            };
+            const statusColor = statusColors[timeline.status] || 'var(--color-text-muted)';
+            const createdDate = new Date(timeline.created_at).toLocaleString();
             
-            if (!data.reports || data.reports.length === 0) {
-                reportsList.innerHTML = `
-                    <p style="color: var(--color-text-muted); text-align: center; padding: var(--spacing-lg);">
-                        No AI reports generated yet. Click "Generate AI Report" button above to create one.
-                    </p>
+            html += `
+                <div style="border: 2px solid #f59e0b; border-radius: 8px; padding: var(--spacing-md); background: ${timeline.status === 'completed' ? 'rgba(245, 158, 11, 0.05)' : 'var(--color-bg)'};">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--spacing-md);">
+                        <div style="flex: 1;">
+                            <h3 style="margin: 0 0 var(--spacing-xs) 0; font-size: 1rem;">
+                                📅 ${timeline.timeline_title || 'Case Timeline'}
+                            </h3>
+                            <div style="display: flex; flex-wrap: wrap; gap: var(--spacing-sm); font-size: 0.875rem; color: var(--color-text-muted);">
+                                <span>
+                                    <strong>Status:</strong> 
+                                    <span style="color: ${statusColor}; font-weight: 600;">${timeline.status}</span>
+                                </span>
+                                <span>•</span>
+                                <span><strong>Created:</strong> ${createdDate}</span>
+            `;
+            
+            if (timeline.event_count) {
+                html += `
+                                <span>•</span>
+                                <span><strong>Events:</strong> ${timeline.event_count}</span>
                 `;
-                reportsCount.textContent = '0 reports';
-                return;
             }
             
-            reportsCount.textContent = `${data.reports.length} report${data.reports.length > 1 ? 's' : ''}`;
+            if (timeline.generation_time_seconds) {
+                html += `
+                                <span>•</span>
+                                <span><strong>Time:</strong> ${timeline.generation_time_seconds.toFixed(1)}s</span>
+                `;
+            }
             
-            // Build reports list
-            let html = '<div style="display: flex; flex-direction: column; gap: var(--spacing-md);">';
+            html += `
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: var(--spacing-xs); flex-shrink: 0;">
+            `;
             
-            data.reports.forEach(report => {
+            if (timeline.status === 'completed') {
+                html += `
+                    <a href="/timeline/${timeline.id}" class="btn btn-sm btn-primary" title="View timeline">
+                        <span>👁️ View Timeline</span>
+                    </a>
+                `;
+            } else if (timeline.status === 'generating' || timeline.status === 'pending') {
+                html += `
+                    <button class="btn btn-sm" style="background: var(--color-info); color: white;" disabled>
+                        <span>⏳ Generating...</span>
+                    </button>
+                `;
+            } else if (timeline.status === 'failed') {
+                html += `
+                    <button class="btn btn-sm" style="background: var(--color-error); color: white;" disabled>
+                        <span>❌ Failed</span>
+                    </button>
+                    <button onclick="deleteTimelineFromList(${timeline.id})" class="btn btn-sm" style="background: var(--color-error); color: white;" title="Delete failed timeline">
+                        <span>🗑️ Delete</span>
+                    </button>
+                `;
+            }
+            
+            html += `
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        // Add reports
+        reports.forEach(report => {
                 const statusColors = {
                     'completed': 'var(--color-success)',
                     'generating': 'var(--color-warning)',
@@ -1128,17 +1236,17 @@ function loadAIReportsList() {
             });
             
             html += '</div>';
-            reportsList.innerHTML = html;
+            contentList.innerHTML = html;
         })
         .catch(err => {
-            console.error('Failed to load AI reports:', err);
+            console.error('Failed to load AI content:', err);
             const errorMsg = err.message || 'Unknown error';
-            document.getElementById('aiReportsList').innerHTML = 
+            document.getElementById('aiContentList').innerHTML = 
                 '<p style="color: var(--color-error); text-align: center; padding: var(--spacing-lg);">' +
-                    '❌ Failed to load reports: ' + errorMsg + '<br>' +
+                    '❌ Failed to load AI analysis: ' + errorMsg + '<br>' +
                     '<small>Check browser console (F12) for details, or refresh the page.</small>' +
                 '</p>';
-            document.getElementById('aiReportsCount').textContent = 'Error';
+            document.getElementById('aiContentCount').textContent = 'Error';
         });
 }
 
@@ -1733,37 +1841,35 @@ function checkTimelineStatus() {
 
 // Generate timeline
 function generateTimeline() {
-    const timelineBtn = document.getElementById('timelineBtn');
+    const button = document.getElementById('timelineBtn');
+    button.disabled = true;
+    button.innerHTML = '<span>⏳</span><span>Starting...</span>';
     
-    if (!confirm('Generate AI Timeline for this case?\n\nThis will analyze all events, IOCs, and systems to create a chronological timeline.\n\nEstimated time: 3-5 minutes.')) {
-        return;
-    }
-    
-    timelineBtn.disabled = true;
-    timelineBtn.innerHTML = '<span>⏳</span><span>Starting...</span>';
-    
-    fetch(`/case/${CASE_ID}/generate_timeline`, {
-        method: 'POST'
+    fetch('/case/{{ case.id }}/generate_timeline', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
     })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Show progress modal
-                showTimelineProgressModal(data.timeline_id);
-                // Start polling for progress
-                pollTimelineProgress(data.timeline_id);
-            } else {
-                alert(`❌ Failed to Generate Timeline\n\n${data.error}`);
-                timelineBtn.disabled = false;
-                timelineBtn.innerHTML = '<span>📅</span><span>AI Case Timeline</span>';
-            }
-        })
-        .catch(error => {
-            console.error('Timeline generation failed:', error);
-            alert(`❌ Error: ${error.message}`);
-            timelineBtn.disabled = false;
-            timelineBtn.innerHTML = '<span>📅</span><span>AI Case Timeline</span>';
-        });
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show progress modal
+            showTimelineProgressModal(data.timeline_id, 4);
+            // Start polling for progress
+            pollTimelineProgress(data.timeline_id);
+        } else {
+            alert(`❌ Failed to Generate Timeline\n\n${data.error}`);
+            button.disabled = false;
+            button.innerHTML = '<span>📅</span><span>AI Case Timeline</span>';
+        }
+    })
+    .catch(err => {
+        console.error('Timeline generation failed:', err);
+        alert(`❌ Error: ${err.message}`);
+        button.disabled = false;
+        button.innerHTML = '<span>📅</span><span>AI Case Timeline</span>';
+    });
 }
 
 function showTimelineProgressModal(timelineId, estimatedMinutes = 4) {
@@ -1976,6 +2082,16 @@ function pollTimelineProgress(timelineId, attempts = 0) {
                     if (modal) modal.remove();
                     showFlash('✅ Timeline generated successfully!', 'success');
                     checkTimelineStatus(); // Refresh button state
+                    loadAIReportsList(); // Refresh the AI content list
+                    
+                    // Scroll to the AI Analysis section
+                    setTimeout(() => {
+                        const contentSection = document.getElementById('aiContentList');
+                        if (contentSection) {
+                            contentSection.closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }
+                    }, 500);
+                    
                     // Optionally redirect to timeline
                     if (confirm('Timeline completed! View timeline now?')) {
                         window.location.href = `/timeline/${timelineId}`;

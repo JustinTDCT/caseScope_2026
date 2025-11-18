@@ -1626,9 +1626,11 @@ def generate_case_timeline(self, timeline_id):
                 timeline.progress_message = 'Finalizing timeline...'
                 db.session.commit()
                 
-                # Store the timeline content
-                timeline.timeline_content = result
-                timeline.raw_response = result
+                # Store the timeline content (convert dict to JSON string)
+                import json as json_lib
+                timeline.timeline_content = result.get('report', '') if isinstance(result, dict) else result
+                timeline.raw_response = json_lib.dumps(result) if isinstance(result, dict) else result
+                timeline.timeline_json = json_lib.dumps(result) if isinstance(result, dict) else None
                 timeline.status = 'completed'
                 timeline.generation_time_seconds = generation_time
                 timeline.progress_percent = 100
@@ -1636,6 +1638,11 @@ def generate_case_timeline(self, timeline_id):
                 
                 # Generate title
                 timeline.timeline_title = f"Timeline for {case.name} - {len(iocs)} IOCs, {len(systems)} Systems, {event_count:,} Events"
+                
+                # Store event/IOC/system counts
+                timeline.event_count = event_count
+                timeline.ioc_count = len(iocs)
+                timeline.system_count = len(systems)
                 
                 db.session.commit()
                 

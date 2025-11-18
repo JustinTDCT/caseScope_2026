@@ -13,6 +13,12 @@
             <span>🔄</span>
             <span>Regenerate</span>
         </button>
+        {% if timeline.status == 'failed' or (current_user.role == 'administrator' and timeline.status != 'generating') %}
+        <button onclick="deleteTimeline()" class="btn" style="background: var(--color-error); color: white;">
+            <span>🗑️</span>
+            <span>Delete</span>
+        </button>
+        {% endif %}
         <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-secondary">
             <span>←</span>
             <span>Back to Case</span>
@@ -79,8 +85,8 @@
     </div>
     <div class="card-body">
         {% if timeline.status == 'completed' and timeline.timeline_content %}
-        <div class="timeline-content" style="font-size: 1rem; line-height: 1.8;">
-            {{ timeline.timeline_content|safe }}
+        <div class="timeline-content" style="font-size: 1rem; line-height: 1.8; white-space: pre-wrap; word-wrap: break-word;">
+            {{ timeline.timeline_content }}
         </div>
         {% elif timeline.status == 'generating' %}
         <div style="text-align: center; padding: var(--spacing-xl);">
@@ -161,6 +167,9 @@
                     <td>
                         {% if t.id != timeline.id and t.status == 'completed' %}
                         <a href="{{ url_for('timeline.view_timeline', timeline_id=t.id) }}" class="btn btn-sm" style="background: var(--color-info); color: white; padding: 0.25rem 0.75rem;">View</a>
+                        {% endif %}
+                        {% if t.status == 'failed' or (current_user.role == 'administrator' and t.id != timeline.id and t.status != 'generating') %}
+                        <button onclick="deleteTimelineVersion({{ t.id }})" class="btn btn-sm" style="background: var(--color-error); color: white; padding: 0.25rem 0.75rem;">🗑️ Delete</button>
                         {% endif %}
                     </td>
                 </tr>
@@ -263,6 +272,60 @@ function regenerateTimeline() {
         })
         .catch(error => {
             showFlash('Failed to regenerate timeline: ' + error, 'error');
+        });
+}
+
+function deleteTimeline() {
+    if (!confirm('⚠️ Delete this timeline?\n\nThis action cannot be undone.')) {
+        return;
+    }
+    
+    fetch(`/timeline/${TIMELINE_ID}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showFlash('Timeline deleted successfully', 'success');
+                setTimeout(() => {
+                    window.location.href = `/case/${CASE_ID}`;
+                }, 1000);
+            } else {
+                showFlash(data.error || 'Failed to delete timeline', 'error');
+            }
+        })
+        .catch(error => {
+            showFlash('Failed to delete timeline: ' + error, 'error');
+        });
+}
+
+function deleteTimelineVersion(timelineId) {
+    if (!confirm('⚠️ Delete this timeline version?\n\nThis action cannot be undone.')) {
+        return;
+    }
+    
+    fetch(`/timeline/${timelineId}`, {
+        method: 'DELETE',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showFlash('Timeline deleted successfully', 'success');
+                setTimeout(() => {
+                    location.reload();
+                }, 1000);
+            } else {
+                showFlash(data.error || 'Failed to delete timeline', 'error');
+            }
+        })
+        .catch(error => {
+            showFlash('Failed to delete timeline: ' + error, 'error');
         });
 }
 

@@ -149,24 +149,68 @@ def timeline_status(case_id):
     })
 
 
-@timeline_bp.route('/timeline/<int:timeline_id>', methods=['GET'])
+@timeline_bp.route('/timeline/<int:timeline_id>', methods=['GET', 'DELETE'])
 @login_required
 def view_timeline(timeline_id):
-    """View a case timeline"""
+    """View or delete a case timeline"""
     from main import db
     from models import CaseTimeline, Case
+    from flask import request
     
     timeline = db.session.get(CaseTimeline, timeline_id)
     if not timeline:
+        if request.method == 'DELETE':
+            return jsonify({'success': False, 'error': 'Timeline not found'}), 404
         flash('Timeline not found', 'error')
         return redirect(url_for('dashboard'))
     
     # Verify case access
     case = db.session.get(Case, timeline.case_id)
     if not case:
+        if request.method == 'DELETE':
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
         flash('Case not found', 'error')
         return redirect(url_for('dashboard'))
     
+    # Handle DELETE request
+    if request.method == 'DELETE':
+        # Only allow deletion of failed timelines by anyone, or any timeline by admins
+        from flask_login import current_user
+        if timeline.status != 'failed' and current_user.role != 'administrator':
+            return jsonify({'success': False, 'error': 'Insufficient permissions'}), 403
+        
+        # Don't allow deletion of generating timelines
+        if timeline.status == 'generating':
+            return jsonify({'success': False, 'error': 'Cannot delete timeline that is currently generating'}), 400
+        
+        try:
+            # Audit log
+            from audit_log import log_audit
+            log_audit(
+                user_id=current_user.id,
+                username=current_user.username,
+                action='delete_timeline',
+                resource_type='timeline',
+                resource_name=f'{case.name} - Timeline v{timeline.version}',
+                status='success',
+                details={
+                    'timeline_id': timeline.id,
+                    'case_id': case.id,
+                    'case_name': case.name,
+                    'version': timeline.version,
+                    'status': timeline.status
+                }
+            )
+            
+            db.session.delete(timeline)
+            db.session.commit()
+            
+            return jsonify({'success': True, 'message': 'Timeline deleted successfully'})
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'success': False, 'error': str(e)}), 500
+    
+    # Handle GET request
     # Get all timelines for this case (for version history)
     all_timelines = CaseTimeline.query.filter_by(
         case_id=timeline.case_id

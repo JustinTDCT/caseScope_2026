@@ -320,8 +320,6 @@ INDICATORS OF COMPROMISE (IOCs)
             prompt += f"- **{system.system_name}** ({system.system_type})"
             if system.ip_address:
                 prompt += f" - IP: {system.ip_address}"
-            if system.description:
-                prompt += f" - {system.description}"
             prompt += "\n"
     else:
         prompt += "No systems explicitly defined. Extract system names from events.\n"

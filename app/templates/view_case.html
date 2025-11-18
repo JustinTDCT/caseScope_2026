@@ -325,37 +325,35 @@ function checkTimelineStatus() {
 
 // Generate timeline
 function generateTimeline() {
-    const timelineBtn = document.getElementById('timelineBtn');
+    const button = document.getElementById('timelineBtn');
+    button.disabled = true;
+    button.innerHTML = '<span>⏳</span><span>Starting...</span>';
     
-    if (!confirm('Generate AI Timeline for this case?\n\nThis will analyze all events, IOCs, and systems to create a chronological timeline.\n\nEstimated time: 3-5 minutes.')) {
-        return;
-    }
-    
-    timelineBtn.disabled = true;
-    timelineBtn.innerHTML = '<span>⏳</span><span>Starting...</span>';
-    
-    fetch(`/case/${CASE_ID}/generate_timeline`, {
-        method: 'POST'
+    fetch('/case/{{ case.id }}/generate_timeline', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
     })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                // Show progress modal
-                showTimelineProgressModal(data.timeline_id);
-                // Start polling for progress
-                pollTimelineProgress(data.timeline_id);
-            } else {
-                alert(`❌ Failed to Generate Timeline\n\n${data.error}`);
-                timelineBtn.disabled = false;
-                timelineBtn.innerHTML = '<span>📅</span><span>AI Case Timeline</span>';
-            }
-        })
-        .catch(error => {
-            console.error('Timeline generation failed:', error);
-            alert(`❌ Error: ${error.message}`);
-            timelineBtn.disabled = false;
-            timelineBtn.innerHTML = '<span>📅</span><span>AI Case Timeline</span>';
-        });
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Show progress modal
+            showTimelineProgressModal(data.timeline_id, 4);
+            // Start polling for progress
+            pollTimelineProgress(data.timeline_id);
+        } else {
+            alert(`❌ Failed to Generate Timeline\n\n${data.error}`);
+            button.disabled = false;
+            button.innerHTML = '<span>📅</span><span>AI Case Timeline</span>';
+        }
+    })
+    .catch(err => {
+        console.error('Timeline generation failed:', err);
+        alert(`❌ Error: ${err.message}`);
+        button.disabled = false;
+        button.innerHTML = '<span>📅</span><span>AI Case Timeline</span>';
+    });
 }
 
 function showTimelineProgressModal(timelineId, estimatedMinutes = 4) {
