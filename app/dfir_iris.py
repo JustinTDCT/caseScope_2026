@@ -671,26 +671,38 @@ def sync_case_to_dfir_iris(db_session, opensearch_client, case_id: int, iris_cli
                     # Map CaseScope IOCs to DFIR-IRIS IOC IDs
                     ioc_iris_ids = []
                     try:
-                        # Query IOCMatch table to find IOCs linked to this event
-                        from models import IOCMatch
-                        ioc_matches = db_session.query(IOCMatch).filter_by(
-                            case_id=case_id,
-                            event_id=tag.event_id
-                        ).all()
+                        # Get IOCs from OpenSearch event data (primary source after v1.13+)
+                        matched_iocs = event_source.get('matched_iocs', [])
+                        ioc_details = event_source.get('ioc_details', [])
                         
-                        if ioc_matches:
+                        # Extract IOC values from both fields
+                        ioc_values = set()
+                        
+                        # matched_iocs is list of IOC values
+                        if isinstance(matched_iocs, list):
+                            ioc_values.update(matched_iocs)
+                        
+                        # ioc_details is list of dicts with 'value' and 'type'
+                        if isinstance(ioc_details, list):
+                            for ioc_detail in ioc_details:
+                                if isinstance(ioc_detail, dict) and 'value' in ioc_detail:
+                                    ioc_values.add(ioc_detail['value'])
+                        
+                        if ioc_values:
                             # Get all IRIS IOCs for this case (cache for efficiency)
                             iris_iocs = iris_client.get_case_iocs(iris_case_id)
                             
-                            # For each matched IOC, find its IRIS ID
-                            for match in ioc_matches:
-                                casescope_ioc = db_session.query(IOC).filter_by(id=match.ioc_id).first()
-                                if casescope_ioc:
-                                    # Find matching IOC in IRIS by value
-                                    for iris_ioc in iris_iocs:
-                                        if iris_ioc.get('ioc_value') == casescope_ioc.ioc_value:
-                                            ioc_iris_ids.append(iris_ioc.get('ioc_id'))
-                                            break
+                            # For each matched IOC value, find its IRIS ID
+                            for ioc_value in ioc_values:
+                                # Find matching IOC in IRIS by value
+                                for iris_ioc in iris_iocs:
+                                    if iris_ioc.get('ioc_value') == ioc_value:
+                                        ioc_id = iris_ioc.get('ioc_id')
+                                        if ioc_id and ioc_id not in ioc_iris_ids:
+                                            ioc_iris_ids.append(ioc_id)
+                                        break
+                        
+                        logger.debug(f"[DFIR-IRIS] Event {tag.event_id}: Found {len(ioc_values)} IOC values, mapped to {len(ioc_iris_ids)} IRIS IOC IDs")
                     except Exception as e:
                         logger.warning(f"[DFIR-IRIS] Failed to map IOCs for event {tag.event_id}: {e}")
                     
