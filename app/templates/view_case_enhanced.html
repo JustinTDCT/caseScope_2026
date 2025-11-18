@@ -9,6 +9,10 @@
         <p class="text-secondary">Case ID: {{ case.id }} • Created: {{ case.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
     </div>
     <div class="content-actions">
+        <button onclick="generateTimeline()" class="btn" style="background: #f59e0b; color: white;" id="timelineBtn">
+            <span>📅</span>
+            <span>AI Case Timeline</span>
+        </button>
         <button onclick="generateAIReport()" class="btn" style="background: var(--color-primary); color: white;" id="aiReportBtn">
             <span>🤖</span>
             <span>Generate AI Report</span>
@@ -71,6 +75,12 @@
             <div style="margin-bottom: var(--spacing-xs);">
                 <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">DFIR-IRIS Sync Status</div>
                 <div><strong>{% if dfir_iris_enabled %}✅ Enabled{% else %}Not Enabled{% endif %}</strong></div>
+            </div>
+            <div style="margin-bottom: var(--spacing-xs);">
+                <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">AI Timeline</div>
+                <div id="timelineStatus">
+                    <span class="status-badge" style="background: rgba(156, 163, 175, 0.1); color: #6b7280;">⏳ Checking...</span>
+                </div>
             </div>
             <div style="grid-column: 1 / -1; margin-bottom: var(--spacing-xs);">
                 <div class="text-secondary" style="font-size: 0.875rem; margin-bottom: 2px;">Case Description</div>
@@ -1673,5 +1683,89 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     observer.observe(document.body, { childList: true });
 });
+
+// ============================================================================
+// AI TIMELINE FUNCTIONS
+// ============================================================================
+
+// Check timeline status on page load
+function checkTimelineStatus() {
+    fetch(`/case/${CASE_ID}/timeline/status`)
+        .then(response => response.json())
+        .then(data => {
+            const statusEl = document.getElementById('timelineStatus');
+            const timelineBtn = document.getElementById('timelineBtn');
+            
+            if (data.exists) {
+                const timeline = data;
+                if (timeline.status === 'completed') {
+                    statusEl.innerHTML = `
+                        <a href="/timeline/${timeline.timeline_id}" style="text-decoration: none;">
+                            <span class="status-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; font-weight: 600; cursor: pointer;">
+                                ✅ Available (v${timeline.version})
+                            </span>
+                        </a>
+                    `;
+                    timelineBtn.innerHTML = '<span>🔄</span><span>Regenerate Timeline</span>';
+                } else if (timeline.status === 'generating') {
+                    statusEl.innerHTML = '<span class="status-badge" style="background: rgba(251, 191, 36, 0.1); color: #f59e0b;">⏳ Generating...</span>';
+                    timelineBtn.disabled = true;
+                    timelineBtn.innerHTML = '<span>⏳</span><span>Generating...</span>';
+                    // Poll for updates
+                    setTimeout(checkTimelineStatus, 3000);
+                } else if (timeline.status === 'failed') {
+                    statusEl.innerHTML = '<span class="status-badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444;">❌ Failed</span>';
+                    timelineBtn.innerHTML = '<span>🔄</span><span>Retry Timeline</span>';
+                } else {
+                    statusEl.innerHTML = '<span class="status-badge" style="background: rgba(251, 191, 36, 0.1); color: #f59e0b;">⏳ Pending...</span>';
+                    timelineBtn.disabled = true;
+                }
+            } else {
+                statusEl.innerHTML = '<span class="status-badge" style="background: rgba(156, 163, 175, 0.1); color: #6b7280;">⚠️ No Timeline</span>';
+                timelineBtn.innerHTML = '<span>📅</span><span>AI Case Timeline</span>';
+            }
+        })
+        .catch(error => {
+            console.error('Failed to check timeline status:', error);
+            document.getElementById('timelineStatus').innerHTML = '<span class="status-badge" style="background: rgba(156, 163, 175, 0.1); color: #6b7280;">⚠️ No Timeline</span>';
+        });
+}
+
+// Generate timeline
+function generateTimeline() {
+    const timelineBtn = document.getElementById('timelineBtn');
+    const originalText = timelineBtn.innerHTML;
+    
+    if (!confirm('Generate AI Timeline for this case?\n\nThis will analyze all events, IOCs, and systems to create a chronological timeline.\n\nEstimated time: 3-5 minutes.')) {
+        return;
+    }
+    
+    timelineBtn.disabled = true;
+    timelineBtn.innerHTML = '<span>⏳</span><span> Generating...</span>';
+    
+    fetch(`/case/${CASE_ID}/generate_timeline`, {
+        method: 'POST'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showFlash('Timeline generation started! This may take a few minutes.', 'success');
+                // Start polling for status
+                setTimeout(checkTimelineStatus, 2000);
+            } else {
+                showFlash(data.error || 'Failed to start timeline generation', 'error');
+                timelineBtn.disabled = false;
+                timelineBtn.innerHTML = originalText;
+            }
+        })
+        .catch(error => {
+            showFlash('Failed to generate timeline: ' + error, 'error');
+            timelineBtn.disabled = false;
+            timelineBtn.innerHTML = originalText;
+        });
+}
+
+// Check timeline status on page load
+setTimeout(checkTimelineStatus, 500);
 </script>
 {% endblock %}
