@@ -1691,6 +1691,7 @@ def search_events(case_id):
     from models import SearchHistory, TimelineTag
     from search_utils import build_search_query, execute_search, extract_event_fields
     from utils import make_index_name
+    from routes.settings import get_setting
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -1908,6 +1909,9 @@ def search_events(case_id):
             total_count
         )
     
+    # Check if DFIR-IRIS is enabled
+    dfir_iris_enabled = get_setting('dfir_iris_enabled', 'false') == 'true'
+    
     return render_template(
         'search_events.html',
         case=case,
@@ -1928,7 +1932,8 @@ def search_events(case_id):
         recent_searches=recent_searches,
         favorite_searches=favorite_searches,
         custom_date_start=custom_date_start_str,
-        custom_date_end=custom_date_end_str
+        custom_date_end=custom_date_end_str,
+        dfir_iris_enabled=dfir_iris_enabled
     )
 
 
@@ -2388,6 +2393,78 @@ def bulk_untag_events(case_id):
         'success': True,
         'untagged': untagged_count
     })
+
+
+@app.route('/case/<int:case_id>/sync-timeline-to-iris', methods=['POST'])
+@login_required
+def sync_timeline_to_iris_case(case_id):
+    """Sync all tagged events in this case to DFIR-IRIS timeline"""
+    # Permission check: Read-only users cannot sync
+    if current_user.role == 'read-only':
+        return jsonify({'error': 'Read-only users cannot sync to DFIR-IRIS'}), 403
+    
+    from flask import jsonify
+    from dfir_iris import DFIRIrisClient, sync_case_to_dfir_iris
+    from routes.settings import get_setting
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    # Check if DFIR-IRIS is enabled
+    dfir_iris_enabled = get_setting('dfir_iris_enabled', 'false') == 'true'
+    if not dfir_iris_enabled:
+        return jsonify({'success': False, 'error': 'DFIR-IRIS integration is not enabled'}), 400
+    
+    # Get DFIR-IRIS connection settings
+    dfir_iris_url = get_setting('dfir_iris_url')
+    dfir_iris_api_key = get_setting('dfir_iris_api_key')
+    
+    if not dfir_iris_url or not dfir_iris_api_key:
+        return jsonify({
+            'success': False,
+            'error': 'DFIR-IRIS connection not configured. Please configure in System Settings.'
+        }), 400
+    
+    # Get case
+    case = db.session.get(Case, case_id)
+    if not case:
+        return jsonify({'success': False, 'error': 'Case not found'}), 404
+    
+    try:
+        # Create DFIR-IRIS client
+        client = DFIRIrisClient(dfir_iris_url, dfir_iris_api_key)
+        
+        # Sync case (includes IOCs and timeline events)
+        result = sync_case_to_dfir_iris(db.session, opensearch_client, case_id, client)
+        
+        if result.get('success'):
+            logger.info(f"[DFIR-IRIS SYNC] User {current_user.id} synced case {case_id} timeline to DFIR-IRIS")
+            logger.info(f"[DFIR-IRIS SYNC] Results: {result.get('events_synced', 0)} events, "
+                       f"{result.get('iocs_synced', 0)} IOCs, {result.get('events_removed', 0)} removed")
+            
+            return jsonify({
+                'success': True,
+                'events_synced': result.get('events_synced', 0),
+                'events_removed': result.get('events_removed', 0),
+                'iocs_synced': result.get('iocs_synced', 0),
+                'customer_id': result.get('customer_id'),
+                'case_id': result.get('case_id'),
+                'errors': result.get('errors', [])
+            })
+        else:
+            error_msg = '; '.join(result.get('errors', ['Unknown error']))
+            logger.error(f"[DFIR-IRIS SYNC] Failed to sync case {case_id}: {error_msg}")
+            return jsonify({
+                'success': False,
+                'error': error_msg
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"[DFIR-IRIS SYNC] Exception syncing case {case_id}: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': f'Error connecting to DFIR-IRIS: {str(e)}'
+        }), 500
 
 
 def bulk_update_hidden_status(case_id, events, is_hidden_value, user_id):

@@ -359,6 +359,15 @@
                 </button>
                 <span class="text-muted" id="selectedCount" style="margin-left: 0.5rem;">0 selected</span>
             </div>
+            
+            <!-- Sync Tagged Events to DFIR-IRIS Button (always visible when DFIR-IRIS enabled) -->
+            {% if dfir_iris_enabled %}
+            <button onclick="syncTimelineToIRIS()" class="btn btn-sm" style="background: var(--color-primary);" title="Sync all tagged events in this case to DFIR-IRIS timeline">
+                <span>🔄</span>
+                <span>Sync to DFIR-IRIS</span>
+            </button>
+            {% endif %}
+            
             {% if total_count > 0 %}
             <span class="text-muted">Page {{ page }} of {{ total_pages }}</span>
             {% endif %}
@@ -1014,6 +1023,51 @@ function bulkTagSelected() {
 function bulkUntagSelected() {
     const events = getSelectedEvents();
     bulkActionRequest('bulk-untag', 'Untagged', events, `Remove timeline tag from ${events.length} event(s)?`);
+}
+
+function syncTimelineToIRIS() {
+    if (!confirm('Sync all tagged events in this case to DFIR-IRIS timeline?\n\nThis will create timeline entries in DFIR-IRIS for all tagged events.')) {
+        return;
+    }
+    
+    // Show progress indicator
+    const btn = event.target.closest('button');
+    const originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span><span>Syncing...</span>';
+    
+    fetch(`/case/{{ case.id }}/sync-timeline-to-iris`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => response.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+        
+        if (data.success) {
+            let message = `✅ Successfully synced to DFIR-IRIS!\n\n`;
+            message += `Events synced: ${data.events_synced}\n`;
+            if (data.events_removed > 0) {
+                message += `Events removed: ${data.events_removed}\n`;
+            }
+            if (data.iocs_synced > 0) {
+                message += `IOCs synced: ${data.iocs_synced}\n`;
+            }
+            if (data.errors && data.errors.length > 0) {
+                message += `\nWarnings:\n${data.errors.join('\n')}`;
+            }
+            alert(message);
+        } else {
+            alert(`❌ Error syncing to DFIR-IRIS:\n\n${data.error || 'Unknown error'}`);
+        }
+    })
+    .catch(error => {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+        console.error('Sync error:', error);
+        alert('❌ Failed to sync to DFIR-IRIS');
+    });
 }
 
 function bulkActionRequest(endpoint, actionName, events, confirmMsg) {
