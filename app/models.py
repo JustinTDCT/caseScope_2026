@@ -382,6 +382,42 @@ class AIReportChat(db.Model):
     user = db.relationship('User', backref='ai_chat_messages', foreign_keys=[user_id])
 
 
+class CaseTimeline(db.Model):
+    """AI-generated case timelines for chronological analysis"""
+    __tablename__ = 'case_timeline'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    generated_by = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    status = db.Column(db.String(20), default='pending', index=True)  # pending, generating, completed, failed, cancelled
+    model_name = db.Column(db.String(50), default='dfir-qwen:latest')  # AI model used (Qwen for timelines)
+    celery_task_id = db.Column(db.String(255), index=True)  # Celery task ID for cancellation
+    timeline_title = db.Column(db.String(500))
+    timeline_content = db.Column(db.Text)  # Full timeline in markdown format
+    timeline_json = db.Column(db.Text)  # Structured timeline data (JSON) for programmatic access
+    prompt_sent = db.Column(db.Text)  # The full prompt sent to the AI (for debugging)
+    raw_response = db.Column(db.Text)  # The raw markdown response from AI
+    generation_time_seconds = db.Column(db.Float)  # How long it took to generate
+    version = db.Column(db.Integer, default=1)  # Version number (increments on regenerate)
+    
+    # Event/IOC/System counts at time of generation (for reference)
+    event_count = db.Column(db.Integer)
+    ioc_count = db.Column(db.Integer)
+    system_count = db.Column(db.Integer)
+    
+    # Progress tracking (for real-time UI updates during generation)
+    progress_percent = db.Column(db.Integer, default=0)
+    progress_message = db.Column(db.String(500))
+    error_message = db.Column(db.Text)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    case = db.relationship('Case', backref='timelines')
+    user = db.relationship('User', backref='timelines_generated', foreign_keys=[generated_by])
+
+
 class AIModel(db.Model):
     """AI model metadata and training status"""
     __tablename__ = 'ai_model'

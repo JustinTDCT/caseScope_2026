@@ -1030,14 +1030,29 @@ def generate_ai_report(self, report_id):
                     logger.error(f"[AI REPORT] Failed to release lock on cancellation: {lock_err}")
                 return {'status': 'cancelled', 'message': 'Report generation was cancelled'}
             
-            # STAGE 2: Analyzing Data
+            # STAGE 2: Check for existing timeline (v1.16.3)
+            from models import CaseTimeline
+            existing_timeline = CaseTimeline.query.filter_by(
+                case_id=case.id,
+                status='completed'
+            ).order_by(CaseTimeline.created_at.desc()).first()
+            
+            if existing_timeline:
+                logger.info(f"[AI REPORT] Found existing timeline (v{existing_timeline.version}) for case {case.id}")
+            else:
+                logger.info(f"[AI REPORT] No existing timeline found for case {case.id}")
+            
+            # STAGE 3: Analyzing Data
             report.current_stage = 'Analyzing Data'
             report.progress_percent = 40
-            report.progress_message = f'Analyzing {len(iocs)} IOCs and {len(tagged_events)} tagged events...'
+            if existing_timeline:
+                report.progress_message = f'Using existing timeline v{existing_timeline.version} + analyzing {len(iocs)} IOCs...'
+            else:
+                report.progress_message = f'Analyzing {len(iocs)} IOCs and {len(tagged_events)} tagged events...'
             db.session.commit()
             
-            prompt = generate_case_report_prompt(case, iocs, tagged_events, systems)
-            logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters) with {len(systems)} systems")
+            prompt = generate_case_report_prompt(case, iocs, tagged_events, systems, existing_timeline)
+            logger.info(f"[AI REPORT] Prompt generated ({len(prompt)} characters) with {len(systems)} systems and timeline={'yes' if existing_timeline else 'no'}")
             
             # Store the prompt for debugging/review
             report.prompt_sent = prompt
@@ -1428,6 +1443,245 @@ def delete_case_async(self, case_id):
 # ============================================================================
 # AI MODEL TRAINING
 # ============================================================================
+
+@celery_app.task(bind=True, name='tasks.generate_case_timeline')
+def generate_case_timeline(self, timeline_id):
+    """
+    Generate AI timeline for a case using Qwen model
+    
+    Args:
+        timeline_id: ID of the CaseTimeline database record
+        
+    Returns:
+        dict: Status and results
+    """
+    from main import app, db, opensearch_client
+    from models import CaseTimeline, Case, IOC, System, SystemSettings
+    from ai_report import generate_timeline_prompt, generate_report_with_ollama
+    from datetime import datetime
+    import time
+    
+    logger.info(f"[TIMELINE] Starting generation for timeline_id={timeline_id}")
+    
+    with app.app_context():
+        try:
+            # Get timeline record
+            timeline = db.session.get(CaseTimeline, timeline_id)
+            if not timeline:
+                logger.error(f"[TIMELINE] Timeline {timeline_id} not found")
+                return {'status': 'error', 'message': 'Timeline not found'}
+            
+            # Store Celery task ID for cancellation support
+            timeline.celery_task_id = self.request.id
+            timeline.status = 'generating'
+            timeline.progress_percent = 5
+            timeline.progress_message = 'Initializing timeline generation...'
+            db.session.commit()
+            logger.info(f"[TIMELINE] Task ID: {self.request.id}")
+            
+            # Check for cancellation
+            timeline = db.session.get(CaseTimeline, timeline_id)
+            if timeline.status == 'cancelled':
+                logger.info(f"[TIMELINE] Timeline {timeline_id} was cancelled before starting")
+                return {'status': 'cancelled', 'message': 'Timeline generation was cancelled'}
+            
+            # Get case data
+            case = db.session.get(Case, timeline.case_id)
+            if not case:
+                timeline.status = 'failed'
+                timeline.error_message = 'Case not found'
+                db.session.commit()
+                return {'status': 'error', 'message': 'Case not found'}
+            
+            logger.info(f"[TIMELINE] Gathering data for case '{case.name}'")
+            
+            # STAGE 1: Collecting Data
+            timeline.progress_percent = 15
+            timeline.progress_message = f'Collecting events, IOCs, and systems for {case.name}...'
+            db.session.commit()
+            
+            # Get IOCs
+            iocs = IOC.query.filter_by(case_id=case.id, is_active=True).all()
+            logger.info(f"[TIMELINE] Found {len(iocs)} active IOCs")
+            
+            # Get systems
+            systems = System.query.filter_by(case_id=case.id, hidden=False).all()
+            logger.info(f"[TIMELINE] Found {len(systems)} systems")
+            
+            # Get sample events from OpenSearch (for timeline context)
+            # We'll fetch events sorted by timestamp to establish chronological boundaries
+            timeline.progress_percent = 30
+            timeline.progress_message = 'Fetching events from OpenSearch...'
+            db.session.commit()
+            
+            events_data = []
+            event_count = 0
+            try:
+                index_pattern = f"case_{case.id}"
+                
+                # Get count first
+                count_result = opensearch_client.count(
+                    index=index_pattern,
+                    body={"query": {"match_all": {}}},
+                    ignore_unavailable=True
+                )
+                event_count = count_result.get('count', 0) if count_result else 0
+                logger.info(f"[TIMELINE] Total events in case: {event_count:,}")
+                
+                if event_count > 0:
+                    # Fetch sample events sorted by timestamp
+                    # Get first 100, last 100, and some from middle for context
+                    search_body = {
+                        "query": {"match_all": {}},
+                        "size": min(300, event_count),  # Cap at 300 events for timeline
+                        "sort": [{"System.TimeCreated.SystemTime": {"order": "asc", "unmapped_type": "date"}}],
+                        "_source": {
+                            "includes": [
+                                "System.TimeCreated.SystemTime",
+                                "System.Computer",
+                                "System.EventID",
+                                "source_file_type",
+                                "EventData.*",
+                                "has_ioc",
+                                "has_sigma",
+                                "sigma_rule"
+                            ]
+                        }
+                    }
+                    
+                    results = opensearch_client.search(
+                        index=index_pattern,
+                        body=search_body,
+                        ignore_unavailable=True
+                    )
+                    
+                    if results and 'hits' in results and 'hits' in results['hits']:
+                        events_data = results['hits']['hits']
+                        logger.info(f"[TIMELINE] Retrieved {len(events_data)} sample events for timeline")
+                        
+            except Exception as e:
+                logger.warning(f"[TIMELINE] Error fetching events: {e}")
+                # Continue without events
+            
+            # Check for cancellation before prompt building
+            timeline = db.session.get(CaseTimeline, timeline_id)
+            if timeline.status == 'cancelled':
+                logger.info(f"[TIMELINE] Timeline {timeline_id} was cancelled after data collection")
+                return {'status': 'cancelled', 'message': 'Timeline generation was cancelled'}
+            
+            # Store data counts
+            timeline.event_count = event_count
+            timeline.ioc_count = len(iocs)
+            timeline.system_count = len(systems)
+            db.session.commit()
+            
+            # STAGE 2: Building Timeline Prompt
+            timeline.progress_percent = 40
+            timeline.progress_message = f'Building timeline prompt with {event_count:,} events...'
+            db.session.commit()
+            
+            prompt = generate_timeline_prompt(case, iocs, systems, events_data, event_count)
+            logger.info(f"[TIMELINE] Prompt generated ({len(prompt)} characters)")
+            
+            # Store the prompt for debugging
+            timeline.prompt_sent = prompt
+            db.session.commit()
+            
+            # Check for cancellation before AI generation
+            timeline = db.session.get(CaseTimeline, timeline_id)
+            if timeline.status == 'cancelled':
+                logger.info(f"[TIMELINE] Timeline {timeline_id} was cancelled before AI generation")
+                return {'status': 'cancelled', 'message': 'Timeline generation was cancelled'}
+            
+            # STAGE 3: Generating Timeline with AI (Qwen)
+            timeline.progress_percent = 50
+            timeline.progress_message = f'Loading {timeline.model_name} model and generating timeline...'
+            db.session.commit()
+            
+            start_time = time.time()
+            
+            # Get hardware mode from config
+            hardware_mode_config = SystemSettings.query.filter_by(setting_key='ai_hardware_mode').first()
+            hardware_mode = hardware_mode_config.setting_value if hardware_mode_config else 'cpu'
+            
+            # Generate timeline with Qwen
+            success, result = generate_report_with_ollama(
+                prompt,
+                model=timeline.model_name,
+                hardware_mode=hardware_mode,
+                report_obj=timeline,  # Pass timeline object for progress updates
+                db_session=db.session
+            )
+            generation_time = time.time() - start_time
+            
+            # Check for cancellation after AI generation
+            timeline = db.session.get(CaseTimeline, timeline_id)
+            if timeline.status == 'cancelled':
+                logger.info(f"[TIMELINE] Timeline {timeline_id} was cancelled after AI generation")
+                return {'status': 'cancelled', 'message': 'Timeline generation was cancelled'}
+            
+            if success:
+                # STAGE 4: Finalizing Timeline
+                timeline.progress_percent = 95
+                timeline.progress_message = 'Finalizing timeline...'
+                db.session.commit()
+                
+                # Store the timeline content
+                timeline.timeline_content = result
+                timeline.raw_response = result
+                timeline.status = 'completed'
+                timeline.generation_time_seconds = generation_time
+                timeline.progress_percent = 100
+                timeline.progress_message = 'Timeline generation completed!'
+                
+                # Generate title
+                timeline.timeline_title = f"Timeline for {case.name} - {len(iocs)} IOCs, {len(systems)} Systems, {event_count:,} Events"
+                
+                db.session.commit()
+                
+                logger.info(f"[TIMELINE] Timeline {timeline_id} completed in {generation_time:.1f}s")
+                
+                return {
+                    'status': 'completed',
+                    'timeline_id': timeline_id,
+                    'generation_time': generation_time,
+                    'event_count': event_count,
+                    'ioc_count': len(iocs),
+                    'system_count': len(systems)
+                }
+            else:
+                # Generation failed
+                timeline.status = 'failed'
+                timeline.error_message = result  # Error message from Ollama
+                timeline.progress_percent = 0
+                db.session.commit()
+                
+                logger.error(f"[TIMELINE] Timeline {timeline_id} failed: {result}")
+                
+                return {
+                    'status': 'failed',
+                    'error': result
+                }
+                
+        except Exception as e:
+            logger.error(f"[TIMELINE] Error generating timeline: {e}", exc_info=True)
+            
+            # Update timeline status
+            try:
+                timeline = db.session.get(CaseTimeline, timeline_id)
+                if timeline:
+                    timeline.status = 'failed'
+                    timeline.error_message = str(e)
+                    timeline.progress_percent = 0
+                    db.session.commit()
+            except:
+                pass
+            
+            return {
+                'status': 'failed',
+                'error': str(e)
+            }
+
 
 @celery_app.task(bind=True, name='tasks.train_dfir_model_from_opencti')
 def train_dfir_model_from_opencti(self, model_name='dfir-qwen:latest', limit=50):

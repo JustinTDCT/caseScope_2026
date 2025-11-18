@@ -212,10 +212,195 @@ def check_ollama_status():
         }
 
 
-def generate_case_report_prompt(case, iocs, tagged_events, systems=None):
+def generate_timeline_prompt(case, iocs, systems, events_data, event_count):
+    """
+    Build the prompt for AI timeline generation using Qwen model (v1.16.3)
+    
+    Focus: Chronological timeline construction with event ordering, IOC relationships, and system activity.
+    
+    Args:
+        case: Case object
+        iocs: List of IOC objects
+        systems: List of System objects
+        events_data: List of sample event dicts from OpenSearch (sorted by timestamp)
+        event_count: Total number of events in case
+        
+    Returns:
+        str: Formatted timeline prompt optimized for Qwen's structured reasoning
+    """
+    
+    prompt = f"""You are a DFIR Timeline Analysis Engine powered by Qwen 2.5.
+
+═══════════════════════════════════════════════════════════════════════════════
+MISSION: CHRONOLOGICAL TIMELINE CONSTRUCTION
+═══════════════════════════════════════════════════════════════════════════════
+
+Create a precise chronological timeline for this forensic case.
+Focus on temporal relationships, event sequences, and attack progression.
+
+═══════════════════════════════════════════════════════════════════════════════
+CASE INFORMATION
+═══════════════════════════════════════════════════════════════════════════════
+
+Case Name: {case.name}
+Company: {case.company or 'Unknown'}
+Description: {case.description or 'No description'}
+Total Events: {event_count:,}
+Active IOCs: {len(iocs)}
+Systems: {len(systems)}
+
+═══════════════════════════════════════════════════════════════════════════════
+TIMELINE REQUIREMENTS
+═══════════════════════════════════════════════════════════════════════════════
+
+Your timeline MUST include these sections:
+
+## 1. Timeline Summary
+- First event timestamp (UTC)
+- Last event timestamp (UTC)  
+- Total time span
+- Key activity periods identified
+
+## 2. Chronological Timeline
+
+Format each entry as:
+```
+YYYY-MM-DD HH:MM:SS UTC | [SYSTEM-NAME] | Event Description
+  ├─ IOC: [if IOC detected]
+  ├─ SIGMA: [if SIGMA violation]
+  └─ Context: [brief explanation]
+```
+
+Group related events within 1-hour windows to reduce noise.
+Highlight suspicious activities, authentication events, IOC hits, SIGMA detections.
+
+## 3. Attack Progression Analysis
+Break timeline into phases:
+- **Reconnaissance** (scanning, discovery)
+- **Initial Access** (first successful login, exploit)
+- **Execution** (command execution, script running)
+- **Persistence** (scheduled tasks, registry modifications)
+- **Privilege Escalation** (elevation attempts)
+- **Lateral Movement** (RDP, SMB, network activity)
+- **Exfiltration** (large data transfers, external connections)
+
+## 4. IOC Timeline Matrix
+Show when each IOC was first/last seen:
+```
+| IOC Type | IOC Value | First Seen (UTC) | Last Seen (UTC) | Hit Count | Systems |
+```
+
+## 5. System Activity Timeline
+Per-system activity summary showing when each system was active.
+
+═══════════════════════════════════════════════════════════════════════════════
+INDICATORS OF COMPROMISE (IOCs)
+═══════════════════════════════════════════════════════════════════════════════
+
+"""
+    
+    if iocs:
+        prompt += "Active IOCs to track in timeline:\n\n"
+        for ioc in iocs:
+            prompt += f"- **{ioc.ioc_type}**: `{ioc.ioc_value}`"
+            if ioc.description:
+                prompt += f" ({ioc.description})"
+            if ioc.threat_level:
+                prompt += f" [Threat: {ioc.threat_level}]"
+            prompt += "\n"
+    else:
+        prompt += "No IOCs defined for this case.\n"
+    
+    prompt += "\n═══════════════════════════════════════════════════════════════════════════════\n"
+    prompt += "SYSTEMS IN SCOPE\n"
+    prompt += "═══════════════════════════════════════════════════════════════════════════════\n\n"
+    
+    if systems:
+        for system in systems:
+            prompt += f"- **{system.system_name}** ({system.system_type})"
+            if system.ip_address:
+                prompt += f" - IP: {system.ip_address}"
+            if system.description:
+                prompt += f" - {system.description}"
+            prompt += "\n"
+    else:
+        prompt += "No systems explicitly defined. Extract system names from events.\n"
+    
+    prompt += "\n═══════════════════════════════════════════════════════════════════════════════\n"
+    prompt += f"SAMPLE EVENTS (showing {len(events_data)} of {event_count:,} total)\n"
+    prompt += "═══════════════════════════════════════════════════════════════════════════════\n\n"
+    
+    if events_data:
+        for idx, event_wrapper in enumerate(events_data[:300], 1):  # Cap at 300
+            event = event_wrapper.get('_source', {})
+            
+            # Extract key fields
+            timestamp = event.get('System', {}).get('TimeCreated', {}).get('SystemTime', 'Unknown')
+            computer = event.get('System', {}).get('Computer', 'Unknown')
+            event_id = event.get('System', {}).get('EventID', 'N/A')
+            source_type = event.get('source_file_type', 'Unknown')
+            has_ioc = event.get('has_ioc', False)
+            has_sigma = event.get('has_sigma', False)
+            
+            prompt += f"[{idx}] {timestamp} | {computer} | EventID:{event_id} ({source_type})"
+            
+            if has_ioc:
+                prompt += " 🎯IOC"
+            if has_sigma:
+                sigma_rules = event.get('sigma_rule', '')
+                prompt += f" ⚠️SIGMA:{sigma_rules[:50]}"
+            
+            # Add some event data context
+            event_data = event.get('EventData', {})
+            if event_data:
+                key_fields = ['TargetUserName', 'SubjectUserName', 'IpAddress', 'WorkstationName', 'CommandLine', 'Image', 'TargetFilename']
+                data_str = []
+                for field in key_fields:
+                    if field in event_data and event_data[field]:
+                        data_str.append(f"{field}={event_data[field]}")
+                if data_str:
+                    prompt += f" | {', '.join(data_str[:3])}"  # Show first 3 fields
+            
+            prompt += "\n"
+    else:
+        prompt += "No events available for timeline analysis.\n"
+    
+    prompt += "\n═══════════════════════════════════════════════════════════════════════════════\n"
+    prompt += "ANALYSIS INSTRUCTIONS\n"
+    prompt += "═══════════════════════════════════════════════════════════════════════════════\n\n"
+    prompt += """
+1. **Chronological Ordering**: Sort ALL events by timestamp (oldest to newest)
+2. **Event Clustering**: Group events within 1-hour windows to reduce noise
+3. **IOC Tracking**: Show first/last seen timestamps for each IOC
+4. **Attack Phase Identification**: Map events to kill chain phases
+5. **System Relationships**: Show how systems interact (RDP, SMB, network flows)
+6. **Timeline Gaps**: Identify significant gaps in activity (> 4 hours)
+7. **Suspicious Patterns**: Highlight brute force attempts, reconnaissance, lateral movement
+
+**Formatting Rules**:
+- Use UTC timestamps exclusively
+- Use Markdown tables for IOC matrix
+- Use tree structure (├─ └─) for event details
+- Bold system names and IOC values
+- Keep descriptions concise (1-2 lines per event)
+
+**DO NOT**:
+- Invent events or timestamps
+- Make assumptions about missing data
+- Skip events with IOC or SIGMA hits
+- Summarize without showing specific timestamps
+
+**Output**: A complete timeline in Markdown format ready for display.
+"""
+    
+    return prompt
+
+
+def generate_case_report_prompt(case, iocs, tagged_events, systems=None, existing_timeline=None):
     """
     Build the prompt for AI report generation using simplified ChatGPT-style structure (v1.11.27)
     Enhanced with MITRE knowledge block and system-level instructions (v1.11.32)
+    Updated v1.16.3: Added existing_timeline parameter for timeline-aware report generation
     
     Simplified, concise prompt matching ChatGPT's approach with collapsed timelines and clear structure.
     
@@ -224,6 +409,7 @@ def generate_case_report_prompt(case, iocs, tagged_events, systems=None):
         iocs: List of IOC objects
         tagged_events: List of tagged event dicts from OpenSearch
         systems: List of System objects (optional, for improved context)
+        existing_timeline: CaseTimeline object (optional, uses pre-generated timeline if available)
         
     Returns:
         str: Formatted DFIR prompt with collapsed timeline, IOC table, MITRE mapping, and recommendations
@@ -314,7 +500,34 @@ CASE INFORMATION:
 Case Name: {case.name}
 Company: {case.company or 'N/A'}
 Investigation Date: {case.created_at.strftime('%Y-%m-%d') if case.created_at else 'N/A'}
+"""
+    
+    # v1.16.3: Add existing timeline if available
+    if existing_timeline and existing_timeline.timeline_content:
+        prompt += f"""
+═══════════════════════════════════════════════════════════════════════════════
+EXISTING TIMELINE (use this as the chronological backbone for your report)
+═══════════════════════════════════════════════════════════════════════════════
 
+A timeline has already been generated for this case (v{existing_timeline.version}).
+USE THIS TIMELINE for section 2) Timeline (UTC) in your report.
+You may enhance it with additional context or formatting, but preserve the chronological events.
+
+TIMELINE CONTENT:
+{existing_timeline.timeline_content}
+
+═══════════════════════════════════════════════════════════════════════════════
+END OF EXISTING TIMELINE
+═══════════════════════════════════════════════════════════════════════════════
+
+**IMPORTANT**: Use the above timeline as your section 2) Timeline (UTC).
+Do NOT create a new timeline from scratch. Use this existing one.
+"""
+        logger.info(f"[AI REPORT] Including existing timeline v{existing_timeline.version} in prompt ({len(existing_timeline.timeline_content)} chars)")
+    else:
+        logger.info(f"[AI REPORT] No existing timeline - will generate from tagged events")
+    
+    prompt += """
 INPUT.KNOWN_IOCS:
 """
     
