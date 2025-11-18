@@ -635,17 +635,20 @@ def rechainsaw_single_file(case_id, file_id):
         
         if result['status'] == 'success':
             # Update status back to Completed
+            from tasks import commit_with_retry
             case_file.indexing_status = 'Completed'
-            db.session.commit()
+            commit_with_retry(db.session, logger_instance=logger)
             flash(f'SIGMA re-processing complete for "{case_file.original_filename}". Found {result.get("violations", 0)} violations.', 'success')
         else:
+            from tasks import commit_with_retry
             case_file.indexing_status = f'Failed: {result.get("message", "Unknown error")}'
-            db.session.commit()
+            commit_with_retry(db.session, logger_instance=logger)
             flash(f'SIGMA re-processing failed: {result.get("message")}', 'error')
     except Exception as e:
         logger.error(f"[RECHAINSAW SINGLE] Error: {e}", exc_info=True)
+        from tasks import commit_with_retry
         case_file.indexing_status = f'Failed: {str(e)[:100]}'
-        db.session.commit()
+        commit_with_retry(db.session, logger_instance=logger)
         flash(f'SIGMA re-processing failed: {str(e)}', 'error')
     
     return redirect(url_for('files.case_files', case_id=case_id))
@@ -753,17 +756,20 @@ def rehunt_iocs_single_file(case_id, file_id):
         
         if result['status'] == 'success':
             # Update status back to Completed
+            from tasks import commit_with_retry
             case_file.indexing_status = 'Completed'
-            db.session.commit()
+            commit_with_retry(db.session, logger_instance=logger)
             flash(f'IOC re-hunting complete for "{case_file.original_filename}". Found {result.get("matches", 0)} IOC match(es).', 'success')
         else:
+            from tasks import commit_with_retry
             case_file.indexing_status = f'Failed: {result.get("message", "Unknown error")}'
-            db.session.commit()
+            commit_with_retry(db.session, logger_instance=logger)
             flash(f'IOC re-hunting failed: {result.get("message")}', 'error')
     except Exception as e:
         logger.error(f"[REHUNT IOCS SINGLE] Error: {e}", exc_info=True)
+        from tasks import commit_with_retry
         case_file.indexing_status = f'Failed: {str(e)[:100]}'
-        db.session.commit()
+        commit_with_retry(db.session, logger_instance=logger)
         flash(f'IOC re-hunting failed: {str(e)}', 'error')
     
     return redirect(url_for('files.case_files', case_id=case_id))

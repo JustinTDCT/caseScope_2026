@@ -198,7 +198,7 @@ def process_file(self, file_id, operation='full'):
                 
                 if dup_result['status'] == 'skip':
                     case_file.indexing_status = 'Completed'
-                    db.session.commit()
+                    commit_with_retry(db.session, logger_instance=logger)
                     return {'status': 'success', 'message': 'Skipped (duplicate)'}
                 
                 # Step 2: Index file
@@ -288,7 +288,7 @@ def process_file(self, file_id, operation='full'):
                 # Mark as completed
                 case_file.indexing_status = 'Completed'
                 case_file.celery_task_id = None
-                db.session.commit()
+                commit_with_retry(db.session, logger_instance=logger)
                 
                 logger.info(f"[TASK] ✓ File {file_id} completed successfully (events={index_result['event_count']}, violations={chainsaw_result.get('violations', 0)}, ioc_matches={ioc_result.get('matches', 0)})")
                 
@@ -332,7 +332,7 @@ def process_file(self, file_id, operation='full'):
                 )
                 
                 case_file.indexing_status = 'Completed'
-                db.session.commit()
+                commit_with_retry(db.session, logger_instance=logger)
                 return result
             
             # IOC ONLY
@@ -353,7 +353,7 @@ def process_file(self, file_id, operation='full'):
                 )
                 
                 case_file.indexing_status = 'Completed'
-                db.session.commit()
+                commit_with_retry(db.session, logger_instance=logger)
                 return result
             
             else:

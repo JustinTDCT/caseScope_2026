@@ -125,7 +125,8 @@ def cleanup_queue(db, CaseFile, case_id: Optional[int] = None) -> Dict:
         
         # Commit 0-event file fixes
         if result['failed_fixed'] > 0:
-            db.session.commit()
+            from tasks import commit_with_retry
+            commit_with_retry(db.session, logger_instance=logger)
             logger.info(f"[QUEUE CLEANUP] ✓ Fixed {result['failed_fixed']} 0-event/CyLR files (now hidden)")
         
         # ============================================================================
