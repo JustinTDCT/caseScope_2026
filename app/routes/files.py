@@ -701,6 +701,8 @@ def rehunt_iocs_single_file(case_id, file_id):
                 '_id': hit['_id'],
                 'doc': {
                     'has_ioc': False,
+                    'ioc_count': 0,
+                    'ioc_details': [],
                     'matched_iocs': []
                 }
             })
