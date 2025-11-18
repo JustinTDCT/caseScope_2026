@@ -414,6 +414,52 @@ class DFIRIrisClient:
                     return True
         
         return False
+    
+    def upload_evidence_file(self, case_id: int, file_path: str, filename: str, description: str = '') -> Optional[int]:
+        """Upload evidence file to DFIR-IRIS datastore"""
+        try:
+            # DFIR-IRIS datastore uses multipart/form-data for file uploads
+            # We need to use requests directly instead of _request method
+            url = f"{self.url}/case/datastore/file/add"
+            
+            # Read file
+            with open(file_path, 'rb') as f:
+                files = {
+                    'file': (filename, f, 'application/octet-stream')
+                }
+                
+                # Form data
+                data = {
+                    'file_description': description or f'Evidence file from CaseScope: {filename}',
+                    'file_tags': 'casescope,evidence',
+                    'file_is_evidence': 'on',  # Mark as evidence file
+                    'file_password': '',  # No password by default
+                    'cid': case_id
+                }
+                
+                # Upload file
+                response = requests.post(
+                    url,
+                    headers={'Authorization': f'Bearer {self.api_key}'},
+                    files=files,
+                    data=data,
+                    timeout=60,  # Longer timeout for file uploads
+                    verify=False  # Disable SSL verification for self-signed certs
+                )
+                
+                response.raise_for_status()
+                result = response.json() if response.text else {}
+                
+                if result and 'data' in result:
+                    file_id = result['data'].get('file_id') or result['data'].get('id')
+                    logger.info(f"[DFIR-IRIS] Evidence file uploaded: {filename} (ID: {file_id})")
+                    return file_id
+                
+        except Exception as e:
+            logger.error(f"[DFIR-IRIS] Failed to upload evidence file {filename}: {e}")
+            return None
+        
+        return None
 
 
 def sync_case_to_dfir_iris(db_session, opensearch_client, case_id: int, iris_client: DFIRIrisClient) -> Dict[str, Any]:

@@ -313,8 +313,8 @@ def get_console_logins(opensearch_client, case_id: int, date_range: str = 'all',
         if date_filter:
             must_conditions.append(date_filter)
         
+        # Use Scroll API for unlimited results (bypasses 10,000 limit)
         query = {
-            "size": 10000,  # Max results to process
             "_source": [
                 "normalized_timestamp",
                 "normalized_event_id",
@@ -335,16 +335,44 @@ def get_console_logins(opensearch_client, case_id: int, date_range: str = 'all',
         }
         
         logger.info(f"[CONSOLE_LOGINS] Searching for Event ID 4624 with LogonType=2 in case {case_id}")
-        result = opensearch_client.search(index=index_pattern, body=query)
         
-        total_events = result['hits']['total']['value']
-        logger.info(f"[CONSOLE_LOGINS] Found {total_events} Event ID 4624 LogonType=2 events")
+        # Use scroll API to get all results
+        scroll_id = None
+        all_hits = []
+        try:
+            result = opensearch_client.search(
+                index=index_pattern, 
+                body=query,
+                scroll='2m',
+                size=1000
+            )
+            
+            total_events = result['hits']['total']['value']
+            logger.info(f"[CONSOLE_LOGINS] Found {total_events} Event ID 4624 events")
+            
+            scroll_id = result['_scroll_id']
+            all_hits.extend(result['hits']['hits'])
+            
+            while len(result['hits']['hits']) > 0:
+                result = opensearch_client.scroll(scroll_id=scroll_id, scroll='2m')
+                scroll_id = result['_scroll_id']
+                all_hits.extend(result['hits']['hits'])
+                if len(result['hits']['hits']) == 0:
+                    break
+            
+            logger.info(f"[CONSOLE_LOGINS] Retrieved {len(all_hits)} total events via scroll")
+        finally:
+            if scroll_id:
+                try:
+                    opensearch_client.clear_scroll(scroll_id=scroll_id)
+                except:
+                    pass
         
         # Process results to extract distinct username/computer pairs
         seen_combinations = set()  # (username, computer) tuples
         distinct_logins = []
         
-        for hit in result['hits']['hits']:
+        for hit in all_hits:
             source = hit['_source']
             
             # v1.13.9 FIX: Filter by LogonType=2 in Python (EventData is JSON string)
@@ -463,8 +491,8 @@ def get_rdp_connections(opensearch_client, case_id: int, date_range: str = 'all'
         if date_filter:
             must_conditions.append(date_filter)
         
+        # Use Scroll API for unlimited results (bypasses 10,000 limit)
         query = {
-            "size": 10000,  # Max results to process
             "_source": [
                 "normalized_timestamp",
                 "normalized_event_id",
@@ -485,16 +513,44 @@ def get_rdp_connections(opensearch_client, case_id: int, date_range: str = 'all'
         }
         
         logger.info(f"[RDP_ANALYSIS] Searching for Event ID 1149 in case {case_id}")
-        result = opensearch_client.search(index=index_pattern, body=query)
         
-        total_events = result['hits']['total']['value']
-        logger.info(f"[RDP_ANALYSIS] Found {total_events} Event ID 1149 events")
+        # Use scroll API to get all results
+        scroll_id = None
+        all_hits = []
+        try:
+            result = opensearch_client.search(
+                index=index_pattern, 
+                body=query,
+                scroll='2m',
+                size=1000
+            )
+            
+            total_events = result['hits']['total']['value']
+            logger.info(f"[RDP_ANALYSIS] Found {total_events} Event ID 1149 events")
+            
+            scroll_id = result['_scroll_id']
+            all_hits.extend(result['hits']['hits'])
+            
+            while len(result['hits']['hits']) > 0:
+                result = opensearch_client.scroll(scroll_id=scroll_id, scroll='2m')
+                scroll_id = result['_scroll_id']
+                all_hits.extend(result['hits']['hits'])
+                if len(result['hits']['hits']) == 0:
+                    break
+            
+            logger.info(f"[RDP_ANALYSIS] Retrieved {len(all_hits)} total events via scroll")
+        finally:
+            if scroll_id:
+                try:
+                    opensearch_client.clear_scroll(scroll_id=scroll_id)
+                except:
+                    pass
         
         # Process results to extract distinct username/computer pairs
         seen_combinations = set()  # (username, computer) tuples
         distinct_connections = []
         
-        for hit in result['hits']['hits']:
+        for hit in all_hits:
             source = hit['_source']
             
             # Extract computer name (same as other login functions)
@@ -646,8 +702,15 @@ def _extract_rdp_username(source: Dict) -> Optional[str]:
             except:
                 pass
         if isinstance(user_data, dict):
-            if 'EventXML' in user_data and isinstance(user_data['EventXML'], dict):
-                username = user_data['EventXML'].get('Param1')
+            event_xml = user_data.get('EventXML')
+            # EventXML might also be a JSON string!
+            if isinstance(event_xml, str):
+                try:
+                    event_xml = json.loads(event_xml)
+                except:
+                    pass
+            if isinstance(event_xml, dict):
+                username = event_xml.get('Param1')
                 if username and _is_valid_username(username):
                     return username
     
@@ -660,8 +723,15 @@ def _extract_rdp_username(source: Dict) -> Optional[str]:
         except:
             pass
     if isinstance(user_data, dict):
-        if 'EventXML' in user_data and isinstance(user_data['EventXML'], dict):
-            username = user_data['EventXML'].get('Param1')
+        event_xml = user_data.get('EventXML')
+        # EventXML might also be a JSON string!
+        if isinstance(event_xml, str):
+            try:
+                event_xml = json.loads(event_xml)
+            except:
+                pass
+        if isinstance(event_xml, dict):
+            username = event_xml.get('Param1')
             if username and _is_valid_username(username):
                 return username
     
@@ -791,8 +861,8 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
         if date_filter:
             must_conditions.append(date_filter)
         
+        # Use Scroll API for unlimited results (bypasses 10,000 limit)
         query = {
-            "size": 10000,  # Max results to process
             "_source": [
                 "normalized_timestamp",
                 "normalized_event_id",
@@ -808,7 +878,40 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
         }
         
         logger.info(f"[VPN_AUTHS] Searching for Event ID 4624 or 6272 with IP {firewall_ip} in case {case_id}")
-        result = opensearch_client.search(index=index_pattern, body=query)
+        
+        # Use scroll API to get all results
+        scroll_id = None
+        all_hits = []
+        try:
+            result = opensearch_client.search(
+                index=index_pattern, 
+                body=query,
+                scroll='2m',
+                size=1000
+            )
+            
+            total_events = result['hits']['total']['value']
+            logger.info(f"[VPN_AUTHS] Found {total_events} VPN authentication events")
+            
+            scroll_id = result['_scroll_id']
+            all_hits.extend(result['hits']['hits'])
+            
+            while len(result['hits']['hits']) > 0:
+                result = opensearch_client.scroll(scroll_id=scroll_id, scroll='2m')
+                scroll_id = result['_scroll_id']
+                all_hits.extend(result['hits']['hits'])
+                if len(result['hits']['hits']) == 0:
+                    break
+            
+            logger.info(f"[VPN_AUTHS] Retrieved {len(all_hits)} total events via scroll")
+        finally:
+            if scroll_id:
+                try:
+                    opensearch_client.clear_scroll(scroll_id=scroll_id)
+                except:
+                    pass
+        
+        result = {'hits': {'hits': all_hits, 'total': {'value': len(all_hits)}}}
         
         total_events = result['hits']['total']['value']
         logger.info(f"[VPN_AUTHS] Found {total_events} VPN authentication events")
@@ -996,8 +1099,8 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
         if date_filter:
             must_conditions.append(date_filter)
         
+        # Use Scroll API for unlimited results (bypasses 10,000 limit)
         query = {
-            "size": 10000,  # Max results to process
             "_source": [
                 "normalized_timestamp",
                 "normalized_event_id",
@@ -1013,7 +1116,40 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
         }
         
         logger.info(f"[FAILED_VPN] Searching for Event ID 4625 or 6273 with IP {firewall_ip} in case {case_id}")
-        result = opensearch_client.search(index=index_pattern, body=query)
+        
+        # Use scroll API to get all results
+        scroll_id = None
+        all_hits = []
+        try:
+            result = opensearch_client.search(
+                index=index_pattern, 
+                body=query,
+                scroll='2m',
+                size=1000
+            )
+            
+            total_events = result['hits']['total']['value']
+            logger.info(f"[FAILED_VPN] Found {total_events} failed VPN attempt events")
+            
+            scroll_id = result['_scroll_id']
+            all_hits.extend(result['hits']['hits'])
+            
+            while len(result['hits']['hits']) > 0:
+                result = opensearch_client.scroll(scroll_id=scroll_id, scroll='2m')
+                scroll_id = result['_scroll_id']
+                all_hits.extend(result['hits']['hits'])
+                if len(result['hits']['hits']) == 0:
+                    break
+            
+            logger.info(f"[FAILED_VPN] Retrieved {len(all_hits)} total events via scroll")
+        finally:
+            if scroll_id:
+                try:
+                    opensearch_client.clear_scroll(scroll_id=scroll_id)
+                except:
+                    pass
+        
+        result = {'hits': {'hits': all_hits, 'total': {'value': len(all_hits)}}}
         
         total_events = result['hits']['total']['value']
         logger.info(f"[FAILED_VPN] Found {total_events} failed VPN attempt events")

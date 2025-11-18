@@ -382,6 +382,37 @@ class AIReportChat(db.Model):
     user = db.relationship('User', backref='ai_chat_messages', foreign_keys=[user_id])
 
 
+class EvidenceFile(db.Model):
+    """Evidence files - archival storage (NOT processed/indexed)"""
+    __tablename__ = 'evidence_file'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
+    filename = db.Column(db.String(500), nullable=False)
+    original_filename = db.Column(db.String(500), nullable=False)
+    file_path = db.Column(db.String(1000), nullable=False)
+    file_size = db.Column(db.BigInteger, default=0)  # bytes
+    size_mb = db.Column(db.Integer, default=0)  # MB rounded
+    file_hash = db.Column(db.String(64), index=True)  # SHA256
+    file_type = db.Column(db.String(50))  # Detected extension (png, jpg, pdf, docx, xlsx, zip, etc.)
+    mime_type = db.Column(db.String(100))
+    description = db.Column(db.Text)  # User-provided description of evidence
+    
+    # Upload metadata
+    upload_source = db.Column(db.String(20), default='http')  # http, bulk
+    uploaded_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # DFIR-IRIS integration
+    dfir_iris_synced = db.Column(db.Boolean, default=False)
+    dfir_iris_file_id = db.Column(db.String(100))  # DFIR-IRIS datastore file ID
+    dfir_iris_sync_date = db.Column(db.DateTime)
+    
+    # Relationships
+    case = db.relationship('Case', backref='evidence_files')
+    uploader = db.relationship('User', foreign_keys=[uploaded_by])
+
+
 class CaseTimeline(db.Model):
     """AI-generated case timelines for chronological analysis"""
     __tablename__ = 'case_timeline'

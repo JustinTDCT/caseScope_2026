@@ -1799,8 +1799,17 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                             })
 
                         if bulk_updates:
-                            opensearch_bulk(opensearch_client, bulk_updates)
-                            logger.info(f"[HUNT IOCS] Updated OpenSearch batch {i//batch_size + 1} ({len(bulk_updates)} events) with IOC type: {ioc.ioc_type}")
+                            try:
+                                success_count, errors = opensearch_bulk(opensearch_client, bulk_updates, raise_on_error=False, raise_on_exception=False)
+                                if errors:
+                                    logger.error(f"[HUNT IOCS] Bulk update had {len(errors)} errors for IOC type: {ioc.ioc_type}")
+                                    # Log first error for debugging
+                                    if errors:
+                                        logger.error(f"[HUNT IOCS] First error: {errors[0]}")
+                                else:
+                                    logger.info(f"[HUNT IOCS] ✅ Updated OpenSearch batch {i//batch_size + 1} ({success_count} events) with IOC type: {ioc.ioc_type}")
+                            except Exception as bulk_err:
+                                logger.error(f"[HUNT IOCS] Bulk update exception: {bulk_err}")
             
             except Exception as e:
                 logger.error(f"[HUNT IOCS] Error searching for IOC {ioc.ioc_value}: {e}")

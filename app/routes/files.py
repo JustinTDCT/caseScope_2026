@@ -694,6 +694,7 @@ def rehunt_iocs_single_file(case_id, file_id):
         }
         
         actions = []
+        cleared_count = 0
         for hit in opensearch_scan(opensearch_client, index=index_name, query=query, scroll='5m'):
             actions.append({
                 '_op_type': 'update',
@@ -708,13 +709,19 @@ def rehunt_iocs_single_file(case_id, file_id):
             })
             
             if len(actions) >= 100:
-                opensearch_bulk(opensearch_client, actions, raise_on_error=False)
+                success, errors = opensearch_bulk(opensearch_client, actions, raise_on_error=False, raise_on_exception=False)
+                if errors:
+                    logger.error(f"[REHUNT IOCS SINGLE] Clearing had {len(errors)} errors. First error: {errors[0] if errors else 'N/A'}")
+                cleared_count += success
                 actions = []
         
         if actions:
-            opensearch_bulk(opensearch_client, actions, raise_on_error=False)
+            success, errors = opensearch_bulk(opensearch_client, actions, raise_on_error=False, raise_on_exception=False)
+            if errors:
+                logger.error(f"[REHUNT IOCS SINGLE] Final clearing batch had {len(errors)} errors. First error: {errors[0] if errors else 'N/A'}")
+            cleared_count += success
         
-        logger.info(f"[REHUNT IOCS SINGLE] Cleared IOC flags from events for file {file_id}")
+        logger.info(f"[REHUNT IOCS SINGLE] ✅ Cleared IOC flags from {cleared_count} events for file {file_id}")
     
     except Exception as e:
         logger.warning(f"[REHUNT IOCS SINGLE] Could not clear OpenSearch IOC flags: {e}")

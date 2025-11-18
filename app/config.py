@@ -36,6 +36,10 @@ class Config:
     ARCHIVE_FOLDER = '/opt/casescope/archive'
     LOCAL_UPLOAD_FOLDER = '/opt/casescope/local_uploads'
     
+    # Evidence Files (archival storage - NOT processed/indexed)
+    EVIDENCE_FOLDER = '/opt/casescope/evidence'
+    EVIDENCE_UPLOAD_FOLDER = '/opt/casescope/evidence_uploads'
+    
     # Processing
     MAX_WORKERS = 2  # Process 2 files at a time
     EVTX_DUMP_PATH = '/opt/casescope/bin/evtx_dump'

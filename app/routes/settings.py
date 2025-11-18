@@ -363,14 +363,73 @@ def sync_now():
                 systems_failed += 1
                 logger.error(f"Error syncing system {system.system_name} (ID: {system.id}): {e}")
         
+        # Sync all evidence files
+        from models import EvidenceFile
+        from datetime import datetime
+        evidence_synced = 0
+        evidence_failed = 0
+        
+        # Get all evidence files across all cases
+        all_evidence = db.session.query(EvidenceFile).all()
+        
+        for evidence_file in all_evidence:
+            try:
+                # Get case for this evidence file
+                case = db.session.get(Case, evidence_file.case_id)
+                if not case:
+                    continue
+                
+                # Get or create customer and case in DFIR-IRIS
+                company_name = case.company or 'Unknown Company'
+                customer_id = client.get_or_create_customer(company_name)
+                if not customer_id:
+                    evidence_failed += 1
+                    continue
+                
+                iris_case_id = client.get_or_create_case(customer_id, case.name, case.description or '', company_name)
+                if not iris_case_id:
+                    evidence_failed += 1
+                    continue
+                
+                # Check if file exists on disk
+                import os
+                if not os.path.exists(evidence_file.file_path):
+                    evidence_failed += 1
+                    logger.warning(f"Evidence file not found: {evidence_file.file_path}")
+                    continue
+                
+                # Upload to DFIR-IRIS
+                file_id = client.upload_evidence_file(
+                    iris_case_id,
+                    evidence_file.file_path,
+                    evidence_file.original_filename,
+                    evidence_file.description or ''
+                )
+                
+                if file_id:
+                    # Update evidence file record
+                    evidence_file.dfir_iris_synced = True
+                    evidence_file.dfir_iris_file_id = str(file_id)
+                    evidence_file.dfir_iris_sync_date = datetime.utcnow()
+                    db.session.commit()
+                    evidence_synced += 1
+                else:
+                    evidence_failed += 1
+            except Exception as e:
+                evidence_failed += 1
+                logger.error(f"Error syncing evidence file {evidence_file.id}: {e}")
+                db.session.rollback()
+        
         # Build response message
         messages = []
         if cases_synced > 0:
             messages.append(f'{cases_synced} case(s)')
         if systems_synced > 0:
             messages.append(f'{systems_synced} system(s)')
+        if evidence_synced > 0:
+            messages.append(f'{evidence_synced} evidence file(s)')
         
-        if cases_failed == 0 and systems_failed == 0:
+        if cases_failed == 0 and systems_failed == 0 and evidence_failed == 0:
             return jsonify({
                 'success': True,
                 'message': f'✓ Successfully synced {", ".join(messages)} to DFIR-IRIS'
@@ -381,9 +440,11 @@ def sync_now():
                 fail_messages.append(f'{cases_failed} case(s) failed')
             if systems_failed > 0:
                 fail_messages.append(f'{systems_failed} system(s) failed')
+            if evidence_failed > 0:
+                fail_messages.append(f'{evidence_failed} evidence file(s) failed')
             
             return jsonify({
-                'success': True if cases_synced > 0 or systems_synced > 0 else False,
+                'success': True if cases_synced > 0 or systems_synced > 0 or evidence_synced > 0 else False,
                 'message': f'⚠️ Synced {", ".join(messages)}. Failed: {", ".join(fail_messages)}. Check logs for details.'
             })
     

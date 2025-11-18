@@ -904,6 +904,10 @@ def extract_event_fields(event_source: Dict[str, Any]) -> Dict[str, Any]:
     fields['has_sigma'] = bool(event_source.get('has_sigma'))
     fields['has_ioc'] = bool(event_source.get('has_ioc'))
     
+    # IOC details for displaying specific IOC types in UI (v1.16.x)
+    fields['ioc_details'] = event_source.get('ioc_details', [])
+    fields['matched_iocs'] = event_source.get('matched_iocs', [])
+    
     return fields
 
 

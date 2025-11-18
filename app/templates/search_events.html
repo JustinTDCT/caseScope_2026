@@ -487,8 +487,8 @@
                                 <span class="status-badge status-sigma" style="font-size: 0.75rem;">SIGMA</span>
                                 {% endif %}
                                 {% if event.has_ioc %}
-                                    {% if event.ioc_types and event.ioc_types|length > 0 %}
-                                        {% for ioc_type in event.ioc_types %}
+                                    {% if event.ioc_details and event.ioc_details|length > 0 %}
+                                        {% for ioc_type in event.ioc_details %}
                                         <span class="status-badge status-ioc" style="font-size: 0.75rem;" title="IOC: {{ ioc_type }}">{{ ioc_type|upper }}</span>
                                         {% endfor %}
                                     {% else %}
