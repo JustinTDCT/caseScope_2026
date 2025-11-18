@@ -36,3 +36,7 @@ lora_training/models/*/
 bulk_import/
 local_uploads/
 data/
+
+# Evidence storage directories
+evidence/
+evidence_uploads/

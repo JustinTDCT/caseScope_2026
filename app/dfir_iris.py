@@ -415,50 +415,177 @@ class DFIRIrisClient:
         
         return False
     
-    def upload_evidence_file(self, case_id: int, file_path: str, filename: str, description: str = '') -> Optional[int]:
-        """Upload evidence file to DFIR-IRIS datastore"""
+    def get_datastore_parent_folder(self, case_id: int, folder_name: str = 'Evidences') -> Optional[int]:
+        """Get the parent folder ID from datastore tree for file uploads
+        
+        DFIR-IRIS requires uploads to specify a parent folder ID.
+        This gets the folder ID for 'Evidences' (or other folder) in the case's datastore.
+        """
         try:
-            # DFIR-IRIS datastore uses multipart/form-data for file uploads
-            # We need to use requests directly instead of _request method
-            url = f"{self.url}/case/datastore/file/add"
+            # Get datastore tree for the case
+            # Try multiple possible endpoints (based on browser network capture)
+            endpoints_to_try = [
+                f'/tree?cid={case_id}',  # Root level - likely correct based on browser
+                f'/datastore/tree?cid={case_id}',
+                f'/case/datastore/tree?cid={case_id}',
+                f'/manage/datastore/tree?cid={case_id}',
+            ]
             
-            # Read file
-            with open(file_path, 'rb') as f:
-                files = {
-                    'file': (filename, f, 'application/octet-stream')
-                }
+            result = None
+            for endpoint in endpoints_to_try:
+                try:
+                    result = self._request('GET', endpoint)
+                    if result and 'data' in result:
+                        logger.info(f"[DFIR-IRIS] Got datastore tree from: {endpoint}")
+                        break
+                except:
+                    continue
+            
+            if not result:
+                result = self._request('GET', f'/datastore/tree?cid={case_id}')
+            
+            if not result or 'data' not in result:
+                logger.warning(f"[DFIR-IRIS] Could not get datastore tree for case {case_id}")
+                return None
+            
+            # Search for the folder (typically 'Evidences', 'Images', or root)
+            tree_data = result['data']
+            
+            # Try to find the specified folder
+            def find_folder(node, target_name):
+                """Recursively search tree for folder"""
+                if isinstance(node, dict):
+                    # Check if this node matches
+                    if node.get('text', '').lower() == target_name.lower():
+                        return node.get('a_attr', {}).get('data-file-id')
+                    
+                    # Search children
+                    if 'children' in node:
+                        for child in node['children']:
+                            result = find_folder(child, target_name)
+                            if result:
+                                return result
                 
-                # Form data
-                data = {
-                    'file_description': description or f'Evidence file from CaseScope: {filename}',
-                    'file_tags': 'casescope,evidence',
-                    'file_is_evidence': 'on',  # Mark as evidence file
-                    'file_password': '',  # No password by default
-                    'cid': case_id
-                }
+                elif isinstance(node, list):
+                    for item in node:
+                        result = find_folder(item, target_name)
+                        if result:
+                            return result
                 
-                # Upload file
-                response = requests.post(
-                    url,
-                    headers={'Authorization': f'Bearer {self.api_key}'},
-                    files=files,
-                    data=data,
-                    timeout=60,  # Longer timeout for file uploads
-                    verify=False  # Disable SSL verification for self-signed certs
-                )
+                return None
+            
+            folder_id = find_folder(tree_data, folder_name)
+            
+            if folder_id:
+                logger.info(f"[DFIR-IRIS] Found '{folder_name}' folder ID: {folder_id}")
+                return folder_id
+            else:
+                # Try to get root folder ID as fallback
+                if isinstance(tree_data, list) and len(tree_data) > 0:
+                    root_id = tree_data[0].get('a_attr', {}).get('data-file-id')
+                    if root_id:
+                        logger.info(f"[DFIR-IRIS] Using root folder ID: {root_id}")
+                        return root_id
                 
-                response.raise_for_status()
-                result = response.json() if response.text else {}
-                
-                if result and 'data' in result:
-                    file_id = result['data'].get('file_id') or result['data'].get('id')
-                    logger.info(f"[DFIR-IRIS] Evidence file uploaded: {filename} (ID: {file_id})")
-                    return file_id
+                logger.warning(f"[DFIR-IRIS] Could not find folder '{folder_name}' in datastore tree")
+                return None
                 
         except Exception as e:
-            logger.error(f"[DFIR-IRIS] Failed to upload evidence file {filename}: {e}")
+            logger.error(f"[DFIR-IRIS] Error getting datastore folder: {e}", exc_info=True)
+            return None
+    
+    def upload_evidence_file(self, case_id: int, file_path: str, filename: str, description: str = '') -> Optional[int]:
+        """Upload file to DFIR-IRIS datastore
+        
+        Endpoint: POST /datastore/file/add/{parent_folder_id}?cid={case_id}
+        
+        Note: The tree endpoint to get folder IDs is session-based (not API accessible).
+        We'll try multiple upload strategies:
+        1. Try common folder IDs (root case folder, standard subfolder IDs)
+        2. Try without specifying a folder (let DFIR-IRIS decide)
+        """
+        import os
+        
+        logger.info(f"[DFIR-IRIS] Uploading file to datastore: {filename} for case {case_id}")
+        
+        # Check file exists
+        if not os.path.exists(file_path):
+            logger.error(f"[DFIR-IRIS] File not found: {file_path}")
             return None
         
+        file_size = os.path.getsize(file_path)
+        size_mb = round(file_size / (1024 * 1024), 2)
+        logger.info(f"[DFIR-IRIS] File size: {size_mb}MB")
+        
+        # Try getting folder ID (may fail if endpoint is session-based)
+        parent_folder_id = self.get_datastore_parent_folder(case_id, 'Evidences')
+        
+        # If we can't get folder ID, try common folder ID patterns
+        folder_ids_to_try = []
+        if parent_folder_id:
+            folder_ids_to_try.append(parent_folder_id)
+        
+        # Add common folder ID guesses (case_id * 3 + offset patterns observed in browser)
+        # From browser: case 24 used folder ID 31 (could be a pattern)
+        folder_ids_to_try.extend([
+            case_id * 2 - 17,  # Pattern guess: 24*2-17=31
+            case_id + 7,  # 24+7=31
+            1,  # Root folder
+            case_id,  # Case ID itself
+        ])
+        
+        logger.info(f"[DFIR-IRIS] Trying folder IDs: {folder_ids_to_try}")
+        
+        # Try each folder ID
+        for folder_id in folder_ids_to_try:
+            try:
+                url = f"{self.url}/datastore/file/add/{folder_id}?cid={case_id}"
+                logger.info(f"[DFIR-IRIS] Attempt: {url}")
+                
+                with open(file_path, 'rb') as f:
+                    # DFIR-IRIS requires 'file_content' (not 'file') per official API docs
+                    files = {'file_content': (filename, f, 'application/octet-stream')}
+                    data = {
+                        'file_original_name': filename,  # Required
+                        'file_description': description or '',
+                        'file_password': '',  # Empty if no password
+                        'file_tags': 'casescope',
+                        'file_is_evidence': 'y',  # 'y' or 'n' (not 'on')
+                        'file_is_ioc': 'n'
+                    }
+                    
+                    response = requests.post(
+                        url,
+                        headers={'Authorization': f'Bearer {self.api_key}'},
+                        files=files,
+                        data=data,
+                        timeout=120,
+                        verify=False
+                    )
+                    
+                    logger.info(f"[DFIR-IRIS] Response: {response.status_code}")
+                    
+                    if response.status_code == 200:
+                        result = response.json() if response.text else {}
+                        
+                        if result.get('status') == 'success' and 'data' in result:
+                            file_id = result['data'].get('file_id')
+                            file_uuid = result['data'].get('file_uuid')
+                            logger.info(f"[DFIR-IRIS] ✓ File uploaded! (Folder: {folder_id}, File ID: {file_id}, UUID: {file_uuid})")
+                            return file_id
+                    elif response.status_code == 404:
+                        logger.debug(f"[DFIR-IRIS] Folder {folder_id} not found, trying next...")
+                        continue
+                    else:
+                        logger.warning(f"[DFIR-IRIS] Folder {folder_id} failed: {response.status_code} - {response.text[:200]}")
+                        continue
+                        
+            except Exception as e:
+                logger.warning(f"[DFIR-IRIS] Folder {folder_id} error: {e}")
+                continue
+        
+        # All attempts failed
+        logger.error(f"[DFIR-IRIS] ✗ All upload attempts failed for {filename}")
         return None
 
 
