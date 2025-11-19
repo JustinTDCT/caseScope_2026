@@ -187,6 +187,90 @@ def normalize_event_id(event: Dict[str, Any]) -> Optional[str]:
     return event_id if event_id else None
 
 
+def create_search_blob(event: Dict[str, Any]) -> str:
+    """
+    Create flattened search blob from nested event data
+    
+    Extracts text from EventData, Data, UserData, message fields and:
+    - Flattens nested structures (dicts, arrays)
+    - Replaces \\r\\n line breaks with spaces
+    - Normalizes whitespace
+    
+    This solves the IOC matching issue where simple_query_string phrase matching
+    fails on multi-line text like:
+      "Transferred files...\\r\\nHide-Mouse-on-blankscreen.exe\\r\\n..."
+    
+    The \\r\\n breaks phrase boundaries, preventing matches. The search_blob
+    field contains the same content but normalized for reliable phrase matching.
+    
+    Args:
+        event: Original event dictionary
+    
+    Returns:
+        Flattened, normalized text string for searching
+    """
+    def extract_text(obj, depth=0):
+        """Recursively extract text from nested structures"""
+        if depth > 10:  # Prevent infinite recursion
+            return ""
+        
+        if isinstance(obj, str):
+            # Normalize line breaks and extra whitespace
+            text = obj.replace('\\r\\n', ' ').replace('\\n', ' ').replace('\\r', ' ')
+            text = text.replace('\r\n', ' ').replace('\n', ' ').replace('\r', ' ')
+            return text
+        elif isinstance(obj, dict):
+            # Recursively extract from all dict values
+            texts = []
+            for v in obj.values():
+                text = extract_text(v, depth + 1)
+                if text:
+                    texts.append(text)
+            return ' '.join(texts)
+        elif isinstance(obj, list):
+            # Extract from all list items
+            texts = []
+            for item in obj:
+                text = extract_text(item, depth + 1)
+                if text:
+                    texts.append(text)
+            return ' '.join(texts)
+        else:
+            return str(obj) if obj is not None else ""
+    
+    # Extract from key searchable fields
+    blob_parts = []
+    
+    # EVTX EventData (stringified JSON or object)
+    if 'EventData' in event:
+        blob_parts.append(extract_text(event['EventData']))
+    
+    # Application log Data field (nested arrays with #text)
+    if 'Data' in event:
+        blob_parts.append(extract_text(event['Data']))
+    
+    # UserData (less common but searchable)
+    if 'UserData' in event:
+        blob_parts.append(extract_text(event['UserData']))
+    
+    # Message field (common in EDR/JSON)
+    if 'message' in event:
+        blob_parts.append(extract_text(event['message']))
+    
+    # Event.EventData for wrapped structures
+    if 'Event' in event and isinstance(event.get('Event'), dict):
+        if 'EventData' in event['Event']:
+            blob_parts.append(extract_text(event['Event']['EventData']))
+        if 'UserData' in event['Event']:
+            blob_parts.append(extract_text(event['Event']['UserData']))
+    
+    # Join all parts and normalize whitespace
+    search_blob = ' '.join(blob_parts)
+    search_blob = ' '.join(search_blob.split())  # Collapse multiple spaces to single space
+    
+    return search_blob
+
+
 def normalize_event(event: Dict[str, Any]) -> Dict[str, Any]:
     """
     Add normalized fields to event for consistent search/display
@@ -195,6 +279,7 @@ def normalize_event(event: Dict[str, Any]) -> Dict[str, Any]:
     - normalized_timestamp: ISO 8601 timestamp
     - normalized_computer: Computer/hostname
     - normalized_event_id: Event ID
+    - search_blob: Flattened searchable text (v1.16.24)
     
     Args:
         event: Original event dictionary
@@ -216,6 +301,12 @@ def normalize_event(event: Dict[str, Any]) -> Dict[str, Any]:
     normalized_id = normalize_event_id(event)
     if normalized_id:
         event['normalized_event_id'] = normalized_id
+    
+    # Add search blob for improved IOC/search matching (v1.16.24)
+    # Flattens nested data and normalizes line breaks
+    search_blob = create_search_blob(event)
+    if search_blob:
+        event['search_blob'] = search_blob
     
     return event
 
