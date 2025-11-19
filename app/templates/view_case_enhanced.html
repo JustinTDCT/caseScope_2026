@@ -1038,7 +1038,7 @@ function loadAIReportsList() {
             const createdDate = new Date(timeline.created_at).toLocaleString();
             
             html += `
-                <div style="border: 2px solid #f59e0b; border-radius: 8px; padding: var(--spacing-md); background: ${timeline.status === 'completed' ? 'rgba(245, 158, 11, 0.05)' : 'var(--color-bg)'};">
+                <div style="border: 1px solid var(--color-border); border-radius: 8px; padding: var(--spacing-md); background: ${timeline.status === 'completed' ? 'var(--color-bg-secondary)' : 'var(--color-bg)'};">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--spacing-md);">
                         <div style="flex: 1;">
                             <h3 style="margin: 0 0 var(--spacing-xs) 0; font-size: 1rem;">

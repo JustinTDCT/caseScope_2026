@@ -895,7 +895,7 @@ def view_ai_report(report_id):
             self.progress_percent = report.progress_percent or 0
             self.progress_message = report.progress_message or 'Initializing...'
             self.created_at = report.created_at
-            self.user = report.user
+            self.user = report.generator  # AIReport uses 'generator' relationship, not 'user'
             self.validation = validation
     
     report_view = ReportView(report, validation_data)
