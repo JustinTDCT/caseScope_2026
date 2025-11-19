@@ -83,41 +83,15 @@ def build_search_query(
         
         escaped_query = escape_lucene(search_text)
         
-        # CRITICAL FIX: default_operator="AND" + analyze_wildcard breaks dash-separated terms
-        # Example: "Hide-Mouse-on-blankscreen.exe" gets tokenized, then ALL tokens required → 0 results
-        # Root cause: OpenSearch tokenizes on dashes, then requires ALL terms match
-        # 
-        # Solution: Use minimal query for simple searches (just lenient: True)
-        # Only add operators/wildcards when user explicitly uses them
-        # Testing: "Hide-Mouse-on-blankscreen.exe"
-        #   - Basic (lenient only) → 76 results ✅
-        #   - + default_operator="AND" → 0 results ❌
-        #   - + analyze_wildcard → 0 results ❌
-        has_wildcards = any(char in search_text for char in ['*', '?'])
-        has_operators = any(op in search_text.upper() for op in [' AND ', ' OR ', ' NOT ', '&&', '||'])
-        
-        if has_wildcards or has_operators:
-            # Advanced query - user wants wildcard/boolean functionality
-            query["bool"]["must"].append({
-                "query_string": {
-                    "query": escaped_query,
-                    "default_operator": "AND",
-                    "analyze_wildcard": True,
-                    "lenient": True
-                }
-            })
-        else:
-            # Simple query - minimal config, just find the text anywhere
-            # No default_operator (uses OR), no analyze_wildcard
-            # This preserves dash-separated terms and finds exact matches
-            query["bool"]["must"].append({
-                "query_string": {
-                    "query": escaped_query,
-                    "lenient": True
-                    # NO default_operator - uses OR by default (more permissive)
-                    # NO analyze_wildcard - treats text as-is
-                }
-            })
+        query["bool"]["must"].append({
+            "query_string": {
+                "query": escaped_query,
+                "default_operator": "AND",
+                "analyze_wildcard": True,
+                "lenient": True  # Prevents errors from type mismatches
+                # NOTE: No "fields" parameter = searches all fields (including nested)
+            }
+        })
     
     # Filter by SIGMA/IOC tags
     if filter_type == "sigma":
