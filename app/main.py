@@ -855,6 +855,56 @@ def generate_ai_report(case_id):
         }), 500
 
 
+@app.route('/ai/report/<int:report_id>/view')
+@login_required
+def view_ai_report(report_id):
+    """View AI report in dedicated full-page viewer"""
+    from models import AIReport
+    
+    report = db.session.get(AIReport, report_id)
+    if not report:
+        flash('Report not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    # Verify case access
+    case = db.session.get(Case, report.case_id)
+    if not case:
+        flash('Case not found', 'error')
+        return redirect(url_for('dashboard'))
+    
+    # Parse validation results if available
+    validation_data = None
+    if report.validation_results:
+        try:
+            import json
+            validation_data = json.loads(report.validation_results)
+        except:
+            validation_data = None
+    
+    # Create a view-friendly report object with validation
+    class ReportView:
+        def __init__(self, report, validation):
+            self.id = report.id
+            self.case_id = report.case_id
+            self.status = report.status
+            self.title = report.report_title
+            self.content = report.report_content
+            self.model_name = report.model_name
+            self.generation_time = report.generation_time_seconds
+            self.error_message = report.error_message
+            self.progress_percent = report.progress_percent or 0
+            self.progress_message = report.progress_message or 'Initializing...'
+            self.created_at = report.created_at
+            self.user = report.user
+            self.validation = validation
+    
+    report_view = ReportView(report, validation_data)
+    
+    return render_template('view_ai_report.html',
+                         report=report_view,
+                         case=case)
+
+
 @app.route('/ai/report/<int:report_id>')
 @login_required
 def get_ai_report(report_id):

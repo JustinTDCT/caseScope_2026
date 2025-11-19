@@ -1183,6 +1183,9 @@ function loadAIReportsList() {
                 
                 if (report.status === 'completed') {
                     html += `
+                        <a href="/ai/report/${report.id}/view" class="btn btn-sm btn-primary" title="View report in full page">
+                            <span>👁️ View Report</span>
+                        </a>
                         <button onclick="showAIReportChat(${report.id})" class="btn btn-sm btn-success" title="Refine this report with AI">
                             <span>🤖 Refine with AI</span>
                         </button>
