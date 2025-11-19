@@ -1,3 +1,85 @@
+## ✨ v1.16.12 - FEATURE: AI Report Viewer Formatting Enhancement (2025-11-18)
+
+**Change**: Applied same readable formatting (pre-wrap, word-wrap, line-height) to AI Report preview modal that users loved in Timeline viewer for consistent beautiful display across all AI content.
+
+**User Request**: "wow that is better than the report one - can we do that for the report one?"
+
+### Problem
+
+AI Reports displayed in modal preview (when clicking "Refine with AI" button) had poor readability:
+- No line breaks preserved from AI-generated output
+- Long reports with multiple sections displayed as wall of text
+- Hard to scan through report content before refining
+- Inconsistent with Timeline viewer which had beautiful formatting (v1.16.11)
+- User immediately noticed Timeline formatting was superior and requested same for Reports
+
+### Solution
+
+Added CSS formatting to `reportPreviewContent` div in AI Report chat modal:
+
+```css
+white-space: pre-wrap;     /* Preserves line breaks from AI output */
+word-wrap: break-word;      /* Wraps long lines to prevent horizontal scrolling */
+line-height: 1.8;           /* Improves readability with better spacing */
+```
+
+**Result**:
+- AI Report preview now displays with proper paragraph breaks
+- Section headers clearly separated
+- Bullet points and lists readable
+- Code blocks formatted correctly
+- Matches Timeline viewer formatting exactly
+- Preserves formatting from AI model output
+
+### Architecture
+
+- Same CSS approach as Timeline viewer (v1.16.11) for consistency
+- Applied to modal preview div without affecting download functionality
+- Line breaks preserved from AI model output (\n becomes actual line breaks)
+- No JavaScript changes needed - pure CSS solution
+- Maintains security (HTML escaping still in place)
+
+### Benefits
+
+✅ **Consistent Formatting**: ALL AI-generated content (Timelines + Reports) now has identical beautiful formatting  
+✅ **Better Readability**: Multi-section reports easy to scan and review  
+✅ **Preserved Formatting**: Matches downloaded markdown files  
+✅ **Enhanced UX**: Better experience when refining reports with AI chat  
+✅ **No Performance Impact**: CSS-only solution with zero overhead
+
+### Use Cases
+
+1. **Report Review**: Generate AI report → click "Refine with AI" → see beautifully formatted report with proper line breaks
+2. **Long Reports**: Review 20-section forensic report → easily scan sections without wall of text
+3. **AI Refinement**: AI suggests report changes via chat → see formatted preview before applying changes
+4. **Training**: Show new analysts well-formatted reports that match professional documentation standards
+
+### Files Modified
+
+**templates/view_case_enhanced.html** (1 line modified):
+- Line 1303: Added `white-space: pre-wrap; word-wrap: break-word; line-height: 1.8;` to `reportPreviewContent` div
+
+### Testing
+
+✅ AI Report modal displays with proper line breaks  
+✅ Section headers separated correctly  
+✅ Bullet points and lists readable  
+✅ Long lines wrap without horizontal scrolling  
+✅ Formatting matches Timeline viewer  
+✅ Download still works (formatting doesn't affect download route)
+
+### Services Restarted
+
+- `casescope.service` (web app)
+
+### Historical Context
+
+- **v1.16.11**: Fixed Timeline viewer formatting with CSS approach - users loved it
+- **v1.16.12**: Applied same solution to AI Reports for consistency - both AI features now have identical beautiful formatting
+- User feedback drove immediate implementation: saw Timeline formatting → requested for Reports → implemented same day
+
+---
+
 ## ✨ v1.16.9 - FEATURE: AI Timeline Progress Modal + Database Table Fix (2025-11-18)
 
 **Change**: Added real-time progress modal for AI Timeline generation with live updates, elapsed/remaining time tracking, and cancellation support. Fixed missing database table that prevented AI Timeline feature from working.
