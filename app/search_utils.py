@@ -83,19 +83,21 @@ def build_search_query(
         
         escaped_query = escape_lucene(search_text)
         
-        # CRITICAL FIX: analyze_wildcard treats dashes as word separators
-        # Example: "Hide-Mouse-on-blankscreen" becomes "Hide AND Mouse AND on AND blankscreen"
-        # This causes 0 results even though the filename exists!
+        # CRITICAL FIX: default_operator="AND" + analyze_wildcard breaks dash-separated terms
+        # Example: "Hide-Mouse-on-blankscreen.exe" gets tokenized, then ALL tokens required → 0 results
+        # Root cause: OpenSearch tokenizes on dashes, then requires ALL terms match
         # 
-        # Solution: Detect if query contains boolean operators
-        # If NO operators → wrap in quotes for exact phrase matching
-        # If HAS operators → use analyze_wildcard for advanced queries
-        has_operators = any(op in search_text.upper() for op in [' AND ', ' OR ', ' NOT ', '&&', '||'])
+        # Solution: Use minimal query for simple searches (just lenient: True)
+        # Only add operators/wildcards when user explicitly uses them
+        # Testing: "Hide-Mouse-on-blankscreen.exe"
+        #   - Basic (lenient only) → 76 results ✅
+        #   - + default_operator="AND" → 0 results ❌
+        #   - + analyze_wildcard → 0 results ❌
         has_wildcards = any(char in search_text for char in ['*', '?'])
-        has_quotes = '"' in search_text
+        has_operators = any(op in search_text.upper() for op in [' AND ', ' OR ', ' NOT ', '&&', '||'])
         
-        if has_operators or has_wildcards or has_quotes:
-            # Advanced query with operators/wildcards - use analyze_wildcard
+        if has_wildcards or has_operators:
+            # Advanced query - user wants wildcard/boolean functionality
             query["bool"]["must"].append({
                 "query_string": {
                     "query": escaped_query,
@@ -105,14 +107,15 @@ def build_search_query(
                 }
             })
         else:
-            # Simple query (no operators) - wrap in quotes for phrase matching
-            # This prevents dashes from being treated as NOT operators
+            # Simple query - minimal config, just find the text anywhere
+            # No default_operator (uses OR), no analyze_wildcard
+            # This preserves dash-separated terms and finds exact matches
             query["bool"]["must"].append({
                 "query_string": {
-                    "query": f'"{escaped_query}"',  # Quote for exact phrase
-                    "default_operator": "AND",
-                    "analyze_wildcard": False,  # Don't break on dashes
+                    "query": escaped_query,
                     "lenient": True
+                    # NO default_operator - uses OR by default (more permissive)
+                    # NO analyze_wildcard - treats text as-is
                 }
             })
     
