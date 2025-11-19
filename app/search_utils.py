@@ -871,7 +871,8 @@ def extract_event_fields(event_source: Dict[str, Any]) -> Dict[str, Any]:
             'source_file_type',  # Skip this metadata field
             'source_file', 'file_id',  # CRITICAL (v1.13.7): Skip v1.13.1 consolidated index metadata fields
             'row_number', 'System',  # Skip IIS metadata fields (v1.14.0)
-            'date', 'time'  # Skip IIS raw date/time fields (v1.14.0) - we use combined normalized_timestamp
+            'date', 'time',  # Skip IIS raw date/time fields (v1.14.0) - we use combined normalized_timestamp
+            'search_blob'  # Skip search_blob field (v1.16.26) - internal search optimization, not for display
         }
         meaningful = []
         for key, val in event_source.items():

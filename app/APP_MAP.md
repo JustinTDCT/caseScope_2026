@@ -1,3 +1,127 @@
+## 🐛 v1.16.26 - BUGFIX: search_blob Field Showing as Event Description (2025-11-19)
+
+**Change**: Fixed `search_blob` field being displayed as event description instead of proper EVTX descriptions.
+
+**User Report**: "problem - seems like the description defaults to the blob now instead of no description found like before"
+
+### Problem
+
+After v1.16.24 added `search_blob` field for IOC matching, some events showed the field content as their description:
+- Instead of: "A user's local group membership was enumerated."
+- Showing: "search_blob=3630657723 0 0 0 0 0 0 0 0 0 0 0 0..."
+- Only affected events without `event_title` or `event_description` fields
+- Events with proper EVTX descriptions (from `event_descriptions` table) showed correctly
+- User feedback: "only in some cases not all" (confirmed selective issue)
+
+### Root Cause
+
+**Description Fallback Logic** (`search_utils.py` line 866-883):
+
+1. **Primary**: Look for `event_title` or `event_description` (from EVTX descriptions table)
+2. **Secondary**: Look for common description fields ('description', 'message', etc.)
+3. **Tertiary**: Build description from event-specific fields (EDR, CSV, IIS, EVTX)
+4. **Final Fallback**: Show first 3 "meaningful" fields from event (line 877-883)
+
+**The Bug**:
+- Line 866-875 defines `skip_fields` set for final fallback
+- `skip_fields` excludes metadata like `_id`, `file_id`, `has_ioc`, etc.
+- **`search_blob` was NOT in `skip_fields`** → treated as meaningful field
+- Final fallback picked up `search_blob` and displayed it as description
+
+**Why `search_blob` Shouldn't Be Displayed**:
+- Contains flattened normalized text for IOC matching (numbers, text fragments)
+- Designed as **INTERNAL search optimization field**, not for user display
+- Content looks like: "3630657723 0 0 0 0 2400 832 714 583 156..."
+- Not human-readable or meaningful as a description
+
+### Solution
+
+**Added `search_blob` to `skip_fields` Set** (`search_utils.py` line 875):
+
+```python
+skip_fields = {
+    'opensearch_key', '_id', '_index', '_score', 
+    'has_sigma', 'has_ioc', 'ioc_count',
+    'is_hidden', 'hidden_by', 'hidden_at',
+    'normalized_timestamp', 'normalized_computer', 'normalized_event_id',
+    'source_file_type',
+    'source_file', 'file_id',
+    'row_number', 'System',
+    'date', 'time',
+    'search_blob'  # NEW: Skip search_blob field (v1.16.26)
+}
+```
+
+**Comment Added**:
+```python
+'search_blob'  # Skip search_blob field (v1.16.26) - internal search optimization, not for display
+```
+
+### Result
+
+✅ **Events now display correct descriptions**:
+- Events with `event_title`/`event_description` → show proper EVTX descriptions
+  - Example: "A user's local group membership was enumerated."
+- Events without descriptions → show "No description available"
+  - Instead of showing `search_blob` content
+- `search_blob` field still functional for IOC matching and search
+- No impact on search functionality - field still indexed and searchable
+
+### Files Modified
+
+1. **`search_utils.py`** (line 875):
+   - Added `'search_blob'` to `skip_fields` set
+   - Added comment explaining it's internal optimization field
+
+### Services Restarted
+
+- `casescope.service` (web app)
+- **Note**: No worker restart needed (search_utils only used by web app)
+
+### Testing Verification
+
+✅ **Event Display**:
+- Events without EVTX descriptions show "No description available"
+- Events with EVTX descriptions still show proper descriptions
+- No `search_blob` content visible in search results
+
+✅ **Search Functionality**:
+- IOC search still works (searches `search_blob` field)
+- Search bar still works (searches `search_blob` field)
+- Field hidden from display but still searchable
+
+### Use Cases
+
+1. **Search for events** → see clean descriptions without `search_blob` clutter
+2. **Review events without descriptions** → see "No description available" (clear and professional)
+3. **IOC matching** → still works via `search_blob` field (hidden from display)
+4. **Custom event descriptions** → still display properly from database
+
+### Benefits
+
+✅ Clean event descriptions in search results
+✅ `search_blob` hidden from user interface (internal optimization field)
+✅ Consistent UX - users see meaningful descriptions or "No description available"
+✅ IOC matching still works perfectly (`search_blob` still exists and is searchable)
+✅ No performance impact (field still indexed, just not displayed)
+
+### Historical Context
+
+- v1.16.24 added `search_blob` field for IOC matching improvement
+- Field designed as internal optimization, not for display
+- `skip_fields` set existed since early versions to exclude metadata from descriptions
+- v1.16.26 adds `search_blob` to `skip_fields` for proper exclusion
+
+### User Feedback
+
+Direct bug report: "problem - seems like the description defaults to the blob now instead of no description found like before"
+
+Clarification: "only in some cases not all" (confirmed selective issue affecting only events without proper descriptions)
+
+Immediate identification and fix (single-line change with clear comment)
+
+---
+
 ## 🐛 v1.16.25 - CRITICAL BUGFIX: Re-Index All Files Button Not Working (2025-11-19)
 
 **Change**: Fixed 'Re-Index All Files' button that wasn't queuing files for processing.
