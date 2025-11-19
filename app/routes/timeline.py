@@ -185,12 +185,11 @@ def view_timeline(timeline_id):
         
         try:
             # Audit log
-            from audit_log import log_audit
-            log_audit(
-                user_id=current_user.id,
-                username=current_user.username,
+            from audit_logger import log_action
+            log_action(
                 action='delete_timeline',
                 resource_type='timeline',
+                resource_id=timeline.id,
                 resource_name=f'{case.name} - Timeline v{timeline.version}',
                 status='success',
                 details={
