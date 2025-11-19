@@ -1,3 +1,131 @@
+## 🐛 v1.16.15 - BUGFIX: Timeline Delete Audit Logger Error (2025-11-18)
+
+**Change**: Fixed 'No module named audit_log' error when deleting timelines.
+
+**User Request**: "when deleting timeline" (showed error screenshot: "Error: No module named 'audit_log'")
+
+### Problem
+
+Timeline delete functionality failed with module import error:
+- Clicking delete button on failed or old timelines resulted in error: `No module named 'audit_log'`
+- Delete operation failed completely with 500 error
+- User saw error dialog in browser: "10.150.125.64 says: ❌ Error: No module named 'audit_log'"
+- Timeline remained in database instead of being deleted
+
+### Solution
+
+**Fixed Incorrect Import** (`routes/timeline.py` line 188):
+
+**Root Cause**:
+- v1.16.11 added timeline delete functionality but used wrong module name
+- Imported `from audit_log import log_audit` - **module doesn't exist**
+- Should be `from audit_logger import log_action` - the actual module
+
+**BEFORE** (line 188-202):
+```python
+from audit_log import log_audit  # ❌ Wrong module name
+log_audit(
+    user_id=current_user.id,
+    username=current_user.username,
+    action='delete_timeline',
+    resource_type='timeline',
+    resource_name=f'{case.name} - Timeline v{timeline.version}',
+    status='success',
+    details={...}
+)
+```
+
+**AFTER** (line 188-202):
+```python
+from audit_logger import log_action  # ✅ Correct module name
+log_action(
+    action='delete_timeline',
+    resource_type='timeline',
+    resource_id=timeline.id,
+    resource_name=f'{case.name} - Timeline v{timeline.version}',
+    status='success',
+    details={...}
+)
+```
+
+**Changes**:
+1. Module: `audit_log` → `audit_logger` (correct module that exists)
+2. Function: `log_audit()` → `log_action()` (correct function name)
+3. Removed `user_id` and `username` parameters (log_action gets these from `current_user` automatically)
+4. Added `resource_id` parameter (timeline.id) per audit_logger.py signature
+
+### Result
+
+✅ Timeline delete now works correctly  
+✅ Audit log properly records deletion with timeline_id, case_id, version, and status  
+✅ Delete button functional for failed timelines (anyone can delete)  
+✅ Delete button functional for all timelines (administrators only)  
+✅ Confirmation dialog → successful deletion → redirect to case page  
+✅ Audit entry created in `audit_log` table  
+
+### Root Cause Analysis
+
+**Why Wrong Import?**:
+- Rest of codebase consistently uses `audit_logger` module
+- See `main.py` lines: 227, 238, 244, 307, 630, 1466, 1479, 1499, 1555, 1603, 3305, 3698
+- All use: `from audit_logger import log_action`
+- Timeline code was inconsistent - likely copy-paste error from non-existent documentation
+
+**Module Confusion**:
+- **audit_logger.py** exists - handles audit logging
+- **audit_log** doesn't exist - typo/incorrect name
+- Python import system gives clear error: "No module named 'audit_log'"
+
+### Benefits
+
+1. **Timeline Delete Works**: Failed timelines can now be cleaned up
+2. **Audit Trail**: All deletions properly logged to database
+3. **Consistent Code**: Timeline now uses same audit pattern as rest of app
+4. **Better UX**: Delete button functional instead of showing error
+
+### Use Cases
+
+1. **Delete Failed Timeline**: Click delete on failed timeline → confirmation → successful deletion → redirect
+2. **Admin Cleanup**: Administrator deletes old test timelines → audit log tracks who deleted what
+3. **Bulk Cleanup**: Delete multiple failed attempts before successful generation
+4. **Audit Review**: Check audit logs to see timeline deletion history
+
+### Files Modified
+
+**routes/timeline.py** (lines 188-202):
+- Changed: `from audit_log import log_audit` → `from audit_logger import log_action`
+- Changed: `log_audit()` call → `log_action()` call
+- Removed: `user_id`, `username` parameters
+- Added: `resource_id` parameter
+
+### Services Restarted
+
+- **casescope.service** (web app)
+
+### Testing
+
+✅ Click delete on failed timeline → confirmation dialog → successful deletion → redirect  
+✅ Audit log entry created in database  
+✅ Delete button works from timeline viewer page  
+✅ Delete button works from AI Analysis list  
+✅ Administrator can delete any non-generating timeline  
+✅ Regular users can delete only failed timelines  
+
+### User Feedback
+
+**User Report**: "when deleting timeline" (showed error screenshot)  
+**Fix**: Corrected module import from `audit_log` to `audit_logger`
+
+### Historical Context
+
+- **v1.16.11**: Added timeline delete functionality with wrong import
+- **v1.16.14**: Fixed AI Report viewer and styling
+- **v1.16.15**: Fixes timeline delete audit logging - feature now fully functional
+
+**Key Lesson**: Verify module imports match actual filenames. `audit_logger.py` exists, `audit_log.py` doesn't.
+
+---
+
 ## 🐛 v1.16.14 - BUGFIX: AI Report Viewer 500 Error + Unified Timeline Styling (2025-11-18)
 
 **Change**: Fixed AttributeError preventing AI Report viewer from loading and unified timeline/report styling in AI Analysis list.
