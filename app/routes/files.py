@@ -565,8 +565,8 @@ def reindex_single_file(case_id, file_id):
     
     db.session.commit()
     
-    # Queue for full reprocessing
-    process_file.delay(file_id)
+    # Queue for re-indexing (v1.16.25: Use 'reindex' operation to force processing)
+    process_file.delay(file_id, operation='reindex')
     
     # Audit log
     from audit_logger import log_action
@@ -852,8 +852,8 @@ def bulk_reindex_selected(case_id):
     
     db.session.commit()
     
-    # Queue for full reprocessing
-    queue_file_processing(process_file, files, operation='full')
+    # Queue for re-indexing (v1.16.25: Use 'reindex' operation to force processing)
+    queue_file_processing(process_file, files, operation='reindex')
     
     # Audit log
     from audit_logger import log_action
@@ -1866,9 +1866,9 @@ def bulk_reindex_selected_global_route():
         clear_sigma_violations(db, scope='global', file_ids=file_ids)
         clear_ioc_matches(db, scope='global', file_ids=file_ids)
         
-        # Prepare and queue
+        # Prepare and queue (v1.16.25: Use 'reindex' operation to force processing)
         prepare_files_for_reindex(db, files, scope='global')
-        queued = queue_file_processing(process_file, files, 'full', db.session, scope='global')
+        queued = queue_file_processing(process_file, files, 'reindex', db.session, scope='global')
         
         # Audit log - MEDIUM: Global reindex selected files
         from audit_logger import log_action

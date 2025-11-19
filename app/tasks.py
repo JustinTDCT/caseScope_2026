@@ -302,6 +302,92 @@ def process_file(self, file_id, operation='full'):
                     }
                 }
             
+            # REINDEX OPERATION (v1.16.25 FIX - Re-index All Files button)
+            elif operation == 'reindex':
+                """
+                Re-index operation: Forces complete re-processing (no duplicate check)
+                Assumes: OpenSearch data cleared, DB metadata reset by caller
+                Used by: bulk_reindex, bulk_reindex_selected, reindex_single_file
+                """
+                logger.info(f"[TASK] REINDEX - forcing complete re-processing of file {file_id}")
+                
+                # Index file with force_reindex=True (skips is_indexed check in file_processing.py)
+                index_result = index_file(
+                    db=db,
+                    opensearch_client=opensearch_client,
+                    CaseFile=CaseFile,
+                    Case=Case,
+                    case_id=case.id,
+                    filename=case_file.original_filename,
+                    file_path=case_file.file_path,
+                    file_hash=case_file.file_hash,
+                    file_size=case_file.file_size,
+                    uploader_id=case_file.uploaded_by,
+                    upload_type=case_file.upload_type,
+                    file_id=file_id,
+                    celery_task=self,
+                    force_reindex=True  # CRITICAL: Force re-indexing
+                )
+                
+                if index_result['status'] == 'error':
+                    error_msg = index_result.get('message', 'Unknown indexing error')
+                    case_file.indexing_status = 'Failed'
+                    case_file.error_message = error_msg[:500]
+                    db.session.commit()
+                    return index_result
+                
+                if index_result['event_count'] == 0:
+                    return {'status': 'success', 'message': '0 events (hidden)'}
+                
+                # SIGMA Testing (EVTX only)
+                if case_file.original_filename.lower().endswith('.evtx'):
+                    case_file.indexing_status = 'SIGMA Testing'
+                    db.session.commit()
+                    
+                    chainsaw_result = chainsaw_file(
+                        db=db,
+                        opensearch_client=opensearch_client,
+                        CaseFile=CaseFile,
+                        SigmaRule=SigmaRule,
+                        SigmaViolation=SigmaViolation,
+                        file_id=file_id,
+                        index_name=index_name,
+                        celery_task=self
+                    )
+                else:
+                    logger.info(f"[TASK] Skipping SIGMA (non-EVTX file): {case_file.original_filename}")
+                    chainsaw_result = {'status': 'success', 'message': 'Skipped (non-EVTX)', 'violations': 0}
+                
+                # IOC Hunting
+                case_file.indexing_status = 'IOC Hunting'
+                db.session.commit()
+                
+                ioc_result = hunt_iocs(
+                    db=db,
+                    opensearch_client=opensearch_client,
+                    CaseFile=CaseFile,
+                    IOC=IOC,
+                    IOCMatch=IOCMatch,
+                    file_id=file_id,
+                    index_name=index_name,
+                    celery_task=self
+                )
+                
+                # Mark completed
+                case_file.indexing_status = 'Completed'
+                case_file.celery_task_id = None
+                commit_with_retry(db.session, logger_instance=logger)
+                
+                return {
+                    'status': 'success',
+                    'message': 'Re-indexing completed',
+                    'stats': {
+                        'events': index_result['event_count'],
+                        'violations': chainsaw_result.get('violations', 0),
+                        'ioc_matches': ioc_result.get('matches', 0)
+                    }
+                }
+            
             # CHAINSAW ONLY
             elif operation == 'chainsaw_only':
                 from models import SigmaViolation
@@ -411,8 +497,8 @@ def bulk_reindex(self, case_id):
         commit_with_retry(db.session, logger_instance=logger)
         logger.info(f"[BULK REINDEX] Reset metadata for {len(files)} files")
         
-        # Queue full re-processing (index + SIGMA + IOC)
-        queued = queue_file_processing(process_file, files, operation='full', db_session=db.session)
+        # Queue for re-indexing (v1.16.25: Use 'reindex' operation to force processing)
+        queued = queue_file_processing(process_file, files, operation='reindex', db_session=db.session)
         
         return {
             'status': 'success',
