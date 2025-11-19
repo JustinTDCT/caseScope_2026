@@ -1644,30 +1644,20 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                     }
                     logger.info(f"[HUNT IOCS] Using distinctive terms for command_complex: {search_terms}")
                 else:
-                    # Simple IOC - use query_string WITHOUT analyze_wildcard
-                    # CRITICAL BUG FIX: analyze_wildcard treats dashes as word separators
-                    #   "Hide-Mouse-on-blankscreen" becomes "Hide AND Mouse AND on AND blankscreen"
-                    #   This causes 0 results even though the text exists!
-                    # 
-                    # Solution: Use basic query_string (lenient only, no operators)
-                    # This finds IOCs in:
-                    #   - Simple string fields (Path, CommandLine, etc.)
-                    #   - Multi-line text with \r\n characters
-                    #   - Nested arrays like Data.#text[0]
-                    #   - Complex nested structures like EventData (stringified JSON)
+                    # Simple IOC - use simple_query_string for phrase matching (no wildcards)
+                    # This searches for the exact phrase across all fields
+                    # More precise than query_string with wildcards which breaks into terms
                     # v1.13.1 FIX: Add file_id filter for consolidated case indices
-                    
                     query = {
                         "query": {
                             "bool": {
                                 "must": [
                                     {
-                                        "query_string": {
-                                            "query": ioc.ioc_value,
+                                        "simple_query_string": {
+                                            "query": f'"{ioc.ioc_value}"',  # Quote for phrase matching
+                                            "fields": ["*"],
+                                            "default_operator": "and",
                                             "lenient": True
-                                            # NO default_operator - uses OR by default (more permissive)
-                                            # NO analyze_wildcard - treats text as-is, doesn't break on dashes
-                                            # No "fields" parameter = searches ALL fields (including nested)
                                         }
                                     }
                                 ],
@@ -1677,7 +1667,7 @@ def hunt_iocs(db, opensearch_client, CaseFile, IOC, IOCMatch, file_id: int,
                             }
                         }
                     }
-                    logger.info(f"[HUNT IOCS] Using basic query_string for deep nested field matching (no analyze_wildcard)")
+                    logger.info(f"[HUNT IOCS] Using simple_query_string with phrase matching for simple IOC")
             else:
                 # Targeted field search - use simple_query_string
                 # v1.13.1 FIX: Add file_id filter for consolidated case indices
