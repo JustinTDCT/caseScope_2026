@@ -104,9 +104,51 @@
     </div>
     <div class="card-body">
         {% if report.status == 'completed' and report.content %}
-        <div style="background: #1e1e1e; border-radius: 8px; padding: 20px; overflow: auto; max-height: 80vh;">
-            <pre style="margin: 0; color: #d4d4d4; font-family: 'Courier New', monospace; font-size: 0.9rem; white-space: pre-wrap; word-wrap: break-word; line-height: 1.6;">{{ report.content }}</pre>
+        <div style="border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden;">
+            <iframe 
+                id="reportFrame" 
+                sandbox="allow-same-origin"
+                style="width: 100%; min-height: 800px; border: none; display: block;"
+                onload="resizeIframe(this)">
+            </iframe>
         </div>
+        <script>
+            // Load report HTML into iframe safely
+            (function() {
+                const iframe = document.getElementById('reportFrame');
+                const reportContent = {{ report.content | tojson }};
+                
+                // Write content to iframe
+                const iframeDoc = iframe.contentWindow.document;
+                iframeDoc.open();
+                iframeDoc.write(reportContent);
+                iframeDoc.close();
+                
+                // Auto-resize iframe to content height
+                window.resizeIframe = function(iframe) {
+                    setTimeout(function() {
+                        try {
+                            const iframeDoc = iframe.contentWindow.document;
+                            const body = iframeDoc.body;
+                            const html = iframeDoc.documentElement;
+                            const height = Math.max(
+                                body.scrollHeight, body.offsetHeight,
+                                html.clientHeight, html.scrollHeight, html.offsetHeight
+                            );
+                            iframe.style.height = height + 'px';
+                        } catch(e) {
+                            console.error('Failed to resize iframe:', e);
+                            iframe.style.height = '1000px'; // Fallback height
+                        }
+                    }, 100);
+                };
+                
+                // Initial resize
+                iframe.onload = function() {
+                    resizeIframe(this);
+                };
+            })();
+        </script>
         {% elif report.status == 'generating' %}
         <div style="text-align: center; padding: var(--spacing-xl);">
             <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">⏳</div>
