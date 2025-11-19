@@ -83,15 +83,38 @@ def build_search_query(
         
         escaped_query = escape_lucene(search_text)
         
-        query["bool"]["must"].append({
-            "query_string": {
-                "query": escaped_query,
-                "default_operator": "AND",
-                "analyze_wildcard": True,
-                "lenient": True  # Prevents errors from type mismatches
-                # NOTE: No "fields" parameter = searches all fields (including nested)
-            }
-        })
+        # CRITICAL FIX: analyze_wildcard treats dashes as word separators
+        # Example: "Hide-Mouse-on-blankscreen" becomes "Hide AND Mouse AND on AND blankscreen"
+        # This causes 0 results even though the filename exists!
+        # 
+        # Solution: Detect if query contains boolean operators
+        # If NO operators → wrap in quotes for exact phrase matching
+        # If HAS operators → use analyze_wildcard for advanced queries
+        has_operators = any(op in search_text.upper() for op in [' AND ', ' OR ', ' NOT ', '&&', '||'])
+        has_wildcards = any(char in search_text for char in ['*', '?'])
+        has_quotes = '"' in search_text
+        
+        if has_operators or has_wildcards or has_quotes:
+            # Advanced query with operators/wildcards - use analyze_wildcard
+            query["bool"]["must"].append({
+                "query_string": {
+                    "query": escaped_query,
+                    "default_operator": "AND",
+                    "analyze_wildcard": True,
+                    "lenient": True
+                }
+            })
+        else:
+            # Simple query (no operators) - wrap in quotes for phrase matching
+            # This prevents dashes from being treated as NOT operators
+            query["bool"]["must"].append({
+                "query_string": {
+                    "query": f'"{escaped_query}"',  # Quote for exact phrase
+                    "default_operator": "AND",
+                    "analyze_wildcard": False,  # Don't break on dashes
+                    "lenient": True
+                }
+            })
     
     # Filter by SIGMA/IOC tags
     if filter_type == "sigma":
