@@ -418,6 +418,7 @@ def process_file(self, file_id, operation='full'):
                 )
                 
                 case_file.indexing_status = 'Completed'
+                case_file.celery_task_id = None  # v1.17.2 FIX: Clear task ID on completion
                 commit_with_retry(db.session, logger_instance=logger)
                 return result
             
@@ -442,6 +443,7 @@ def process_file(self, file_id, operation='full'):
                 )
                 
                 case_file.indexing_status = 'Completed'
+                case_file.celery_task_id = None  # v1.17.2 FIX: Clear task ID on completion
                 commit_with_retry(db.session, logger_instance=logger)
                 return result
             
