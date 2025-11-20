@@ -422,7 +422,6 @@ def archive_case(db, case_id: int, current_user_id: int) -> Dict:
         
         # Step 10: Audit log
         log_action(
-            db,
             'case_archive_completed',
             resource_type='case',
             resource_id=case_id,
@@ -457,7 +456,6 @@ def archive_case(db, case_id: int, current_user_id: int) -> Dict:
         try:
             from audit_logger import log_action
             log_action(
-                db,
                 'case_archive_failed',
                 resource_type='case',
                 resource_id=case_id,
@@ -601,7 +599,6 @@ def restore_case(db, case_id: int, current_user_id: int, new_status: str = 'In P
         
         # Step 10: Audit log
         log_action(
-            db,
             'case_restore_completed',
             resource_type='case',
             resource_id=case_id,
@@ -632,7 +629,6 @@ def restore_case(db, case_id: int, current_user_id: int, new_status: str = 'In P
         try:
             from audit_logger import log_action
             log_action(
-                db,
                 'case_restore_failed',
                 resource_type='case',
                 resource_id=case_id,
