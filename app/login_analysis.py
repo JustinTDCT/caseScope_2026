@@ -923,18 +923,61 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
             source = hit['_source']
             
             # Extract username (TargetUserName for 4624, SubjectUserName for 6272)
+            # v1.17.3 FIX: Parse EventData if it's a JSON string
+            import json
             username = None
+            
+            # Try Event.EventData first
             if 'Event' in source and 'EventData' in source['Event']:
-                username = source['Event']['EventData'].get('TargetUserName') or source['Event']['EventData'].get('SubjectUserName')
-            elif 'EventData' in source:
-                username = source['EventData'].get('TargetUserName') or source['EventData'].get('SubjectUserName')
+                event_data = source['Event']['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    username = event_data.get('TargetUserName') or event_data.get('SubjectUserName')
+            
+            # Try EventData directly
+            if not username and 'EventData' in source:
+                event_data = source['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    username = event_data.get('TargetUserName') or event_data.get('SubjectUserName')
             
             # Extract workstation name (WorkstationName for 4624, ClientName for 6272)
+            # v1.17.3 FIX: Parse EventData if it's a JSON string
             workstation_name = None
+            
+            # Try Event.EventData first
             if 'Event' in source and 'EventData' in source['Event']:
-                workstation_name = source['Event']['EventData'].get('WorkstationName') or source['Event']['EventData'].get('ClientName')
-            elif 'EventData' in source:
-                workstation_name = source['EventData'].get('WorkstationName') or source['EventData'].get('ClientName')
+                event_data = source['Event']['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    workstation_name = event_data.get('WorkstationName') or event_data.get('ClientName')
+            
+            # Try EventData directly
+            if not workstation_name and 'EventData' in source:
+                event_data = source['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    workstation_name = event_data.get('WorkstationName') or event_data.get('ClientName')
             
             # Get timestamp
             timestamp = source.get('normalized_timestamp', 'N/A')
@@ -1161,18 +1204,61 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
             source = hit['_source']
             
             # Extract username (TargetUserName for 4625, SubjectUserName for 6273)
+            # v1.17.3 FIX: Parse EventData if it's a JSON string
+            import json
             username = None
+            
+            # Try Event.EventData first
             if 'Event' in source and 'EventData' in source['Event']:
-                username = source['Event']['EventData'].get('TargetUserName') or source['Event']['EventData'].get('SubjectUserName')
-            elif 'EventData' in source:
-                username = source['EventData'].get('TargetUserName') or source['EventData'].get('SubjectUserName')
+                event_data = source['Event']['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    username = event_data.get('TargetUserName') or event_data.get('SubjectUserName')
+            
+            # Try EventData directly
+            if not username and 'EventData' in source:
+                event_data = source['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    username = event_data.get('TargetUserName') or event_data.get('SubjectUserName')
             
             # Extract workstation name (WorkstationName for 4625, ClientName for 6273)
+            # v1.17.3 FIX: Parse EventData if it's a JSON string
             workstation_name = None
+            
+            # Try Event.EventData first
             if 'Event' in source and 'EventData' in source['Event']:
-                workstation_name = source['Event']['EventData'].get('WorkstationName') or source['Event']['EventData'].get('ClientName')
-            elif 'EventData' in source:
-                workstation_name = source['EventData'].get('WorkstationName') or source['EventData'].get('ClientName')
+                event_data = source['Event']['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    workstation_name = event_data.get('WorkstationName') or event_data.get('ClientName')
+            
+            # Try EventData directly
+            if not workstation_name and 'EventData' in source:
+                event_data = source['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    workstation_name = event_data.get('WorkstationName') or event_data.get('ClientName')
             
             # Get timestamp
             timestamp = source.get('normalized_timestamp', 'N/A')
