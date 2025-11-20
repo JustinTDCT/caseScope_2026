@@ -518,6 +518,9 @@ function bulkReindexSelected() {
     if (fileIds.length === 0) return;
     
     if (confirm(`🔄 Re-Index ${fileIds.length} Selected File(s) (Cross-Case)\n\nThis will:\n• Clear all OpenSearch data for these files\n• Clear all database metadata (events, SIGMA, IOCs)\n• Re-process files from scratch\n• Rebuild all indices and detections\n\nNote: Selected files can be from different cases.\n\nThis is a FULL REBUILD.\n\nContinue?`)) {
+        // Show preparation modal
+        showPreparationModal('reindex', `Re-Indexing ${fileIds.length} File(s)`, 'Clearing data and preparing selected files...<br>This may take 5-15 seconds.');
+        
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = `/files/global/bulk_reindex_selected`;
@@ -538,6 +541,9 @@ function bulkReSigmaSelected() {
     if (fileIds.length === 0) return;
     
     if (confirm(`🛡️ Re-SIGMA ${fileIds.length} Selected File(s) (Cross-Case)\n\nThis will:\n• Clear existing SIGMA violations for these files\n• Re-run SIGMA detection\n• Update violation counts\n\nNote: Selected files can be from different cases.\n\nOld violations will be removed before re-processing.\n\nContinue?`)) {
+        // Show preparation modal
+        showPreparationModal('rechainsaw', `Re-SIGMA ${fileIds.length} File(s)`, 'Clearing violations and preparing selected files...<br>This may take 5-15 seconds.');
+        
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = `/files/global/bulk_rechainsaw_selected`;
@@ -558,6 +564,9 @@ function bulkReHuntSelected() {
     if (fileIds.length === 0) return;
     
     if (confirm(`🎯 Re-Hunt IOCs on ${fileIds.length} Selected File(s) (Cross-Case)\n\nThis will:\n• Clear existing IOC matches for these files\n• Re-scan files for IOC matches\n• Update IOC event counts\n\nNote: Selected files can be from different cases.\n\nOld matches will be removed before re-scanning.\n\nContinue?`)) {
+        // Show preparation modal
+        showPreparationModal('rehunt', `Re-Hunt IOCs on ${fileIds.length} File(s)`, 'Clearing matches and preparing selected files...<br>This may take 5-15 seconds.');
+        
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = `/files/global/bulk_rehunt_selected`;
@@ -681,6 +690,9 @@ function reindexSingleFile(fileId) {
     }
     
     if (confirm('📇 Re-Index This File\n\nThis will:\n• Clear all OpenSearch data for this file\n• Clear all database metadata (events, SIGMA, IOCs)\n• Re-index the file from scratch\n• Re-run SIGMA and IOC detection\n\nThis is a FULL REBUILD of this file.\n\nContinue?')) {
+        // Show preparation modal
+        showPreparationModal('reindex', 'Re-Indexing File', 'Clearing data and preparing file for re-indexing...<br>This may take a few seconds.');
+        
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = `/case/${caseId}/file/${fileId}/reindex`;
@@ -697,6 +709,9 @@ function reSigmaSingleFile(fileId) {
     }
     
     if (confirm('🛡️ Re-SIGMA This File\n\nThis will:\n• Clear existing SIGMA violations for this file only\n• Re-run SIGMA detection\n• Update violation count\n\nContinue?')) {
+        // Show preparation modal
+        showPreparationModal('rechainsaw', 'Re-SIGMA File', 'Clearing violations and preparing file...<br>This may take a few seconds.');
+        
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = `/case/${caseId}/file/${fileId}/rechainsaw`;
@@ -713,6 +728,9 @@ function rehuntSingleFile(fileId) {
     }
     
     if (confirm('🎯 Re-Hunt IOCs for This File\n\nThis will:\n• Clear existing IOC matches for this file only\n• Re-scan this file for IOC matches\n• Update IOC event count\n\nContinue?')) {
+        // Show preparation modal
+        showPreparationModal('rehunt', 'Re-Hunt IOCs', 'Clearing matches and preparing file...<br>This may take a few seconds.');
+        
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = `/case/${caseId}/file/${fileId}/rehunt_iocs`;
@@ -857,6 +875,152 @@ function updateStatuses() {
 
 // Start status updates after 1 second
 setTimeout(updateStatuses, 1000);
+
+// ============================================================================
+// BULK OPERATION PREPARATION MODAL (v1.18.1)
+// Shows spinner during preparation phase before files enter queue
+// ============================================================================
+
+let preparationPollInterval = null;
+
+function showPreparationModal(operationType, message, details) {
+    // Create modal
+    const modal = document.createElement('div');
+    modal.id = 'preparationModal';
+    modal.className = 'modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 600px; text-align: center;">
+            <h3 style="margin-bottom: var(--spacing-lg);">${getOperationIcon(operationType)} ${message}</h3>
+            <div style="margin: var(--spacing-xl) 0;">
+                <div class="spinner"></div>
+            </div>
+            <p id="prepMessage" style="color: var(--color-text); margin-bottom: var(--spacing-sm); font-size: 1.1em;">
+                <strong>Preparing operation...</strong>
+            </p>
+            <p id="prepDetails" style="color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                ${details}
+            </p>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Start polling for active queue items (check all cases for global operations)
+    startPreparationPolling(operationType);
+}
+
+function getOperationIcon(operationType) {
+    const icons = {
+        'reindex': '🔄',
+        'rechainsaw': '🛡️',
+        'rehunt': '🎯'
+    };
+    return icons[operationType] || '⏳';
+}
+
+function startPreparationPolling(operationType) {
+    let pollCount = 0;
+    const maxPolls = 60; // 60 seconds max
+    
+    preparationPollInterval = setInterval(() => {
+        pollCount++;
+        
+        // For global operations, check global file status endpoint
+        fetch(`/files/global/status`, {
+            credentials: 'same-origin'
+        })
+        .then(response => response.json())
+        .then(data => {
+            const activeCount = (data.queued || 0) + (data.processing || 0);
+            
+            if (activeCount > 0) {
+                // Files are now in queue - close modal and refresh
+                closePreparationModal();
+                location.reload();
+            } else if (pollCount >= maxPolls) {
+                // Timeout - close and refresh anyway
+                closePreparationModal();
+                location.reload();
+            }
+        })
+        .catch(error => {
+            console.error('Error polling queue:', error);
+            if (pollCount >= maxPolls) {
+                closePreparationModal();
+                location.reload();
+            }
+        });
+    }, 1000); // Poll every second
+}
+
+function closePreparationModal() {
+    if (preparationPollInterval) {
+        clearInterval(preparationPollInterval);
+        preparationPollInterval = null;
+    }
+    
+    const modal = document.getElementById('preparationModal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+function confirmReindex() {
+    if (confirm('🔄 Re-Index ALL Files (Global)\n\nThis will:\n• Clear all OpenSearch indices across ALL CASES\n• Clear all database metadata (events, SIGMA, IOCs) GLOBALLY\n• Skip hidden files (0-event/CyLR artifacts)\n• Re-process all visible files from scratch\n• Rebuild all indices and detections\n\nThis is a GLOBAL FULL REBUILD and may take SIGNIFICANT time.\n\nAre you SURE you want to proceed?')) {
+        // Show preparation modal
+        showPreparationModal('reindex', 'Re-Indexing ALL Files (Global)', 'Clearing indices across all cases and preparing files...<br>This may take 30-60 seconds.');
+        
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/files/global/bulk_reindex`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function confirmReSigma() {
+    if (confirm('🛡️ Re-SIGMA ALL Files (Global)\n\nThis will:\n• Clear all existing SIGMA violations across ALL CASES\n• Re-run SIGMA detection on all indexed files globally\n• Update violation counts\n\nOld violations will be removed before re-processing.\n\nContinue?')) {
+        // Show preparation modal
+        showPreparationModal('rechainsaw', 'Re-Running SIGMA Detection (Global)', 'Clearing violations across all cases and preparing files...<br>This may take 20-40 seconds.');
+        
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/files/global/bulk_rechainsaw`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function confirmReHunt() {
+    if (confirm('🎯 Re-Hunt IOCs on ALL Files (Global)\n\nThis will:\n• Clear all existing IOC matches across ALL CASES\n• Re-scan all indexed files for IOC matches globally\n• Update IOC event counts\n\nOld matches will be removed before re-scanning.\n\nContinue?')) {
+        // Show preparation modal
+        showPreparationModal('rehunt', 'Re-Hunting IOCs (Global)', 'Clearing matches across all cases and preparing files...<br>This may take 20-40 seconds.');
+        
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/files/global/bulk_rehunt_iocs`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
 </script>
+
+<!-- Preparation Modal Styles -->
+<style>
+.spinner {
+    display: inline-block;
+    width: 60px;
+    height: 60px;
+    border: 6px solid var(--color-border);
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+</style>
+
 {% endblock %}
 
