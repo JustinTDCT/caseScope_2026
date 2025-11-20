@@ -120,6 +120,17 @@
                     <span class="text-muted stat-item-caption">indicators</span>
                 </div>
             </div>
+            
+            <!-- Archived Cases (v1.18.0) -->
+            <div class="stat-item">
+                <div class="stat-item-label">Archived Cases</div>
+                <div>
+                    <a href="{{ url_for('case_selection') }}" class="stat-item-value-large" style="color: var(--color-text-muted);">
+                        {{ archived_cases }}
+                    </a>
+                    <span class="text-muted stat-item-caption">cases in cold storage</span>
+                </div>
+            </div>
         </div>
     </div>
 </div>

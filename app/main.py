@@ -357,6 +357,8 @@ def dashboard():
     # CaseScope Status
     # v1.16.0+: Count all cases regardless of status
     total_cases = db.session.query(Case).count()
+    # v1.18.0+: Count archived cases separately
+    archived_cases = db.session.query(Case).filter_by(status='Archived').count()
     total_files = db.session.query(CaseFile).filter_by(is_deleted=False, is_hidden=False).count()
     sigma_info = get_sigma_rules_info()
     total_iocs = db.session.query(IOC).count()
@@ -386,6 +388,7 @@ def dashboard():
         system_status=system_status,
         case_files_space_gb=case_files_space_gb,
         total_cases=total_cases,
+        archived_cases=archived_cases,
         total_files=total_files,
         sigma_info=sigma_info,
         total_iocs=total_iocs,
