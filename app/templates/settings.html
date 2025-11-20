@@ -279,6 +279,67 @@
             </div>
         </div>
 
+        <!-- Archive Settings (v1.18.0) -->
+        <div class="card" style="margin-bottom: var(--spacing-lg);">
+            <div class="card-header">
+                <h2 class="card-title">🗄️ Case Archiving</h2>
+                <p style="color: var(--color-text-muted); margin: var(--spacing-sm) 0 0 0; font-size: 0.875rem;">
+                    Configure cold storage path for archived case files
+                </p>
+            </div>
+            
+            <div class="card-body">
+                <!-- Archive Path -->
+                <div class="form-group">
+                    <label for="archive_root_path">Archive Root Path</label>
+                    <input type="text" 
+                           id="archive_root_path"
+                           name="archive_root_path" 
+                           value="{{ archive_root_path or '' }}"
+                           placeholder="/archive or /mnt/archive_drive"
+                           style="width: 100%; max-width: 600px;">
+                    <p style="color: var(--color-text-muted); margin: var(--spacing-xs) 0 0 0; font-size: 0.875rem;">
+                        Absolute path where archived case files will be stored (e.g., spinning disk drive for cold storage)
+                    </p>
+                </div>
+
+                <!-- Archive Info -->
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-info); margin-top: var(--spacing-md);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-info);">
+                        📦 How Case Archiving Works
+                    </h3>
+                    <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                        <li><strong>Archive Process:</strong> Creates ZIP of all case files while preserving directory structure</li>
+                        <li><strong>Search & Analysis:</strong> All indexed data remains searchable (events, IOCs, systems, etc.)</li>
+                        <li><strong>IOC Re-Hunting:</strong> Fully supported on archived cases (no source files needed)</li>
+                        <li><strong>Disabled Operations:</strong> Re-index, Re-SIGMA, file uploads (require source files)</li>
+                        <li><strong>Restore:</strong> Seamlessly extract files back to original locations when needed</li>
+                    </ul>
+                    <p style="margin: var(--spacing-sm) 0 0 0; color: var(--color-text-muted); font-size: 0.875rem;">
+                        💡 <strong>Tip:</strong> Use a separate drive (e.g., spinning disk) for archive path to maximize SSD space for active cases
+                    </p>
+                </div>
+
+                <!-- Requirements -->
+                <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); border-left: 3px solid var(--color-warning); margin-top: var(--spacing-md);">
+                    <h3 style="margin: 0 0 var(--spacing-sm) 0; font-size: 0.875rem; color: var(--color-warning);">
+                        ⚠️ Requirements
+                    </h3>
+                    <ul style="margin: 0; padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                        <li>Path must be absolute (e.g., <code style="background: var(--color-background); padding: 2px 6px; border-radius: 3px;">/archive</code> not <code style="background: var(--color-background); padding: 2px 6px; border-radius: 3px;">archive</code>)</li>
+                        <li>Path must exist and be writable by <strong>casescope</strong> user and group</li>
+                        <li>Sufficient disk space for archived cases (recommend 100GB+ free)</li>
+                        <li>Create directory: <code style="background: var(--color-background); padding: 2px 6px; border-radius: 3px;">sudo mkdir -p /archive && sudo chown casescope:casescope /archive</code></li>
+                    </ul>
+                    {% if not archive_root_path %}
+                    <p style="margin: var(--spacing-sm) 0 0 0; color: var(--color-warning); font-size: 0.875rem; font-weight: 600;">
+                        📌 <strong>Archive path not configured.</strong> Case archiving feature will be unavailable until path is set.
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
         <!-- AI Configuration -->
         <div class="card" style="margin-bottom: var(--spacing-lg);">
             <div class="card-header">

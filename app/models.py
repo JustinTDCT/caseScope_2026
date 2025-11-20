@@ -38,16 +38,23 @@ class Case(db.Model):
     name = db.Column(db.String(200), nullable=False, index=True)
     description = db.Column(db.Text)
     company = db.Column(db.String(200))
-    status = db.Column(db.String(20), default='New')  # New, Assigned, In Progress, Completed (legacy: active, closed)
+    status = db.Column(db.String(20), default='New')  # New, Assigned, In Progress, Completed, Archived
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     assigned_to = db.Column(db.Integer, db.ForeignKey('user.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # Archive fields (v1.18.0)
+    archive_path = db.Column(db.String(1000))  # Full path to archive ZIP
+    archived_at = db.Column(db.DateTime)  # When archived
+    archived_by = db.Column(db.Integer, db.ForeignKey('user.id'))  # Who archived
+    restored_at = db.Column(db.DateTime)  # When last restored (audit trail)
+    
     # Relationships
     files = db.relationship('CaseFile', back_populates='case', lazy='dynamic')
     creator = db.relationship('User', foreign_keys=[created_by], backref='cases_created')
     assignee = db.relationship('User', foreign_keys=[assigned_to], backref='cases_assigned')
+    archiver = db.relationship('User', foreign_keys=[archived_by], backref='cases_archived')
 
 
 class CaseFile(db.Model):

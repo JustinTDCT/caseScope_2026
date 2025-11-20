@@ -66,6 +66,9 @@ def index():
     ai_hardware_mode = get_setting('ai_hardware_mode', 'cpu')  # cpu or gpu
     ai_gpu_vram = get_setting('ai_gpu_vram', '8')  # VRAM in GB
     
+    # Get Archive settings (v1.18.0)
+    archive_root_path = get_setting('archive_root_path', '')
+    
     # Check AI system status and load models from database
     ai_status = {'installed': False, 'running': False, 'model_available': False, 'models': []}
     all_models = []
@@ -145,6 +148,7 @@ def index():
                          opencti_url=opencti_url,
                          opencti_api_key=opencti_api_key,
                          log_level=log_level,
+                         archive_root_path=archive_root_path,
                          ai_enabled=ai_enabled,
                          ai_model_name=ai_model_name,
                          ai_hardware_mode=ai_hardware_mode,
@@ -201,6 +205,22 @@ def save():
         except Exception as e:
             print(f"Warning: Could not update log level dynamically: {e}")
     
+    # Archive settings (v1.18.0)
+    archive_root_path = request.form.get('archive_root_path', '').strip()
+    
+    # Validate archive path if provided
+    if archive_root_path:
+        import os
+        if not os.path.isabs(archive_root_path):
+            flash('⚠️ Archive path must be absolute (e.g., /archive)', 'warning')
+        elif not os.path.exists(archive_root_path):
+            flash('⚠️ Archive path does not exist. Please create it first.', 'warning')
+        elif not os.access(archive_root_path, os.W_OK):
+            flash('⚠️ Archive path is not writable by casescope user. Check permissions.', 'warning')
+    
+    set_setting('archive_root_path', archive_root_path,
+                'Root path for archived case files')
+    
     # AI settings
     ai_enabled = request.form.get('ai_enabled') == 'on'
     ai_model_name = request.form.get('ai_model_name', 'dfir-llama:latest').strip()
@@ -234,6 +254,7 @@ def save():
                   'dfir_iris_enabled': dfir_iris_enabled,
                   'opencti_enabled': opencti_enabled,
                   'log_level': log_level,
+                  'archive_root_path': archive_root_path,
                   'ai_enabled': ai_enabled,
                   'ai_model_name': ai_model_name,
                   'ai_hardware_mode': ai_hardware_mode,
