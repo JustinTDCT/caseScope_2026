@@ -628,39 +628,112 @@ def sync_to_dfir_iris(ioc):
     """
     Sync IOC to DFIR-IRIS
     
-    Placeholder implementation - returns False until DFIR-IRIS is configured
+    Connects to DFIR-IRIS API and creates/updates the IOC.
     
-    When implemented:
-    1. Connect to DFIR-IRIS API
-    2. Create/update IOC in DFIR-IRIS
-    3. Store DFIR-IRIS IOC ID
-    4. Update sync status and timestamp
+    Process:
+    1. Check if DFIR-IRIS is configured
+    2. Get or create customer (company) in DFIR-IRIS
+    3. Get or create case in DFIR-IRIS
+    4. Sync IOC to the case
+    5. Update sync status in CaseScope
+    
+    Returns:
+        bool: True if sync successful, False otherwise
     """
-    from main import db
+    from main import db, Case
     from models import SystemSettings
+    from dfir_iris import DFIRIrisClient
     
-    # Check if DFIR-IRIS is enabled
-    dfir_iris_enabled = SystemSettings.query.filter_by(setting_key='dfir_iris_enabled').first()
-    if not dfir_iris_enabled or dfir_iris_enabled.setting_value != 'true':
+    logger.info(f"[DFIR-IRIS] Attempting to sync IOC: {ioc.ioc_value} ({ioc.ioc_type})")
+    
+    try:
+        # Check if DFIR-IRIS is enabled
+        dfir_iris_enabled = SystemSettings.query.filter_by(setting_key='dfir_iris_enabled').first()
+        if not dfir_iris_enabled or dfir_iris_enabled.setting_value != 'true':
+            logger.info("[DFIR-IRIS] DFIR-IRIS integration is disabled")
+            return False
+        
+        # Get DFIR-IRIS configuration
+        dfir_iris_url = SystemSettings.query.filter_by(setting_key='dfir_iris_url').first()
+        dfir_iris_token = SystemSettings.query.filter_by(setting_key='dfir_iris_token').first()
+        
+        if not dfir_iris_url or not dfir_iris_token or not dfir_iris_url.setting_value or not dfir_iris_token.setting_value:
+            logger.warning("[DFIR-IRIS] DFIR-IRIS URL or token not configured")
+            return False
+        
+        # Initialize DFIR-IRIS client
+        client = DFIRIrisClient(
+            url=dfir_iris_url.setting_value,
+            api_key=dfir_iris_token.setting_value
+        )
+        
+        # Get the case this IOC belongs to
+        case = Case.query.get(ioc.case_id)
+        if not case:
+            logger.error(f"[DFIR-IRIS] Case {ioc.case_id} not found")
+            return False
+        
+        # Get or create customer (company) in DFIR-IRIS
+        company_name = case.company or 'Unknown Company'
+        customer_id = client.get_or_create_customer(company_name)
+        if not customer_id:
+            logger.error(f"[DFIR-IRIS] Failed to get/create customer: {company_name}")
+            return False
+        
+        # Get or create case in DFIR-IRIS
+        iris_case_id = client.get_or_create_case(
+            customer_id=customer_id,
+            case_name=case.name,
+            case_description=case.description or '',
+            company_name=company_name
+        )
+        if not iris_case_id:
+            logger.error(f"[DFIR-IRIS] Failed to get/create case: {case.name}")
+            return False
+        
+        # Build IOC description
+        description_parts = []
+        if ioc.description:
+            description_parts.append(ioc.description)
+        if ioc.source:
+            description_parts.append(f"Source: {ioc.source}")
+        description = ' | '.join(description_parts) if description_parts else f'IOC from CaseScope case {case.name}'
+        
+        # Determine threat level based on IOC criticality or tags
+        threat_level = 'medium'  # Default
+        if ioc.tags:
+            tags_lower = ioc.tags.lower()
+            if any(word in tags_lower for word in ['critical', 'high', 'severe']):
+                threat_level = 'high'
+            elif any(word in tags_lower for word in ['low', 'info']):
+                threat_level = 'low'
+        
+        # Sync IOC to DFIR-IRIS
+        iris_ioc_id = client.sync_ioc(
+            case_id=iris_case_id,
+            ioc_value=ioc.ioc_value,
+            ioc_type=ioc.ioc_type,
+            description=description,
+            threat_level=threat_level
+        )
+        
+        if not iris_ioc_id:
+            logger.error(f"[DFIR-IRIS] Failed to sync IOC: {ioc.ioc_value}")
+            return False
+        
+        # Update sync status in CaseScope
+        ioc.dfir_iris_synced = True
+        ioc.dfir_iris_sync_date = datetime.utcnow()
+        ioc.dfir_iris_ioc_id = str(iris_ioc_id)
+        db.session.commit()
+        
+        logger.info(f"[DFIR-IRIS] ✅ IOC synced successfully: {ioc.ioc_value} (IRIS ID: {iris_ioc_id})")
+        return True
+        
+    except Exception as e:
+        logger.error(f"[DFIR-IRIS] ❌ Failed to sync IOC {ioc.ioc_value}: {e}", exc_info=True)
+        db.session.rollback()
         return False
-    
-    # Get DFIR-IRIS configuration
-    dfir_iris_url = SystemSettings.query.filter_by(setting_key='dfir_iris_url').first()
-    dfir_iris_token = SystemSettings.query.filter_by(setting_key='dfir_iris_token').first()
-    
-    if not dfir_iris_url or not dfir_iris_token:
-        return False
-    
-    # TODO: Implement actual DFIR-IRIS API call
-    # Example: POST to /api/iocs with IOC data
-    
-    # Placeholder: Mark as synced with fake ID
-    ioc.dfir_iris_synced = True
-    ioc.dfir_iris_sync_date = datetime.utcnow()
-    ioc.dfir_iris_ioc_id = f'placeholder-{ioc.id}'
-    db.session.commit()
-    
-    return True
 
 
 # ============================================================================

@@ -2135,3 +2135,150 @@ def train_dfir_model_from_opencti(self, model_name='dfir-qwen:latest', limit=50)
                 logger.info(f"[AI_TRAIN] ✅ AI lock released (training completed)")
             except Exception as lock_err:
                 logger.error(f"[AI_TRAIN] Failed to release lock: {lock_err}")
+
+
+# ============================================================================
+# MAINTENANCE / CLEANUP TASKS
+# ============================================================================
+
+@celery_app.task(name='tasks.cleanup_old_search_history')
+def cleanup_old_search_history():
+    """
+    Clean up old search history records to prevent database bloat.
+    Keeps recent searches (last 90 days) and all favorited searches.
+    
+    Run daily via Celery Beat or manual trigger.
+    
+    Returns:
+        dict: Cleanup statistics
+    """
+    from main import app, db
+    from models import SearchHistory
+    from datetime import datetime, timedelta
+    
+    logger.info("[CLEANUP] Starting search history cleanup...")
+    
+    with app.app_context():
+        try:
+            # Delete non-favorited searches older than 90 days
+            cutoff_date = datetime.utcnow() - timedelta(days=90)
+            
+            # Count before deletion
+            old_searches = db.session.query(SearchHistory).filter(
+                SearchHistory.created_at < cutoff_date,
+                SearchHistory.is_favorite == False  # Keep favorited searches
+            ).count()
+            
+            if old_searches == 0:
+                logger.info("[CLEANUP] No old search history to clean up")
+                return {
+                    'status': 'success',
+                    'deleted': 0,
+                    'message': 'No old search history found'
+                }
+            
+            # Delete old searches
+            deleted = db.session.query(SearchHistory).filter(
+                SearchHistory.created_at < cutoff_date,
+                SearchHistory.is_favorite == False
+            ).delete()
+            
+            db.session.commit()
+            
+            logger.info(f"[CLEANUP] ✅ Deleted {deleted:,} old search history records (older than 90 days)")
+            
+            # Get current stats
+            total_searches = db.session.query(SearchHistory).count()
+            favorited_searches = db.session.query(SearchHistory).filter_by(is_favorite=True).count()
+            
+            logger.info(f"[CLEANUP] Current stats: {total_searches:,} total, {favorited_searches:,} favorited")
+            
+            return {
+                'status': 'success',
+                'deleted': deleted,
+                'total_remaining': total_searches,
+                'favorited_remaining': favorited_searches,
+                'message': f'Deleted {deleted:,} old search records'
+            }
+            
+        except Exception as e:
+            logger.error(f"[CLEANUP] ❌ Search history cleanup failed: {e}", exc_info=True)
+            db.session.rollback()
+            return {
+                'status': 'error',
+                'message': str(e)
+            }
+
+
+@celery_app.task(name='tasks.cleanup_old_audit_logs')
+def cleanup_old_audit_logs():
+    """
+    Clean up old audit log records to prevent database bloat.
+    Keeps recent logs (last 365 days) for compliance.
+    
+    Run weekly via Celery Beat or manual trigger.
+    
+    Returns:
+        dict: Cleanup statistics
+    """
+    from main import app, db
+    from models import AuditLog
+    from datetime import datetime, timedelta
+    
+    logger.info("[CLEANUP] Starting audit log cleanup...")
+    
+    with app.app_context():
+        try:
+            # Delete audit logs older than 1 year (365 days)
+            cutoff_date = datetime.utcnow() - timedelta(days=365)
+            
+            # Count before deletion
+            old_logs = db.session.query(AuditLog).filter(
+                AuditLog.timestamp < cutoff_date
+            ).count()
+            
+            if old_logs == 0:
+                logger.info("[CLEANUP] No old audit logs to clean up")
+                return {
+                    'status': 'success',
+                    'deleted': 0,
+                    'message': 'No old audit logs found'
+                }
+            
+            # Delete old logs in batches (prevent long-running transaction)
+            batch_size = 10000
+            total_deleted = 0
+            
+            while True:
+                batch_deleted = db.session.query(AuditLog).filter(
+                    AuditLog.timestamp < cutoff_date
+                ).limit(batch_size).delete(synchronize_session=False)
+                
+                if batch_deleted == 0:
+                    break
+                
+                total_deleted += batch_deleted
+                db.session.commit()
+                logger.info(f"[CLEANUP] Deleted batch: {batch_deleted:,} logs ({total_deleted:,} total)")
+            
+            logger.info(f"[CLEANUP] ✅ Deleted {total_deleted:,} old audit log records (older than 365 days)")
+            
+            # Get current stats
+            total_logs = db.session.query(AuditLog).count()
+            
+            logger.info(f"[CLEANUP] Current stats: {total_logs:,} audit logs remaining")
+            
+            return {
+                'status': 'success',
+                'deleted': total_deleted,
+                'total_remaining': total_logs,
+                'message': f'Deleted {total_deleted:,} old audit logs'
+            }
+            
+        except Exception as e:
+            logger.error(f"[CLEANUP] ❌ Audit log cleanup failed: {e}", exc_info=True)
+            db.session.rollback()
+            return {
+                'status': 'error',
+                'message': str(e)
+            }

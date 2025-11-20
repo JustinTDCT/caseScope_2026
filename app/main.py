@@ -11,6 +11,7 @@ from flask import Flask, render_template_string, render_template, request, redir
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from opensearchpy import OpenSearch
+from sqlalchemy import text
 
 # Import config and models
 from config import Config
@@ -338,6 +339,144 @@ def clear_case():
     session.pop('current_case_id', None)
     flash('Case selection cleared', 'info')
     return redirect(url_for('dashboard'))
+
+
+# ============================================================================
+# HEALTH CHECK ENDPOINTS
+# ============================================================================
+
+@app.route('/health/db')
+@login_required
+def db_health_check():
+    """
+    Database connection pool health check endpoint.
+    
+    Monitors pool usage to detect connection leaks and exhaustion.
+    
+    Returns:
+        JSON with pool statistics and health status
+    """
+    try:
+        pool = db.engine.pool
+        
+        # Get pool statistics
+        pool_size = pool.size()
+        checked_out = pool.checkedout()
+        checked_in = pool.checkedin()
+        overflow = pool.overflow()
+        max_overflow = pool._max_overflow
+        
+        # Calculate health status
+        # Unhealthy if: using all connections + all overflow
+        total_available = pool_size + max_overflow
+        total_used = checked_out
+        utilization = (total_used / total_available * 100) if total_available > 0 else 0
+        
+        # Health thresholds
+        if utilization < 50:
+            status = 'healthy'
+            color = 'green'
+        elif utilization < 80:
+            status = 'warning'
+            color = 'yellow'
+        else:
+            status = 'critical'
+            color = 'red'
+        
+        return jsonify({
+            'status': status,
+            'color': color,
+            'utilization_percent': round(utilization, 1),
+            'pool': {
+                'size': pool_size,
+                'max_overflow': max_overflow,
+                'total_available': total_available,
+                'checked_out': checked_out,
+                'checked_in': checked_in,
+                'overflow': overflow
+            },
+            'message': f'Database pool {status}: {utilization:.1f}% utilized ({checked_out}/{total_available} connections in use)'
+        })
+        
+    except Exception as e:
+        logger.error(f"[HEALTH] DB pool check failed: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/health/system')
+@login_required
+def system_health_check():
+    """
+    Overall system health check endpoint.
+    
+    Checks:
+    - Database connection
+    - OpenSearch connection
+    - Redis connection (Celery)
+    - Disk space
+    
+    Returns:
+        JSON with system health status
+    """
+    from system_stats import get_system_status
+    
+    health = {
+        'status': 'healthy',
+        'checks': {}
+    }
+    
+    # Check database
+    try:
+        db.session.execute(text('SELECT 1'))
+        health['checks']['database'] = {'status': 'ok', 'message': 'Connected'}
+    except Exception as e:
+        health['checks']['database'] = {'status': 'error', 'message': str(e)}
+        health['status'] = 'unhealthy'
+    
+    # Check OpenSearch
+    try:
+        opensearch_client.cluster.health()
+        health['checks']['opensearch'] = {'status': 'ok', 'message': 'Connected'}
+    except Exception as e:
+        health['checks']['opensearch'] = {'status': 'error', 'message': str(e)}
+        health['status'] = 'unhealthy'
+    
+    # Check Celery/Redis
+    try:
+        from celery_app import celery_app as celery
+        inspect = celery.control.inspect()
+        stats = inspect.stats()
+        if stats:
+            health['checks']['celery'] = {'status': 'ok', 'message': f'{len(stats)} workers active'}
+        else:
+            health['checks']['celery'] = {'status': 'warning', 'message': 'No workers responding'}
+            if health['status'] == 'healthy':
+                health['status'] = 'degraded'
+    except Exception as e:
+        health['checks']['celery'] = {'status': 'error', 'message': str(e)}
+        if health['status'] == 'healthy':
+            health['status'] = 'degraded'
+    
+    # Check disk space
+    try:
+        system_status = get_system_status()
+        disk_free_percent = system_status.get('disk_free_percent', 0)
+        if disk_free_percent < 10:
+            health['checks']['disk'] = {'status': 'critical', 'message': f'Only {disk_free_percent}% free'}
+            health['status'] = 'unhealthy'
+        elif disk_free_percent < 20:
+            health['checks']['disk'] = {'status': 'warning', 'message': f'{disk_free_percent}% free'}
+            if health['status'] == 'healthy':
+                health['status'] = 'degraded'
+        else:
+            health['checks']['disk'] = {'status': 'ok', 'message': f'{disk_free_percent}% free'}
+    except Exception as e:
+        health['checks']['disk'] = {'status': 'error', 'message': str(e)}
+    
+    return jsonify(health)
 
 
 # ============================================================================
