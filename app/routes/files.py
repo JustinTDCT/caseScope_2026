@@ -519,7 +519,7 @@ def bulk_import_status(case_id, task_id):
 @login_required
 def reindex_single_file(case_id, file_id):
     """Re-index a single file (clears all data and rebuilds)"""
-    from main import db, CaseFile, opensearch_client
+    from main import db, CaseFile, Case, opensearch_client
     from bulk_operations import clear_file_sigma_violations, clear_file_ioc_matches
     from tasks import process_file
     
@@ -527,6 +527,13 @@ def reindex_single_file(case_id, file_id):
     
     if not case_file or case_file.case_id != case_id:
         flash('File not found', 'error')
+        return redirect(url_for('files.case_files', case_id=case_id))
+    
+    # Archive guard (v1.18.0): Prevent re-indexing archived cases
+    from archive_utils import is_case_archived
+    case = db.session.get(Case, case_id)
+    if case and is_case_archived(case):
+        flash('❌ Cannot re-index archived case. Please restore the case first.', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
     # Clear OpenSearch events for this file (v1.13.1: delete by file_id, not entire index)
@@ -797,10 +804,17 @@ def file_details(case_id, file_id):
 @login_required
 def bulk_reindex_selected(case_id):
     """Re-index selected files (clears all data and rebuilds)"""
-    from main import db, CaseFile, opensearch_client
+    from main import db, CaseFile, Case, opensearch_client
     from bulk_operations import clear_file_sigma_violations, clear_file_ioc_matches, reset_file_metadata, queue_file_processing
     from tasks import process_file
     from celery_health import check_workers_available
+    
+    # Archive guard (v1.18.0): Prevent re-indexing archived cases
+    from archive_utils import is_case_archived
+    case = db.session.get(Case, case_id)
+    if case and is_case_archived(case):
+        flash('❌ Cannot re-index archived case. Please restore the case first.', 'error')
+        return redirect(url_for('files.case_files', case_id=case_id))
     
     # Safety check: Ensure Celery workers are available
     workers_ok, worker_count, error_msg = check_workers_available(min_workers=1)
@@ -1636,11 +1650,13 @@ def bulk_reindex_global_route():
         return redirect(url_for('files.global_files'))
     
     try:
-        # Get all indexed files across all cases
-        files = [f for f in get_files(db, scope='global', include_hidden=False) if f.is_indexed]
+        # Get all indexed files across all cases (excluding archived cases - v1.18.0)
+        from archive_utils import is_case_archived
+        all_files = [f for f in get_files(db, scope='global', include_hidden=False) if f.is_indexed]
+        files = [f for f in all_files if not is_case_archived(f.case)]
         
         if not files:
-            flash('No indexed files found globally', 'warning')
+            flash('No indexed files found globally (archived cases excluded)', 'warning')
             return redirect(url_for('files.global_files'))
         
         # Clear OpenSearch events
@@ -1855,11 +1871,22 @@ def bulk_reindex_selected_global_route():
         return redirect(url_for('files.global_files'))
     
     try:
-        files = get_files(db, scope='global', file_ids=file_ids)
+        all_files = get_files(db, scope='global', file_ids=file_ids)
+        
+        # Filter out files from archived cases (v1.18.0)
+        from archive_utils import is_case_archived
+        files = [f for f in all_files if not is_case_archived(f.case)]
+        archived_count = len(all_files) - len(files)
         
         if not files:
-            flash('Selected files not found', 'warning')
+            if archived_count > 0:
+                flash(f'Cannot re-index: All {archived_count} selected file(s) are in archived cases', 'error')
+            else:
+                flash('Selected files not found', 'warning')
             return redirect(url_for('files.global_files'))
+        
+        if archived_count > 0:
+            flash(f'⚠️ Skipped {archived_count} file(s) from archived cases', 'warning')
         
         # Clear data
         clear_opensearch_events(opensearch_client, files, scope='global')

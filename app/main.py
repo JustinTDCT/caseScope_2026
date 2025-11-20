@@ -3519,6 +3519,12 @@ def clear_all_files(case_id):
         flash('Case not found', 'error')
         return redirect(url_for('dashboard'))
     
+    # Archive guard (v1.18.0): Prevent clearing archived cases
+    from archive_utils import is_case_archived
+    if is_case_archived(case):
+        flash('❌ Cannot clear files from archived case. Please restore the case first.', 'error')
+        return redirect(url_for('view_case', case_id=case_id))
+    
     # Get all files for this case (including deleted/hidden)
     files = db.session.query(CaseFile).filter_by(case_id=case_id).all()
     
@@ -3665,6 +3671,12 @@ def bulk_reindex_route(case_id):
     if not case:
         flash('Case not found', 'error')
         return redirect(url_for('dashboard'))
+    
+    # Archive guard (v1.18.0): Prevent re-indexing archived cases
+    from archive_utils import is_case_archived
+    if is_case_archived(case):
+        flash('❌ Cannot re-index archived case. Please restore the case first.', 'error')
+        return redirect(url_for('files.case_files', case_id=case_id))
     
     # Safety check: Ensure Celery workers are available
     workers_ok, worker_count, error_msg = check_workers_available(min_workers=1)
@@ -4138,6 +4150,12 @@ def upload_files(case_id):
     if not case:
         flash('Case not found', 'error')
         return redirect(url_for('dashboard'))
+    
+    # Archive guard (v1.18.0): Prevent uploads to archived cases
+    from archive_utils import is_case_archived
+    if is_case_archived(case):
+        flash('❌ Cannot upload files to archived case. Please restore the case first.', 'error')
+        return redirect(url_for('view_case', case_id=case_id))
     
     if request.method == 'POST':
         from upload_integration import handle_http_upload_v96

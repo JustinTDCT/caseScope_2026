@@ -121,6 +121,18 @@ def process_file(self, file_id, operation='full'):
             if not case:
                 return {'status': 'error', 'message': 'Case not found'}
             
+            # Archive guard (v1.18.0): Prevent processing files in archived cases
+            # Exception: ioc_only and chainsaw_only operations are allowed (work without source files)
+            from archive_utils import is_case_archived
+            if operation not in ['ioc_only', 'chainsaw_only'] and is_case_archived(case):
+                logger.warning(f"[TASK] Cannot process file {file_id}: Case {case.id} is archived")
+                case_file.celery_task_id = None  # Clear task ID
+                db.session.commit()
+                return {
+                    'status': 'error',
+                    'message': 'Cannot process file in archived case. Please restore the case first.'
+                }
+            
             # CRITICAL: Prevent duplicate processing (but allow intentional re-index)
             # Check if file is already being processed by another task
             if case_file.celery_task_id and case_file.celery_task_id != self.request.id:
