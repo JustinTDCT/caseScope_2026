@@ -120,6 +120,7 @@ from routes.settings import settings_bp
 from routes.users import users_bp
 from routes.admin import admin_bp
 from routes.timeline import timeline_bp
+from routes.archive import archive_bp
 app.register_blueprint(files_bp)
 app.register_blueprint(cases_bp)
 app.register_blueprint(api_stats_bp)
@@ -127,6 +128,7 @@ app.register_blueprint(settings_bp)
 app.register_blueprint(users_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(timeline_bp)
+app.register_blueprint(archive_bp)
 
 # User loader for Flask-Login
 @login_manager.user_loader
