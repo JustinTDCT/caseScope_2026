@@ -129,6 +129,11 @@
         <form method="GET" action="{{ url_for('search_events', case_id=case.id) }}" id="searchForm" onsubmit="return handleSearchSubmit(event)">
             <!-- Row 1: Search Bar -->
             <div style="display: flex; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+                <!-- Saved Searches Dropdown -->
+                <select id="savedSearchDropdown" onchange="loadSavedSearch()" class="form-input" style="min-width: 200px; max-width: 220px;">
+                    <option value="">📁 Saved Searches...</option>
+                </select>
+                
                 <input type="text" 
                        name="q" 
                        value="{{ search_text }}" 
@@ -139,6 +144,19 @@
                     <span>🔍</span>
                     <span>Search</span>
                 </button>
+                
+                <!-- Save Current Search -->
+                <button type="button" onclick="showSaveSearchModal()" class="btn btn-success" title="Save current search">
+                    <span>💾</span>
+                    <span>Save</span>
+                </button>
+                
+                <!-- Manage Saved Searches -->
+                <button type="button" onclick="showManageSearchesModal()" class="btn btn-secondary" title="Manage saved searches">
+                    <span>⚙️</span>
+                    <span>Manage</span>
+                </button>
+                
                 <button type="button" onclick="exportToCSV()" class="btn" style="background: var(--color-success); color: white;">
                     <span>📥</span>
                     <span>Export CSV</span>
@@ -3128,6 +3146,280 @@ document.addEventListener('click', function(e) {
     }
     if (e.target.id === 'firewallSelectModalFailed') {
         closeFirewallSelectModalFailed();
+    }
+});
+
+// ========================================
+// SAVED SEARCHES FEATURE (v1.17.0)
+// ========================================
+
+// Load saved searches on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadSavedSearchesDropdown();
+});
+
+// Load saved searches into dropdown
+function loadSavedSearchesDropdown() {
+    fetch('/search/saved/list')
+        .then(response => response.json())
+        .then(data => {
+            const dropdown = document.getElementById('savedSearchDropdown');
+            dropdown.innerHTML = '<option value="">📁 Saved Searches...</option>';
+            
+            if (data.searches && data.searches.length > 0) {
+                data.searches.forEach(search => {
+                    const option = document.createElement('option');
+                    option.value = search.id;
+                    option.textContent = search.title;
+                    dropdown.appendChild(option);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error loading saved searches:', error);
+        });
+}
+
+// Load selected saved search
+function loadSavedSearch() {
+    const dropdown = document.getElementById('savedSearchDropdown');
+    const searchId = dropdown.value;
+    
+    if (!searchId) return;
+    
+    fetch(`/search/saved/${searchId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Populate form fields with saved search params
+                document.querySelector('input[name="q"]').value = data.search.search_query || '';
+                document.querySelector('select[name="filter"]').value = data.search.filter_type || 'all';
+                document.querySelector('select[name="date_range"]').value = data.search.date_range || 'all';
+                document.querySelector('select[name="per_page"]').value = data.search.results_per_page || 50;
+                document.querySelector('select[name="hidden_filter"]').value = data.search.visibility || 'hide';
+                
+                // Handle file types checkboxes
+                const fileTypes = data.search.file_types || [];
+                document.querySelectorAll('input[name="file_types"]').forEach(cb => {
+                    cb.checked = fileTypes.includes(cb.value);
+                });
+                
+                // Show notification
+                alert(`✅ Loaded search: ${data.search.title}`);
+                
+                // Reset dropdown
+                dropdown.value = '';
+            } else {
+                alert('❌ Error: ' + (data.message || 'Failed to load search'));
+            }
+        })
+        .catch(error => {
+            console.error('Error loading search:', error);
+            alert('❌ Network error loading search');
+        });
+}
+
+// Show Save Search Modal
+function showSaveSearchModal() {
+    // Create modal if it doesn't exist
+    let modal = document.getElementById('saveSearchModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'saveSearchModal';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); display: none; justify-content: center; align-items: center; z-index: 9999;';
+        modal.innerHTML = `
+            <div style="background: var(--color-bg-primary); padding: var(--spacing-xl); border-radius: var(--border-radius); width: 500px; max-width: 90%;">
+                <h2 style="margin-top: 0; margin-bottom: var(--spacing-lg);">💾 Save Current Search</h2>
+                <div style="margin-bottom: var(--spacing-md);">
+                    <label class="form-label">Search Title</label>
+                    <input type="text" id="saveSearchTitle" class="form-input" placeholder="e.g., ATN68139 RDP Activity" autofocus>
+                </div>
+                <div style="margin-bottom: var(--spacing-lg); padding: var(--spacing-sm); background: var(--color-bg-secondary); border-radius: var(--border-radius);">
+                    <strong>Current Search Parameters:</strong>
+                    <ul style="margin: var(--spacing-sm) 0 0 var(--spacing-md); font-size: 0.875rem; color: var(--color-text-secondary);">
+                        <li><strong>Query:</strong> ${document.querySelector('input[name="q"]').value || '(empty)'}</li>
+                        <li><strong>Filter:</strong> ${document.querySelector('select[name="filter"]').selectedOptions[0].text}</li>
+                        <li><strong>Date Range:</strong> ${document.querySelector('select[name="date_range"]').selectedOptions[0].text}</li>
+                    </ul>
+                </div>
+                <div style="display: flex; gap: var(--spacing-md); justify-content: flex-end;">
+                    <button onclick="closeSaveSearchModal()" class="btn btn-secondary">Cancel</button>
+                    <button onclick="saveCurrentSearch()" class="btn btn-success">💾 Save Search</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    setTimeout(() => document.getElementById('saveSearchTitle').focus(), 100);
+}
+
+// Save current search
+function saveCurrentSearch() {
+    const title = document.getElementById('saveSearchTitle').value.trim();
+    
+    if (!title) {
+        alert('Please enter a title for this search');
+        return;
+    }
+    
+    // Get file types
+    const fileTypes = Array.from(document.querySelectorAll('input[name="file_types"]:checked')).map(cb => cb.value);
+    
+    const searchData = {
+        title: title,
+        search_query: document.querySelector('input[name="q"]').value,
+        filter_type: document.querySelector('select[name="filter"]').value,
+        date_range: document.querySelector('select[name="date_range"]').value,
+        file_types: fileTypes,
+        results_per_page: parseInt(document.querySelector('select[name="per_page"]').value),
+        visibility: document.querySelector('select[name="hidden_filter"]').value
+    };
+    
+    fetch('/search/saved/save', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(searchData),
+        credentials: 'same-origin'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Search saved: ${title}`);
+            closeSaveSearchModal();
+            loadSavedSearchesDropdown(); // Refresh dropdown
+        } else {
+            alert('❌ Error: ' + (data.message || 'Failed to save search'));
+        }
+    })
+    .catch(error => {
+        console.error('Error saving search:', error);
+        alert('❌ Network error saving search');
+    });
+}
+
+// Close Save Search Modal
+function closeSaveSearchModal() {
+    document.getElementById('saveSearchModal').style.display = 'none';
+    document.getElementById('saveSearchTitle').value = '';
+}
+
+// Show Manage Searches Modal
+function showManageSearchesModal() {
+    // Create modal if it doesn't exist
+    let modal = document.getElementById('manageSearchesModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'manageSearchesModal';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); display: none; justify-content: center; align-items: center; z-index: 9999;';
+        modal.innerHTML = `
+            <div style="background: var(--color-bg-primary); padding: var(--spacing-xl); border-radius: var(--border-radius); width: 700px; max-width: 90%; max-height: 80vh; overflow-y: auto;">
+                <h2 style="margin-top: 0; margin-bottom: var(--spacing-lg);">⚙️ Manage Saved Searches</h2>
+                <div id="manageSearchesList" style="margin-bottom: var(--spacing-lg);">
+                    <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-text-secondary);">
+                        Loading searches...
+                    </div>
+                </div>
+                <div style="display: flex; gap: var(--spacing-md); justify-content: flex-end;">
+                    <button onclick="closeManageSearchesModal()" class="btn btn-secondary">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    
+    // Load searches
+    fetch('/search/saved/list')
+        .then(response => response.json())
+        .then(data => {
+            const listDiv = document.getElementById('manageSearchesList');
+            
+            if (!data.searches || data.searches.length === 0) {
+                listDiv.innerHTML = `
+                    <div style="text-align: center; padding: var(--spacing-xl); color: var(--color-text-secondary);">
+                        <div style="font-size: 3rem; margin-bottom: var(--spacing-md);">📁</div>
+                        <p>No saved searches yet</p>
+                        <p style="font-size: 0.875rem;">Click "💾 Save Search" to save your first search</p>
+                    </div>
+                `;
+            } else {
+                let html = '<div style="display: grid; gap: var(--spacing-sm);">';
+                
+                data.searches.forEach(search => {
+                    html += `
+                        <div style="display: flex; align-items: center; gap: var(--spacing-md); padding: var(--spacing-md); background: var(--color-bg-secondary); border-radius: var(--border-radius);">
+                            <div style="flex: 1;">
+                                <div style="font-weight: 600; margin-bottom: var(--spacing-xs);">${search.title}</div>
+                                <div style="font-size: 0.875rem; color: var(--color-text-secondary);">
+                                    Query: ${search.search_query || '(empty)'} | 
+                                    Filter: ${search.filter_type} | 
+                                    Date: ${search.date_range}
+                                </div>
+                                <div style="font-size: 0.75rem; color: var(--color-text-secondary); margin-top: var(--spacing-xs);">
+                                    Created: ${search.created_at}
+                                </div>
+                            </div>
+                            <button onclick="deleteSavedSearch(${search.id}, '${search.title.replace(/'/g, "\\'")}')" class="btn btn-sm" style="background: var(--color-error); color: white;">
+                                🗑️ Delete
+                            </button>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                listDiv.innerHTML = html;
+            }
+        })
+        .catch(error => {
+            console.error('Error loading searches:', error);
+            document.getElementById('manageSearchesList').innerHTML = `
+                <div class="alert alert-error">❌ Error loading searches</div>
+            `;
+        });
+    
+    modal.style.display = 'flex';
+}
+
+// Delete saved search
+function deleteSavedSearch(searchId, searchTitle) {
+    if (!confirm(`⚠️ Delete search "${searchTitle}"?\n\nThis action cannot be undone.`)) {
+        return;
+    }
+    
+    fetch(`/search/saved/${searchId}/delete`, {
+        method: 'POST',
+        credentials: 'same-origin'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(`✅ Deleted search: ${searchTitle}`);
+            showManageSearchesModal(); // Refresh list
+            loadSavedSearchesDropdown(); // Refresh dropdown
+        } else {
+            alert('❌ Error: ' + (data.message || 'Failed to delete search'));
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting search:', error);
+        alert('❌ Network error deleting search');
+    });
+}
+
+// Close Manage Searches Modal
+function closeManageSearchesModal() {
+    document.getElementById('manageSearchesModal').style.display = 'none';
+}
+
+// Close modals on background click
+document.addEventListener('click', function(e) {
+    if (e.target.id === 'saveSearchModal') {
+        closeSaveSearchModal();
+    }
+    if (e.target.id === 'manageSearchesModal') {
+        closeManageSearchesModal();
     }
 });
 

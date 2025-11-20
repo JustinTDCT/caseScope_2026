@@ -1,3 +1,100 @@
+## ✨ v1.17.0 - FEATURE: Global Saved Searches (2025-11-20)
+
+**Change**: Added global saved searches feature allowing users to save, load, and manage search configurations across all cases.
+
+**User Request**: "we have recent searches - can we do favorite searches- not tied to a case like global favorite searches"
+
+### Problem
+
+Users frequently performed same complex searches across multiple cases but had to manually re-enter search parameters:
+- Search query text
+- Filter type (all/sigma/ioc/tagged)
+- Date range
+- File types
+- Results per page
+- Visibility settings
+
+Existing recent searches feature was case-specific and showed only last 10 searches. No way to save frequently-used searches with custom titles for quick access across all cases.
+
+### Solution
+
+**UI Components** (`templates/search_events.html`):
+1. **Saved Searches Dropdown** - Select from saved searches (📁 Saved Searches...)
+2. **Save Search Button** (💾 Save) - Opens modal to save current search with custom title
+3. **Manage Button** (⚙️ Manage) - Opens modal to view and delete saved searches
+
+**Backend Routes** (`main.py` lines 2679-2835):
+- `GET /search/saved/list` - List all user's global saved searches
+- `GET /search/saved/<id>` - Get specific saved search
+- `POST /search/saved/save` - Save new search with title and parameters
+- `POST /search/saved/<id>/delete` - Delete saved search
+
+**JavaScript Functions** (330 lines):
+- `loadSavedSearchesDropdown()` - Populates dropdown on page load
+- `loadSavedSearch()` - Applies selected search to form fields
+- `showSaveSearchModal()` / `saveCurrentSearch()` - Save flow
+- `showManageSearchesModal()` / `deleteSavedSearch()` - Management UI
+
+**Database**: Reuses `SearchHistory` model with `case_id=NULL` (global) and `is_favorite=True` (distinguishes from recent searches).
+
+### Result
+
+✅ Dropdown loads with all user's saved searches  
+✅ Select search → all form fields populate instantly  
+✅ Save current search → modal prompts for title → search saved  
+✅ Manage searches → view all → delete unwanted ones  
+✅ Searches work across ALL cases (global, not case-specific)  
+✅ Comprehensive audit logging  
+✅ User isolation (can only see own searches)  
+
+### Benefits
+
+**Time Savings**: Complex searches become one-click operations (save hours per investigation)  
+**Consistency**: Same search parameters across all cases (reduces human error)  
+**Knowledge Sharing**: Senior analysts create library, junior analysts learn from titles  
+**Best Practices**: Encourages saving tested/validated queries
+
+### Use Cases
+
+1. **Incident Response**: Save "Defender Malware Detections" → apply to all 25 cases
+2. **Compliance**: Save "Admin Account Changes" → run quarterly on all cases
+3. **User Activity**: Save "ATN68139 Pete Activity" → track specific user across all log types
+4. **Threat Hunting**: Save "Suspicious PowerShell Execution" → hunt for malicious patterns
+5. **Training**: Create library of common forensic queries for junior analysts
+6. **Triage**: Save "High Priority Triage" (sigma_and_ioc filter) → quick triage of new cases
+
+### Files Modified
+
+- `templates/search_events.html` (330 lines added - dropdown, buttons, modals, JavaScript)
+- `main.py` (160 lines added - 4 new routes)
+
+### Services Restarted
+
+- `casescope.service` (web app)
+
+### Testing
+
+✅ Dropdown populates on page load  
+✅ Select search → all fields populate correctly (query, filters, file types, date range, visibility)  
+✅ Save Search → modal → enter title → search saved → dropdown refreshes  
+✅ Manage → shows all searches → delete works → list/dropdown refresh  
+✅ User isolation works (can only see own searches)  
+✅ Audit logs created for save/delete  
+✅ No conflicts with recent searches feature  
+
+### Difference from Recent Searches
+
+| Feature | Recent Searches | Global Saved Searches (NEW) |
+|---------|----------------|----------------------------|
+| Scope | Case-specific | Global (all cases) |
+| Trigger | Automatic | Manual (user clicks Save) |
+| Title | Auto (query text) | Custom (user-defined) |
+| Count | Last 10 | Unlimited |
+| Management | Auto-expire | User deletes |
+| Dropdown | Not available | ✅ Available |
+
+---
+
 ## 🐛 v1.16.26 - BUGFIX: search_blob Field Showing as Event Description (2025-11-19)
 
 **Change**: Fixed `search_blob` field being displayed as event description instead of proper EVTX descriptions.

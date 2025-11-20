@@ -2676,6 +2676,152 @@ def toggle_search_favorite(case_id, search_id):
     return jsonify({'success': True, 'is_favorite': search.is_favorite})
 
 
+# ========================================
+# GLOBAL SAVED SEARCHES (v1.17.0)
+# ========================================
+
+@app.route('/search/saved/list', methods=['GET'])
+@login_required
+def list_saved_searches():
+    """Get all global saved searches for current user"""
+    from models import SearchHistory
+    import json
+    
+    searches = db.session.query(SearchHistory).filter_by(
+        user_id=current_user.id,
+        case_id=None,  # Global searches only (not tied to specific case)
+        is_favorite=True  # Use is_favorite field to mark global saved searches
+    ).order_by(SearchHistory.search_name.asc()).all()
+    
+    result = []
+    for search in searches:
+        try:
+            search_data = json.loads(search.search_query)
+            result.append({
+                'id': search.id,
+                'title': search.search_name or 'Unnamed Search',
+                'search_query': search_data.get('search_text', ''),
+                'filter_type': search.filter_type,
+                'date_range': search.date_range,
+                'file_types': search_data.get('file_types', []),
+                'results_per_page': search_data.get('results_per_page', 50),
+                'visibility': search_data.get('visibility', 'hide'),
+                'created_at': search.created_at.strftime('%Y-%m-%d %H:%M')
+            })
+        except:
+            pass
+    
+    return jsonify({'success': True, 'searches': result})
+
+
+@app.route('/search/saved/<int:search_id>', methods=['GET'])
+@login_required
+def get_saved_search(search_id):
+    """Get a specific saved search"""
+    from models import SearchHistory
+    import json
+    
+    search = db.session.get(SearchHistory, search_id)
+    if not search or search.user_id != current_user.id:
+        return jsonify({'success': False, 'message': 'Search not found'}), 404
+    
+    try:
+        search_data = json.loads(search.search_query)
+        result = {
+            'id': search.id,
+            'title': search.search_name or 'Unnamed Search',
+            'search_query': search_data.get('search_text', ''),
+            'filter_type': search.filter_type,
+            'date_range': search.date_range,
+            'file_types': search_data.get('file_types', []),
+            'results_per_page': search_data.get('results_per_page', 50),
+            'visibility': search_data.get('visibility', 'hide')
+        }
+        return jsonify({'success': True, 'search': result})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/search/saved/save', methods=['POST'])
+@login_required
+def save_search():
+    """Save a new global search"""
+    from models import SearchHistory
+    from audit_logger import log_action
+    import json
+    
+    data = request.get_json()
+    
+    if not data.get('title'):
+        return jsonify({'success': False, 'message': 'Title is required'}), 400
+    
+    # Create search params dict
+    search_params = {
+        'search_text': data.get('search_query', ''),
+        'filter_type': data.get('filter_type', 'all'),
+        'date_range': data.get('date_range', 'all'),
+        'file_types': data.get('file_types', []),
+        'results_per_page': data.get('results_per_page', 50),
+        'visibility': data.get('visibility', 'hide')
+    }
+    
+    # Create new search history entry
+    search = SearchHistory(
+        user_id=current_user.id,
+        case_id=None,  # Global search (not tied to case)
+        search_name=data['title'],
+        search_query=json.dumps(search_params),
+        filter_type=data.get('filter_type', 'all'),
+        date_range=data.get('date_range', 'all'),
+        is_favorite=True,  # Mark as favorite to distinguish global saved searches
+        result_count=0
+    )
+    
+    db.session.add(search)
+    db.session.commit()
+    
+    # Audit log
+    log_action(
+        action='saved_search_created',
+        resource_type='search',
+        resource_id=search.id,
+        resource_name=data['title'],
+        details={'query': search_params.get('search_text', ''), 'filter': search_params.get('filter_type')},
+        status='success'
+    )
+    
+    return jsonify({'success': True, 'search_id': search.id})
+
+
+@app.route('/search/saved/<int:search_id>/delete', methods=['POST'])
+@login_required
+def delete_saved_search(search_id):
+    """Delete a saved search"""
+    from models import SearchHistory
+    from audit_logger import log_action
+    
+    search = db.session.get(SearchHistory, search_id)
+    if not search or search.user_id != current_user.id:
+        return jsonify({'success': False, 'message': 'Search not found'}), 404
+    
+    search_name = search.search_name
+    
+    # Audit log before deletion
+    log_action(
+        action='saved_search_deleted',
+        resource_type='search',
+        resource_id=search.id,
+        resource_name=search_name,
+        details={'query': search.search_query[:100] if search.search_query else ''},
+        status='success'
+    )
+    
+    db.session.delete(search)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+
 @app.route('/case/<int:case_id>/search/add_ioc', methods=['POST'])
 @login_required
 def add_field_as_ioc(case_id):
