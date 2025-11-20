@@ -136,9 +136,22 @@ def parse_iis_log(file_path, opensearch_key, file_id, filename):
                 
                 # Build event dictionary
                 event = {}
+                # v1.18.0: List of numeric fields that should be converted to integers for proper range queries
+                numeric_fields = {'time-taken', 'sc-status', 'sc-substatus', 'sc-win32-status', 's-port', 'cs-bytes', 'sc-bytes'}
+                
                 for field_name, value in zip(field_names, values):
                     # Convert "-" to empty string (IIS convention for empty fields)
-                    event[field_name] = value if value != '-' else ''
+                    if value == '-':
+                        event[field_name] = ''
+                    # Convert numeric fields to integers for proper comparison
+                    elif field_name in numeric_fields:
+                        try:
+                            event[field_name] = int(value)
+                        except (ValueError, TypeError):
+                            # Keep as string if conversion fails
+                            event[field_name] = value
+                    else:
+                        event[field_name] = value
                 
                 # Extract timestamp from date + time fields
                 date_str = event.get('date', '')
