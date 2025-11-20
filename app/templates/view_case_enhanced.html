@@ -2236,22 +2236,41 @@ setTimeout(checkTimelineStatus, 500);
 // ============================================================================
 
 function showArchiveModal() {
+    console.log('[ARCHIVE] showArchiveModal() called');
+    
+    // Check if modal exists
+    const modal = document.getElementById('archiveModal');
+    if (!modal) {
+        console.error('[ARCHIVE] ERROR: archiveModal element not found');
+        alert('ERROR: Archive modal not found. Please refresh the page.');
+        return;
+    }
+    console.log('[ARCHIVE] Modal element found');
+    
     // Get case size info first
-    fetch(`/archive/case/{{ case.id }}/info`, {
+    console.log('[ARCHIVE] Fetching case info from /archive/case/' + CASE_ID + '/info');
+    fetch(`/archive/case/${CASE_ID}/info`, {
         credentials: 'same-origin'
     })
-        .then(r => r.json())
+        .then(r => {
+            console.log('[ARCHIVE] Response status:', r.status);
+            return r.json();
+        })
         .then(data => {
+            console.log('[ARCHIVE] Response data:', data);
             if (data.success) {
-                const modal = document.getElementById('archiveModal');
                 document.getElementById('archiveCaseSize').textContent = data.file_size.size_display;
                 document.getElementById('archiveFileCount').textContent = data.file_size.file_count.toLocaleString();
                 modal.style.display = 'flex';
+                console.log('[ARCHIVE] Modal displayed');
             } else {
                 alert('Failed to get case info: ' + data.error);
             }
         })
-        .catch(err => alert('Error: ' + err.message));
+        .catch(err => {
+            console.error('[ARCHIVE] Fetch error:', err);
+            alert('Error: ' + err.message);
+        });
 }
 
 function closeArchiveModal() {
@@ -2259,6 +2278,7 @@ function closeArchiveModal() {
 }
 
 function confirmArchive() {
+    console.log('[ARCHIVE] confirmArchive() called');
     closeArchiveModal();
     
     // Show progress modal
@@ -2281,9 +2301,11 @@ function confirmArchive() {
         </div>
     `;
     document.body.appendChild(progressModal);
+    console.log('[ARCHIVE] Progress modal created');
     
     // Start archive
-    fetch(`/archive/case/{{ case.id }}/archive`, {
+    console.log('[ARCHIVE] POSTing to /archive/case/' + CASE_ID + '/archive');
+    fetch(`/archive/case/${CASE_ID}/archive`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: {'Content-Type': 'application/json'}
@@ -2332,6 +2354,7 @@ function closeRestoreModal() {
 
 function confirmRestore() {
     const newStatus = document.getElementById('restoreNewStatus').value;
+    console.log('[RESTORE] confirmRestore() called, newStatus:', newStatus);
     closeRestoreModal();
     
     // Show progress modal
@@ -2354,9 +2377,11 @@ function confirmRestore() {
         </div>
     `;
     document.body.appendChild(progressModal);
+    console.log('[RESTORE] Progress modal created');
     
     // Start restore
-    fetch(`/archive/case/{{ case.id }}/restore`, {
+    console.log('[RESTORE] POSTing to /archive/case/' + CASE_ID + '/restore');
+    fetch(`/archive/case/${CASE_ID}/restore`, {
         method: 'POST',
         credentials: 'same-origin',
         headers: {'Content-Type': 'application/json'},
