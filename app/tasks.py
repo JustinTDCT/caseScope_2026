@@ -112,8 +112,9 @@ def process_file(self, file_id, operation='full'):
     
     with app.app_context():
         try:
-            # Get file record
-            case_file = db.session.get(CaseFile, file_id)
+            # Get file record with row-level lock to prevent concurrent processing
+            # SELECT FOR UPDATE locks the row until commit, preventing race conditions
+            case_file = db.session.query(CaseFile).with_for_update().filter_by(id=file_id).first()
             if not case_file:
                 return {'status': 'error', 'message': 'File not found'}
             
@@ -475,6 +476,22 @@ def process_file(self, file_id, operation='full'):
             except Exception as db_error:
                 logger.error(f"[TASK] ❌ Could not update file status: {db_error}")
             return {'status': 'error', 'message': str(e), 'file_id': file_id}
+        
+        finally:
+            # CRITICAL: Always clear celery_task_id, even if worker crashes
+            # This prevents files from getting stuck in "processing" state forever
+            # If task crashes before reaching the normal cleanup, this ensures the file can be re-queued
+            try:
+                # Need new app context in case the main one was rolled back
+                with app.app_context():
+                    case_file = db.session.query(CaseFile).filter_by(id=file_id).first()
+                    if case_file and case_file.celery_task_id == self.request.id:
+                        case_file.celery_task_id = None
+                        db.session.commit()
+                        logger.debug(f"[TASK] ✓ Cleanup: Cleared celery_task_id for file {file_id}")
+            except Exception as cleanup_error:
+                # Log but don't raise - cleanup failure shouldn't fail the task
+                logger.warning(f"[TASK] ⚠ Failed to clear celery_task_id in finally block: {cleanup_error}")
 
 
 # ============================================================================
@@ -1085,6 +1102,32 @@ def generate_ai_report(self, report_id):
                 
                 if timeline_tags:
                     logger.info(f"[AI REPORT] Found {len(timeline_tags)} tagged events in database")
+                    
+                    # CRITICAL: Enforce maximum event limit to prevent OOM crashes
+                    MAX_EVENTS_FOR_AI = 50000
+                    if len(timeline_tags) > MAX_EVENTS_FOR_AI:
+                        logger.error(f"[AI REPORT] ❌ Too many tagged events: {len(timeline_tags):,} (max: {MAX_EVENTS_FOR_AI:,})")
+                        report.status = 'failed'
+                        report.error_message = (
+                            f'Too many tagged events ({len(timeline_tags):,}). '
+                            f'Maximum allowed: {MAX_EVENTS_FOR_AI:,}. '
+                            f'Please tag only the most important events for AI analysis. '
+                            f'Tip: Focus on IOC hits, SIGMA violations, and key security events.'
+                        )
+                        db.session.commit()
+                        
+                        # Release AI lock on failure
+                        try:
+                            from ai_resource_lock import release_ai_lock
+                            release_ai_lock()
+                            logger.info(f"[AI REPORT] ✅ AI lock released (too many events)")
+                        except Exception as lock_err:
+                            logger.error(f"[AI REPORT] Failed to release lock: {lock_err}")
+                        
+                        return {
+                            'status': 'error',
+                            'message': report.error_message
+                        }
                     
                     # Get event_ids for OpenSearch query
                     tagged_event_ids = [tag.event_id for tag in timeline_tags]
