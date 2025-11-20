@@ -127,8 +127,8 @@
 <div class="card" style="margin-bottom: var(--spacing-lg);">
     <div class="card-body">
         <form method="GET" action="{{ url_for('search_events', case_id=case.id) }}" id="searchForm" onsubmit="return handleSearchSubmit(event)">
-            <!-- Row 1: Search Bar -->
-            <div style="display: flex; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+            <!-- Row 1: Search Bar (Dropdown + Input) -->
+            <div style="display: flex; gap: var(--spacing-md); margin-bottom: var(--spacing-sm);">
                 <!-- Saved Searches Dropdown -->
                 <select id="savedSearchDropdown" onchange="loadSavedSearch()" class="form-input" style="min-width: 200px; max-width: 220px;">
                     <option value="">📁 Saved Searches...</option>
@@ -140,6 +140,10 @@
                        placeholder="Search events... (supports wildcards, AND, OR, NOT)"
                        class="form-input"
                        style="flex: 1;">
+            </div>
+            
+            <!-- Row 2: Action Buttons -->
+            <div style="display: flex; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
                 <button type="submit" class="btn btn-primary">
                     <span>🔍</span>
                     <span>Search</span>
