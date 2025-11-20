@@ -817,19 +817,14 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                 }
             }
         
-        # Build OpenSearch query for Event ID 4624 or 6272 with firewall IP filter
+        # v1.17.4 FIX: Search for Event ID 6272 only (NPS granted access)
+        # NPS events don't have meaningful IP data - what matters is username, time, and auth server
+        # Note: firewall_ip parameter kept for backward compatibility but not used
         must_conditions = [
-            # Event ID 4624 (Windows successful logon) OR 6272 (NPS granted access)
+            # Event ID 6272 (NPS granted access to VPN/RDP Gateway)
             {
                 "bool": {
                     "should": [
-                        # Event ID 4624
-                        {"term": {"normalized_event_id": "4624"}},
-                        {"term": {"System.EventID": 4624}},
-                        {"term": {"System.EventID.#text": "4624"}},
-                        {"term": {"Event.System.EventID": 4624}},
-                        {"term": {"Event.System.EventID.#text": "4624"}},
-                        # Event ID 6272
                         {"term": {"normalized_event_id": "6272"}},
                         {"term": {"System.EventID": 6272}},
                         {"term": {"System.EventID.#text": "6272"}},
@@ -838,24 +833,8 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                     ],
                     "minimum_should_match": 1
                 }
-            },
-            # IP Address matches firewall (4624/4625 use IpAddress, 6272/6273 use ClientIPAddress or NASIPv4Address)
-            {
-                "bool": {
-                    "should": [
-                        # Windows Event 4624 IP field
-                        {"term": {"Event.EventData.IpAddress.keyword": firewall_ip}},
-                        {"term": {"EventData.IpAddress.keyword": firewall_ip}},
-                        {"term": {"IpAddress.keyword": firewall_ip}},
-                        # NPS Event 6272 IP fields
-                        {"term": {"Event.EventData.ClientIPAddress.keyword": firewall_ip}},
-                        {"term": {"EventData.ClientIPAddress.keyword": firewall_ip}},
-                        {"term": {"Event.EventData.NASIPv4Address.keyword": firewall_ip}},
-                        {"term": {"EventData.NASIPv4Address.keyword": firewall_ip}}
-                    ],
-                    "minimum_should_match": 1
-                }
             }
+            # NO IP filtering - NPS events record username, time, and auth server, not source IP
         ]
         
         if date_filter:
@@ -979,6 +958,33 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                 if isinstance(event_data, dict):
                     workstation_name = event_data.get('WorkstationName') or event_data.get('ClientName')
             
+            # Extract AuthenticationServer (NPS server that granted/denied access) - v1.17.4
+            auth_server = None
+            
+            # Try Event.EventData first
+            if 'Event' in source and 'EventData' in source['Event']:
+                event_data = source['Event']['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    auth_server = event_data.get('AuthenticationServer')
+            
+            # Try EventData directly
+            if not auth_server and 'EventData' in source:
+                event_data = source['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    auth_server = event_data.get('AuthenticationServer')
+            
             # Get timestamp
             timestamp = source.get('normalized_timestamp', 'N/A')
             
@@ -991,6 +997,7 @@ def get_vpn_authentications(opensearch_client, case_id: int, firewall_ip: str,
                 authentications.append({
                     'username': username,
                     'workstation_name': workstation_name or 'N/A',
+                    'auth_server': auth_server or 'N/A',  # v1.17.4: Show which NPS server
                     'timestamp': timestamp,
                     'event_id': event_id,
                     'event_index': event_index
@@ -1098,19 +1105,14 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                 }
             }
         
-        # Build OpenSearch query for Event ID 4625 or 6273 with firewall IP filter
+        # v1.17.4 FIX: Search for Event ID 6273 only (NPS denied access)
+        # NPS events don't have meaningful IP data - what matters is username, time, and auth server
+        # Note: firewall_ip parameter kept for backward compatibility but not used
         must_conditions = [
-            # Event ID 4625 (Windows failed logon) OR 6273 (NPS denied access)
+            # Event ID 6273 (NPS denied access to VPN/RDP Gateway)
             {
                 "bool": {
                     "should": [
-                        # Event ID 4625
-                        {"term": {"normalized_event_id": "4625"}},
-                        {"term": {"System.EventID": 4625}},
-                        {"term": {"System.EventID.#text": "4625"}},
-                        {"term": {"Event.System.EventID": 4625}},
-                        {"term": {"Event.System.EventID.#text": "4625"}},
-                        # Event ID 6273
                         {"term": {"normalized_event_id": "6273"}},
                         {"term": {"System.EventID": 6273}},
                         {"term": {"System.EventID.#text": "6273"}},
@@ -1119,24 +1121,8 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                     ],
                     "minimum_should_match": 1
                 }
-            },
-            # IP Address matches firewall (4624/4625 use IpAddress, 6272/6273 use ClientIPAddress or NASIPv4Address)
-            {
-                "bool": {
-                    "should": [
-                        # Windows Event 4625 IP field
-                        {"term": {"Event.EventData.IpAddress.keyword": firewall_ip}},
-                        {"term": {"EventData.IpAddress.keyword": firewall_ip}},
-                        {"term": {"IpAddress.keyword": firewall_ip}},
-                        # NPS Event 6273 IP fields
-                        {"term": {"Event.EventData.ClientIPAddress.keyword": firewall_ip}},
-                        {"term": {"EventData.ClientIPAddress.keyword": firewall_ip}},
-                        {"term": {"Event.EventData.NASIPv4Address.keyword": firewall_ip}},
-                        {"term": {"EventData.NASIPv4Address.keyword": firewall_ip}}
-                    ],
-                    "minimum_should_match": 1
-                }
             }
+            # NO IP filtering - NPS events record username, time, and auth server, not source IP
         ]
         
         if date_filter:
@@ -1260,6 +1246,33 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                 if isinstance(event_data, dict):
                     workstation_name = event_data.get('WorkstationName') or event_data.get('ClientName')
             
+            # Extract AuthenticationServer (NPS server that granted/denied access) - v1.17.4
+            auth_server = None
+            
+            # Try Event.EventData first
+            if 'Event' in source and 'EventData' in source['Event']:
+                event_data = source['Event']['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    auth_server = event_data.get('AuthenticationServer')
+            
+            # Try EventData directly
+            if not auth_server and 'EventData' in source:
+                event_data = source['EventData']
+                # Parse JSON string if needed
+                if isinstance(event_data, str):
+                    try:
+                        event_data = json.loads(event_data)
+                    except:
+                        pass
+                if isinstance(event_data, dict):
+                    auth_server = event_data.get('AuthenticationServer')
+            
             # Get timestamp
             timestamp = source.get('normalized_timestamp', 'N/A')
             
@@ -1272,6 +1285,7 @@ def get_failed_vpn_attempts(opensearch_client, case_id: int, firewall_ip: str,
                 attempts.append({
                     'username': username,
                     'workstation_name': workstation_name or 'N/A',
+                    'auth_server': auth_server or 'N/A',  # v1.17.4: Show which NPS server
                     'timestamp': timestamp,
                     'event_id': event_id,
                     'event_index': event_index
