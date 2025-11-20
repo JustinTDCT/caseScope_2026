@@ -374,6 +374,9 @@
 
 {% block extra_js %}
 <script>
+// Case ID constant (v1.18.0)
+const CASE_ID = {{ case.id }};
+
 // Live status updates - refresh every 3 seconds
 function updateStatuses() {
     fetch('/case/{{ case.id }}/status')
