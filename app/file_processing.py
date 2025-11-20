@@ -629,6 +629,20 @@ def index_file(db, opensearch_client, CaseFile, Case, case_id: int, filename: st
                                 "max_result_window": 100000,  # Allow deep pagination
                                 "mapping.total_fields.limit": 10000  # v1.13.1: 1 index per case = many event types = many fields
                             }
+                        },
+                        "mappings": {
+                            "properties": {
+                                # v1.18.1 FIX: Explicit mappings for IIS numeric fields
+                                # Problem: Dynamic mapping treats these as text → breaks range queries
+                                # Solution: Define as long (integer) BEFORE first document indexed
+                                "time-taken": {"type": "long"},       # Response time in milliseconds
+                                "sc-status": {"type": "long"},        # HTTP status code (200, 404, 500)
+                                "sc-substatus": {"type": "long"},     # HTTP substatus code
+                                "sc-win32-status": {"type": "long"},  # Windows error code
+                                "s-port": {"type": "long"},           # Server port number
+                                "cs-bytes": {"type": "long"},         # Client-to-server bytes
+                                "sc-bytes": {"type": "long"}          # Server-to-client bytes
+                            }
                         }
                     },
                     ignore=[400]  # CRITICAL FIX (v1.13.9): Ignore "already exists" errors from race conditions
