@@ -44,7 +44,7 @@
 
 ```bash
 # Download the installation script
-wget https://raw.githubusercontent.com/YOUR_REPO/caseScope_2026/main/fresh_install.sh
+wget https://raw.githubusercontent.com/JustinTDCT/caseScope_2026/main/app/fresh_install.sh
 
 # Make it executable
 chmod +x fresh_install.sh
@@ -180,9 +180,10 @@ sudo chown -R casescope:casescope /opt/casescope
 # Switch to casescope user
 sudo -u casescope bash
 
-# Clone repository (replace with your actual repo URL)
-cd /opt/casescope/app
-git clone https://github.com/YOUR_REPO/caseScope_2026.git .
+# Clone repository
+cd /opt/casescope
+git clone https://github.com/JustinTDCT/caseScope_2026.git app
+cd app
 
 # Create virtual environment
 python3 -m venv /opt/casescope/venv
@@ -268,17 +269,18 @@ PYEOF
 
 # Create admin user
 python << 'PYEOF'
-from main import app, db, User
-import bcrypt
+from main import app, db
+from models import User
+from werkzeug.security import generate_password_hash
 
 with app.app_context():
     admin = User.query.filter_by(username='admin').first()
     if not admin:
-        hashed = bcrypt.hashpw('admin'.encode('utf-8'), bcrypt.gensalt())
         admin = User(
             username='admin',
-            password_hash=hashed.decode('utf-8'),
-            role='admin'
+            email='admin@localhost',
+            password_hash=generate_password_hash('admin'),
+            role='administrator'
         )
         db.session.add(admin)
         db.session.commit()
@@ -740,15 +742,18 @@ If you encounter issues:
 After successful installation:
 
 1. ✅ Read the [README.md](README.md) for feature overview
-2. ✅ Check [QUICK_REFERENCE.md](QUICK_REFERENCE.md) for commands
-3. ✅ Review [APP_MAP.md](APP_MAP.md) for technical details
-4. ✅ Create user accounts for your team
-5. ✅ Configure SIGMA rules for your environment
-6. ✅ Import your IOC lists
-7. ✅ Start processing your forensic data!
+2. ✅ Check [ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md) for system understanding
+3. ✅ Review [QUICK_REFERENCE_AI.md](QUICK_REFERENCE_AI.md) for common patterns
+4. ✅ Check [CURRENT_STATE.md](CURRENT_STATE.md) for known issues
+5. ✅ Create user accounts for your team
+6. ✅ Configure SIGMA rules for your environment
+7. ✅ Import your IOC lists
+8. ✅ Start processing your forensic data!
+
+⚠️ **IMPORTANT**: Review [CURRENT_STATE.md](CURRENT_STATE.md) for known bugs (re-index is currently broken)
 
 ---
 
-**Installation Guide Version**: 1.15.0  
+**Installation Guide Version**: 1.16.24  
 **Compatible with**: Ubuntu 24.04 LTS  
-**Last Updated**: November 17, 2025
+**Last Updated**: November 20, 2025
