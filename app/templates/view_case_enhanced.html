@@ -58,6 +58,12 @@
     background: linear-gradient(90deg, var(--color-primary), var(--color-success));
     transition: width 0.3s ease;
 }
+
+/* Spinner animation for archive/restore */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
 </style>
 
 <div class="content-header">
@@ -125,28 +131,27 @@
      ============================================================================ -->
 {% if case.status == 'Archived' %}
 <div style="
-    background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
-    border: 2px solid #b91c1c;
+    background: var(--color-background-secondary);
+    border: 2px solid var(--color-warning);
     border-radius: 8px;
     padding: var(--spacing-lg);
     margin-bottom: var(--spacing-lg);
-    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
     text-align: center;
 ">
-    <div style="font-size: 1.5em; font-weight: bold; color: white; margin-bottom: var(--spacing-sm);">
+    <div style="font-size: 1.5em; font-weight: bold; color: var(--color-text); margin-bottom: var(--spacing-sm);">
         🗄️ ARCHIVED CASE
     </div>
-    <div style="color: white; font-size: 1em; line-height: 1.6; margin-bottom: var(--spacing-md);">
+    <div style="color: var(--color-text); font-size: 1em; line-height: 1.6; margin-bottom: var(--spacing-md);">
         <strong>Source files have been archived and are not available.</strong><br>
         Search, IOC hunting, AI reports, and event analysis remain fully functional.<br>
-        <span style="opacity: 0.9;">Archived: {{ case.archived_at.strftime('%Y-%m-%d %H:%M') if case.archived_at else 'Unknown' }}</span>
+        <span style="opacity: 0.7;">Archived: {{ case.archived_at.strftime('%Y-%m-%d %H:%M') if case.archived_at else 'Unknown' }}</span>
     </div>
-    <div style="display: flex; gap: var(--spacing-md); justify-content: center; align-items: center;">
-        <div style="background: rgba(255, 255, 255, 0.2); padding: var(--spacing-sm) var(--spacing-md); border-radius: 6px;">
-            <strong style="color: white;">Disabled:</strong>
-            <span style="color: rgba(255, 255, 255, 0.9);">Re-Index • Re-SIGMA • Upload Files • Delete Files</span>
+    <div style="display: flex; gap: var(--spacing-md); justify-content: center; align-items: center; flex-wrap: wrap;">
+        <div style="background: var(--color-background); padding: var(--spacing-sm) var(--spacing-md); border-radius: 6px; border: 1px solid var(--color-border);">
+            <strong style="color: var(--color-text);">Disabled:</strong>
+            <span style="color: var(--color-text-muted);">Re-Index • Re-SIGMA • Upload Files • Delete Files</span>
         </div>
-        <button onclick="showRestoreModal()" class="btn btn-success" style="font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+        <button onclick="showRestoreModal()" class="btn btn-success" style="font-weight: 600;">
             <span>🔄</span>
             <span>Restore Case</span>
         </button>
@@ -2338,23 +2343,24 @@ function confirmArchive() {
     console.log('[ARCHIVE] confirmArchive() called');
     closeArchiveModal();
     
-    // Show progress modal
+    // Show progress modal with spinner
     const progressModal = document.createElement('div');
     progressModal.id = 'archiveProgressModal';
     progressModal.className = 'modal';
     progressModal.style.display = 'flex';
     progressModal.innerHTML = `
-        <div class="modal-content" style="max-width: 600px;">
-            <h3 style="margin-bottom: var(--spacing-md);">Archiving Case...</h3>
-            <div style="margin-bottom: var(--spacing-md);">
-                <div class="progress-bar">
-                    <div class="progress-bar-fill" id="archiveProgress" style="width: 10%;"></div>
-                </div>
+        <div class="modal-content" style="max-width: 600px; text-align: center;">
+            <h3 style="margin-bottom: var(--spacing-lg);">🗄️ Archiving Case...</h3>
+            <div style="margin: var(--spacing-xl) 0;">
+                <div style="display: inline-block; width: 60px; height: 60px; border: 6px solid var(--color-border); border-top-color: var(--color-primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
             </div>
-            <p id="archiveMessage" style="color: var(--color-text-muted); margin-bottom: var(--spacing-sm);">
-                Starting archive process...
+            <p id="archiveMessage" style="color: var(--color-text); margin-bottom: var(--spacing-sm); font-size: 1.1em;">
+                <strong>Compressing files...</strong>
             </p>
-            <p id="archiveDetails" style="color: var(--color-text-muted); font-size: 0.875rem;"></p>
+            <p id="archiveDetails" style="color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                This may take 2-3 minutes for large cases.<br>
+                Please wait while files are compressed and archived.
+            </p>
         </div>
     `;
     document.body.appendChild(progressModal);
@@ -2370,34 +2376,43 @@ function confirmArchive() {
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                document.getElementById('archiveProgress').style.width = '100%';
-                document.getElementById('archiveMessage').textContent = '✅ Archive Complete!';
-                document.getElementById('archiveDetails').textContent = 
-                    `Archived: ${data.file_count} files (${data.size_mb.toFixed(1)} MB)`;
+                progressModal.innerHTML = `
+                    <div class="modal-content" style="max-width: 600px; text-align: center;">
+                        <h3 style="margin-bottom: var(--spacing-lg); color: var(--color-success);">✅ Archive Complete!</h3>
+                        <p style="color: var(--color-text); font-size: 1.1em; margin-bottom: var(--spacing-sm);">
+                            Successfully archived ${data.file_count} files (${data.size_mb.toFixed(1)} MB)
+                        </p>
+                        <p style="color: var(--color-text-muted); font-size: 0.875rem;">
+                            Reloading page...
+                        </p>
+                    </div>
+                `;
                 
                 setTimeout(() => {
                     location.reload();
                 }, 2000);
             } else {
-                document.getElementById('archiveProgress').style.width = '100%';
-                document.getElementById('archiveProgress').style.background = 'var(--color-error)';
-                document.getElementById('archiveMessage').textContent = '❌ Archive Failed';
-                document.getElementById('archiveDetails').textContent = data.error;
-                
-                setTimeout(() => {
-                    progressModal.remove();
-                }, 5000);
+                progressModal.innerHTML = `
+                    <div class="modal-content" style="max-width: 600px; text-align: center;">
+                        <h3 style="margin-bottom: var(--spacing-lg); color: var(--color-error);">❌ Archive Failed</h3>
+                        <p style="color: var(--color-text); margin-bottom: var(--spacing-md);">
+                            ${data.error}
+                        </p>
+                        <button onclick="this.closest('.modal').remove()" class="btn btn-secondary">Close</button>
+                    </div>
+                `;
             }
         })
         .catch(err => {
-            document.getElementById('archiveProgress').style.width = '100%';
-            document.getElementById('archiveProgress').style.background = 'var(--color-error)';
-            document.getElementById('archiveMessage').textContent = '❌ Archive Failed';
-            document.getElementById('archiveDetails').textContent = err.message;
-            
-            setTimeout(() => {
-                progressModal.remove();
-            }, 5000);
+            progressModal.innerHTML = `
+                <div class="modal-content" style="max-width: 600px; text-align: center;">
+                    <h3 style="margin-bottom: var(--spacing-lg); color: var(--color-error);">❌ Archive Failed</h3>
+                    <p style="color: var(--color-text); margin-bottom: var(--spacing-md);">
+                        ${err.message}
+                    </p>
+                    <button onclick="this.closest('.modal').remove()" class="btn btn-secondary">Close</button>
+                </div>
+            `;
         });
 }
 
@@ -2414,23 +2429,24 @@ function confirmRestore() {
     console.log('[RESTORE] confirmRestore() called, newStatus:', newStatus);
     closeRestoreModal();
     
-    // Show progress modal
+    // Show progress modal with spinner
     const progressModal = document.createElement('div');
     progressModal.id = 'restoreProgressModal';
     progressModal.className = 'modal';
     progressModal.style.display = 'flex';
     progressModal.innerHTML = `
-        <div class="modal-content" style="max-width: 600px;">
-            <h3 style="margin-bottom: var(--spacing-md);">Restoring Case...</h3>
-            <div style="margin-bottom: var(--spacing-md);">
-                <div class="progress-bar">
-                    <div class="progress-bar-fill" id="restoreProgress" style="width: 10%;"></div>
-                </div>
+        <div class="modal-content" style="max-width: 600px; text-align: center;">
+            <h3 style="margin-bottom: var(--spacing-lg);">🔄 Restoring Case...</h3>
+            <div style="margin: var(--spacing-xl) 0;">
+                <div style="display: inline-block; width: 60px; height: 60px; border: 6px solid var(--color-border); border-top-color: var(--color-success); border-radius: 50%; animation: spin 1s linear infinite;"></div>
             </div>
-            <p id="restoreMessage" style="color: var(--color-text-muted); margin-bottom: var(--spacing-sm);">
-                Extracting files from archive...
+            <p id="restoreMessage" style="color: var(--color-text); margin-bottom: var(--spacing-sm); font-size: 1.1em;">
+                <strong>Extracting files from archive...</strong>
             </p>
-            <p id="restoreDetails" style="color: var(--color-text-muted); font-size: 0.875rem;"></p>
+            <p id="restoreDetails" style="color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                This may take 1-2 minutes depending on case size.<br>
+                Please wait while files are restored.
+            </p>
         </div>
     `;
     document.body.appendChild(progressModal);
@@ -2447,34 +2463,44 @@ function confirmRestore() {
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                document.getElementById('restoreProgress').style.width = '100%';
-                document.getElementById('restoreMessage').textContent = '✅ Restore Complete!';
-                document.getElementById('restoreDetails').textContent = 
-                    `Restored: ${data.files_restored} files • Status: ${newStatus}`;
+                progressModal.innerHTML = `
+                    <div class="modal-content" style="max-width: 600px; text-align: center;">
+                        <h3 style="margin-bottom: var(--spacing-lg); color: var(--color-success);">✅ Restore Complete!</h3>
+                        <p style="color: var(--color-text); font-size: 1.1em; margin-bottom: var(--spacing-sm);">
+                            Successfully restored ${data.files_restored} files
+                        </p>
+                        <p style="color: var(--color-text-muted); font-size: 0.875rem;">
+                            New Status: ${newStatus}<br>
+                            Reloading page...
+                        </p>
+                    </div>
+                `;
                 
                 setTimeout(() => {
                     location.reload();
                 }, 2000);
             } else {
-                document.getElementById('restoreProgress').style.width = '100%';
-                document.getElementById('restoreProgress').style.background = 'var(--color-error)';
-                document.getElementById('restoreMessage').textContent = '❌ Restore Failed';
-                document.getElementById('restoreDetails').textContent = data.error;
-                
-                setTimeout(() => {
-                    progressModal.remove();
-                }, 5000);
+                progressModal.innerHTML = `
+                    <div class="modal-content" style="max-width: 600px; text-align: center;">
+                        <h3 style="margin-bottom: var(--spacing-lg); color: var(--color-error);">❌ Restore Failed</h3>
+                        <p style="color: var(--color-text); margin-bottom: var(--spacing-md);">
+                            ${data.error}
+                        </p>
+                        <button onclick="this.closest('.modal').remove()" class="btn btn-secondary">Close</button>
+                    </div>
+                `;
             }
         })
         .catch(err => {
-            document.getElementById('restoreProgress').style.width = '100%';
-            document.getElementById('restoreProgress').style.background = 'var(--color-error)';
-            document.getElementById('restoreMessage').textContent = '❌ Restore Failed';
-            document.getElementById('restoreDetails').textContent = err.message;
-            
-            setTimeout(() => {
-                progressModal.remove();
-            }, 5000);
+            progressModal.innerHTML = `
+                <div class="modal-content" style="max-width: 600px; text-align: center;">
+                    <h3 style="margin-bottom: var(--spacing-lg); color: var(--color-error);">❌ Restore Failed</h3>
+                    <p style="color: var(--color-text); margin-bottom: var(--spacing-md);">
+                        ${err.message}
+                    </p>
+                    <button onclick="this.closest('.modal').remove()" class="btn btn-secondary">Close</button>
+                </div>
+            `;
         });
 }
 </script>
