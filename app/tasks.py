@@ -424,7 +424,10 @@ def process_file(self, file_id, operation='full'):
             # IOC ONLY
             elif operation == 'ioc_only':
                 from models import IOCMatch
-                db.session.query(IOCMatch).filter(IOCMatch.index_name == index_name).delete()
+                # v1.17.1 FIX: Clear IOC matches ONLY for this file, not entire case
+                # BEFORE (WRONG): filter(IOCMatch.index_name == index_name) cleared ALL files in case
+                # AFTER (CORRECT): filter_by(file_id=file_id) clears only current file
+                db.session.query(IOCMatch).filter_by(file_id=file_id).delete()
                 db.session.commit()
                 
                 result = hunt_iocs(

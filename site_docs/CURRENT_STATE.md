@@ -1,5 +1,5 @@
 # CaseScope 2026 - Current State & Features
-**Version 1.16.24 - Active Features & Known Issues**
+**Version 1.17.1 - Active Features & Known Issues**
 
 **Last Updated**: November 20, 2025  
 **Purpose**: Current system state for AI code assistants
@@ -10,9 +10,9 @@
 
 ## 📊 Current Version
 
-**Version**: 1.16.24  
-**Release Date**: November 18, 2025  
-**Stability**: Production (with known issues below)  
+**Version**: 1.17.1  
+**Release Date**: November 20, 2025  
+**Stability**: Production  
 **Build**: Stable
 
 ---
@@ -80,37 +80,48 @@
 - ✅ Queue cleanup & health monitoring
 - ✅ System statistics dashboard
 
-### **Latest Addition (v1.16.24)**
+### **Latest Additions**
+
+#### **v1.17.1 (November 20, 2025)**
+- ✅ **CRITICAL BUGFIX: Re-IOC Hunt Fixed** - Fixed data loss bug in ioc_only operation
+  - Bug: `tasks.py` line 427 cleared IOC matches for ALL files in case instead of just one file
+  - Impact: Re-hunting IOCs on a single file would delete ALL IOC matches across the case
+  - Root Cause: Used `filter(IOCMatch.index_name == index_name)` instead of `filter_by(file_id=file_id)`
+  - Fixed: Changed to filter by file_id (file-specific instead of case-wide)
+  - Severity: CRITICAL - caused data loss
+  - Affected: Selected file re-IOC hunt, bulk re-IOC hunt (single file re-IOC was correct)
+
+#### **v1.17.0 (November 20, 2025)**
+- ✅ **Global Saved Searches** - Save and load search configurations across all cases
+  - Save current search with custom title
+  - Load from dropdown menu
+  - Manage saved searches (view/delete)
+  - User-scoped (each user has own library)
+
+#### **v1.16.25 (November 19, 2025)**
+- ✅ **CRITICAL BUGFIX: Re-Index Fixed** - Re-Index All Files button now works
+  - Implemented missing `operation='reindex'` handler
+  - Fixed 15-20% file loss during bulk re-index operations
+  - Applied commit_with_retry to all status updates
+
+#### **v1.16.24 (November 18, 2025)**
 - ✅ **Search Blob Field** - Normalized search field for improved IOC matching
   - Solves multi-line text IOC matching issue
   - Flattens nested structures
   - Removes line breaks that broke phrase matching
   - Applied to all event types (EVTX, JSON, CSV, IIS)
-  - Requires re-indexing for existing events
 
 ---
 
 ## 🐛 Known Issues (Critical First)
 
-### **CRITICAL - Re-Index Broken** ⚠️
+### **No Critical Issues** ✅
 
-**Status**: Documented fix available  
-**Severity**: HIGH  
-**Impact**: All re-index operations fail to reprocess files  
-**Affected**:
-- Single file re-index
-- Selected files re-index
-- Bulk all files re-index
-
-**Root Cause**:  
-`operation='reindex'` documented in docstring but never implemented in `tasks.process_file()`.  
-All re-index functions call `operation='full'` which has safety check that skips already-indexed files.
-
-**Fix Location**: `Reindex_Bug_Analysis_and_Fix.md` (complete solution with code)
-
-**Workaround**: None (manual database manipulation required)
-
-**Fix Status**: Code ready, not yet deployed
+**All critical issues have been resolved as of v1.17.1**:
+- ✅ Re-Index operations fixed (v1.16.25)
+- ✅ Re-IOC Hunt data loss fixed (v1.17.1)
+- ✅ Search blob implemented (v1.16.24)
+- ✅ Zombie files prevented (v1.16.8)
 
 ---
 
