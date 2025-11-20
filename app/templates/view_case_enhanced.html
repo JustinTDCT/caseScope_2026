@@ -9,6 +9,7 @@
         <p class="text-secondary">Case ID: {{ case.id }} • Created: {{ case.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
     </div>
     <div class="content-actions">
+        {% if case.status != 'Archived' %}
         <button onclick="generateTimeline()" class="btn" style="background: #f59e0b; color: white;" id="timelineBtn">
             <span>📅</span>
             <span>AI Case Timeline</span>
@@ -29,12 +30,72 @@
             <span>🎯</span>
             <span>Re-Hunt IOCs</span>
         </button>
+        <button onclick="showArchiveModal()" class="btn" style="background: #6b7280; color: white;" title="Archive case files to cold storage">
+            <span>🗄️</span>
+            <span>Archive Case</span>
+        </button>
+        {% else %}
+        <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Case is archived">
+            <span>📅</span>
+            <span>AI Case Timeline</span>
+        </button>
+        <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Case is archived">
+            <span>🤖</span>
+            <span>Generate AI Report</span>
+        </button>
+        <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Cannot upload to archived case">
+            <span>📤</span>
+            <span>Upload Files</span>
+        </button>
+        <button disabled class="btn" style="opacity: 0.5; cursor: not-allowed;" title="Cannot clear archived case files">
+            <span>🗑️</span>
+            <span>Clear All Files</span>
+        </button>
+        <button onclick="confirmRehuntIOCs()" class="btn" style="background: var(--color-warning); color: white;">
+            <span>🎯</span>
+            <span>Re-Hunt IOCs</span>
+        </button>
+        {% endif %}
         <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">
             <span>←</span>
             <span>Back to Dashboard</span>
         </a>
     </div>
 </div>
+
+<!-- ============================================================================
+     ARCHIVE WARNING BANNER (v1.18.0)
+     ============================================================================ -->
+{% if case.status == 'Archived' %}
+<div style="
+    background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+    border: 2px solid #b91c1c;
+    border-radius: 8px;
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+    text-align: center;
+">
+    <div style="font-size: 1.5em; font-weight: bold; color: white; margin-bottom: var(--spacing-sm);">
+        🗄️ ARCHIVED CASE
+    </div>
+    <div style="color: white; font-size: 1em; line-height: 1.6; margin-bottom: var(--spacing-md);">
+        <strong>Source files have been archived and are not available.</strong><br>
+        Search, IOC hunting, AI reports, and event analysis remain fully functional.<br>
+        <span style="opacity: 0.9;">Archived: {{ case.archived_at.strftime('%Y-%m-%d %H:%M') if case.archived_at else 'Unknown' }}</span>
+    </div>
+    <div style="display: flex; gap: var(--spacing-md); justify-content: center; align-items: center;">
+        <div style="background: rgba(255, 255, 255, 0.2); padding: var(--spacing-sm) var(--spacing-md); border-radius: 6px;">
+            <strong style="color: white;">Disabled:</strong>
+            <span style="color: rgba(255, 255, 255, 0.9);">Re-Index • Re-SIGMA • Upload Files • Delete Files</span>
+        </div>
+        <button onclick="showRestoreModal()" class="btn btn-success" style="font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.2);">
+            <span>🔄</span>
+            <span>Restore Case</span>
+        </button>
+    </div>
+</div>
+{% endif %}
 
 <!-- ============================================================================
      CASE DASHBOARD TILES
@@ -2166,5 +2227,232 @@ function cancelTimeline(timelineId) {
 
 // Check timeline status on page load
 setTimeout(checkTimelineStatus, 500);
+
+// ============================================================================
+// ARCHIVE/RESTORE FUNCTIONS (v1.18.0)
+// ============================================================================
+
+function showArchiveModal() {
+    // Get case size info first
+    fetch(`/archive/case/{{ case.id }}/info`, {
+        credentials: 'same-origin'
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const modal = document.getElementById('archiveModal');
+                document.getElementById('archiveCaseSize').textContent = data.file_size.size_display;
+                document.getElementById('archiveFileCount').textContent = data.file_size.file_count.toLocaleString();
+                modal.style.display = 'flex';
+            } else {
+                alert('Failed to get case info: ' + data.error);
+            }
+        })
+        .catch(err => alert('Error: ' + err.message));
+}
+
+function closeArchiveModal() {
+    document.getElementById('archiveModal').style.display = 'none';
+}
+
+function confirmArchive() {
+    closeArchiveModal();
+    
+    // Show progress modal
+    const progressModal = document.createElement('div');
+    progressModal.id = 'archiveProgressModal';
+    progressModal.className = 'modal';
+    progressModal.style.display = 'flex';
+    progressModal.innerHTML = `
+        <div class="modal-content" style="max-width: 600px;">
+            <h3 style="margin-bottom: var(--spacing-md);">Archiving Case...</h3>
+            <div style="margin-bottom: var(--spacing-md);">
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" id="archiveProgress" style="width: 10%;"></div>
+                </div>
+            </div>
+            <p id="archiveMessage" style="color: var(--color-text-muted); margin-bottom: var(--spacing-sm);">
+                Starting archive process...
+            </p>
+            <p id="archiveDetails" style="color: var(--color-text-muted); font-size: 0.875rem;"></p>
+        </div>
+    `;
+    document.body.appendChild(progressModal);
+    
+    // Start archive
+    fetch(`/archive/case/{{ case.id }}/archive`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'}
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('archiveProgress').style.width = '100%';
+                document.getElementById('archiveMessage').textContent = '✅ Archive Complete!';
+                document.getElementById('archiveDetails').textContent = 
+                    `Archived: ${data.file_count} files (${data.size_mb.toFixed(1)} MB)`;
+                
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+            } else {
+                document.getElementById('archiveProgress').style.width = '100%';
+                document.getElementById('archiveProgress').style.background = 'var(--color-error)';
+                document.getElementById('archiveMessage').textContent = '❌ Archive Failed';
+                document.getElementById('archiveDetails').textContent = data.error;
+                
+                setTimeout(() => {
+                    progressModal.remove();
+                }, 5000);
+            }
+        })
+        .catch(err => {
+            document.getElementById('archiveProgress').style.width = '100%';
+            document.getElementById('archiveProgress').style.background = 'var(--color-error)';
+            document.getElementById('archiveMessage').textContent = '❌ Archive Failed';
+            document.getElementById('archiveDetails').textContent = err.message;
+            
+            setTimeout(() => {
+                progressModal.remove();
+            }, 5000);
+        });
+}
+
+function showRestoreModal() {
+    document.getElementById('restoreModal').style.display = 'flex';
+}
+
+function closeRestoreModal() {
+    document.getElementById('restoreModal').style.display = 'none';
+}
+
+function confirmRestore() {
+    const newStatus = document.getElementById('restoreNewStatus').value;
+    closeRestoreModal();
+    
+    // Show progress modal
+    const progressModal = document.createElement('div');
+    progressModal.id = 'restoreProgressModal';
+    progressModal.className = 'modal';
+    progressModal.style.display = 'flex';
+    progressModal.innerHTML = `
+        <div class="modal-content" style="max-width: 600px;">
+            <h3 style="margin-bottom: var(--spacing-md);">Restoring Case...</h3>
+            <div style="margin-bottom: var(--spacing-md);">
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" id="restoreProgress" style="width: 10%;"></div>
+                </div>
+            </div>
+            <p id="restoreMessage" style="color: var(--color-text-muted); margin-bottom: var(--spacing-sm);">
+                Extracting files from archive...
+            </p>
+            <p id="restoreDetails" style="color: var(--color-text-muted); font-size: 0.875rem;"></p>
+        </div>
+    `;
+    document.body.appendChild(progressModal);
+    
+    // Start restore
+    fetch(`/archive/case/{{ case.id }}/restore`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({new_status: newStatus})
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById('restoreProgress').style.width = '100%';
+                document.getElementById('restoreMessage').textContent = '✅ Restore Complete!';
+                document.getElementById('restoreDetails').textContent = 
+                    `Restored: ${data.files_restored} files • Status: ${newStatus}`;
+                
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+            } else {
+                document.getElementById('restoreProgress').style.width = '100%';
+                document.getElementById('restoreProgress').style.background = 'var(--color-error)';
+                document.getElementById('restoreMessage').textContent = '❌ Restore Failed';
+                document.getElementById('restoreDetails').textContent = data.error;
+                
+                setTimeout(() => {
+                    progressModal.remove();
+                }, 5000);
+            }
+        })
+        .catch(err => {
+            document.getElementById('restoreProgress').style.width = '100%';
+            document.getElementById('restoreProgress').style.background = 'var(--color-error)';
+            document.getElementById('restoreMessage').textContent = '❌ Restore Failed';
+            document.getElementById('restoreDetails').textContent = err.message;
+            
+            setTimeout(() => {
+                progressModal.remove();
+            }, 5000);
+        });
+}
 </script>
+
+<!-- Archive Modal -->
+<div id="archiveModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <h3 style="margin-bottom: var(--spacing-md);">Archive Case?</h3>
+        <p style="margin-bottom: var(--spacing-md);">This will:</p>
+        <ul style="margin-bottom: var(--spacing-md); padding-left: var(--spacing-lg); line-height: 1.8;">
+            <li>Create a ZIP archive of all case files</li>
+            <li>Move archive to cold storage</li>
+            <li>Remove original files from working set</li>
+            <li>Disable re-indexing and file uploads</li>
+            <li>Keep all indexed data searchable</li>
+        </ul>
+        <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md);">
+            <p style="margin: 0; color: var(--color-text-muted);">
+                <strong>Case Size:</strong> <span id="archiveCaseSize">Calculating...</span><br>
+                <strong>Files:</strong> <span id="archiveFileCount">Calculating...</span>
+            </p>
+        </div>
+        <div class="modal-actions">
+            <button onclick="confirmArchive()" class="btn" style="background: var(--color-error); color: white;">
+                <span>🗄️</span>
+                <span>Archive Case</span>
+            </button>
+            <button onclick="closeArchiveModal()" class="btn btn-secondary">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Restore Modal -->
+<div id="restoreModal" class="modal" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <h3 style="margin-bottom: var(--spacing-md);">Restore Archived Case?</h3>
+        <p style="margin-bottom: var(--spacing-md);">This will:</p>
+        <ul style="margin-bottom: var(--spacing-md); padding-left: var(--spacing-lg); line-height: 1.8;">
+            <li>Extract all files from archive</li>
+            <li>Restore files to original locations</li>
+            <li>Set correct file ownership</li>
+            <li>Delete archive ZIP after successful restore</li>
+            <li>Re-enable all file operations</li>
+        </ul>
+        <div style="margin-bottom: var(--spacing-md);">
+            <label for="restoreNewStatus" style="display: block; margin-bottom: var(--spacing-xs); font-weight: 600;">
+                New Case Status:
+            </label>
+            <select id="restoreNewStatus" class="form-input" style="width: 100%;">
+                <option value="New">New</option>
+                <option value="Assigned">Assigned</option>
+                <option value="In Progress" selected>In Progress</option>
+                <option value="Completed">Completed</option>
+            </select>
+        </div>
+        <div class="modal-actions">
+            <button onclick="confirmRestore()" class="btn btn-success">
+                <span>🔄</span>
+                <span>Restore Case</span>
+            </button>
+            <button onclick="closeRestoreModal()" class="btn btn-secondary">Cancel</button>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
