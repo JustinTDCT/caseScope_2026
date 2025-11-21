@@ -9,6 +9,8 @@ from flask_login import login_required, current_user
 from functools import wraps
 from datetime import datetime, timedelta
 import subprocess
+import threading
+import time
 import os
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -274,7 +276,7 @@ def diagnostics():
 @login_required
 @admin_required
 def restart_web_service():
-    """Restart the CaseScope web service"""
+    """Restart the CaseScope web service (spawns async to avoid self-termination)"""
     from audit_logger import log_action
     
     try:
@@ -287,39 +289,38 @@ def restart_web_service():
             details={'user': current_user.username}
         )
         
-        # Restart the service (use full path to sudo)
-        result = subprocess.run(
-            ['/usr/bin/sudo', '/usr/bin/systemctl', 'restart', 'casescope.service'],
-            capture_output=True,
-            text=True,
-            timeout=30
+        def delayed_restart():
+            """Execute restart after 2-second delay to allow response to be sent"""
+            time.sleep(2)
+            try:
+                result = subprocess.run(
+                    ['/usr/bin/sudo', '/usr/bin/systemctl', 'restart', 'casescope.service'],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                # Note: Can't log result here since DB connection will be gone after restart
+            except Exception as e:
+                # Can't log - service will be restarting
+                pass
+        
+        # Spawn restart in background thread
+        thread = threading.Thread(target=delayed_restart, daemon=True)
+        thread.start()
+        
+        # Return success immediately (restart will happen in 2 seconds)
+        log_action(
+            action='restart_web_service',
+            resource_type='system',
+            resource_name='casescope.service',
+            status='success',
+            details={'user': current_user.username, 'note': 'Restart scheduled (2s delay)'}
         )
         
-        if result.returncode == 0:
-            log_action(
-                action='restart_web_service',
-                resource_type='system',
-                resource_name='casescope.service',
-                status='success',
-                details={'user': current_user.username}
-            )
-            return jsonify({
-                'success': True,
-                'message': '✅ Web service restarted successfully'
-            })
-        else:
-            error_msg = result.stderr or 'Unknown error'
-            log_action(
-                action='restart_web_service',
-                resource_type='system',
-                resource_name='casescope.service',
-                status='failed',
-                details={'user': current_user.username, 'error': error_msg}
-            )
-            return jsonify({
-                'success': False,
-                'error': f'Failed to restart service: {error_msg}'
-            }), 500
+        return jsonify({
+            'success': True,
+            'message': '✅ Web service restart initiated (reloading in 2 seconds...)'
+        })
             
     except Exception as e:
         log_action(
@@ -373,13 +374,20 @@ def restart_worker_service():
                 'message': '✅ Worker service restarted successfully'
             })
         else:
-            error_msg = result.stderr or 'Unknown error'
+            # Better error message handling
+            error_msg = result.stderr.strip() if result.stderr and result.stderr.strip() else result.stdout.strip() if result.stdout and result.stdout.strip() else f'Command returned exit code {result.returncode}'
             log_action(
                 action='restart_worker_service',
                 resource_type='system',
                 resource_name='casescope-worker.service',
                 status='failed',
-                details={'user': current_user.username, 'error': error_msg}
+                details={
+                    'user': current_user.username,
+                    'error': error_msg,
+                    'returncode': result.returncode,
+                    'stderr': result.stderr,
+                    'stdout': result.stdout
+                }
             )
             return jsonify({
                 'success': False,
