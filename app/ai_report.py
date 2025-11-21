@@ -214,46 +214,49 @@ def check_ollama_status():
 
 def generate_timeline_prompt(case, iocs, systems, events_data, event_count):
     """
-    Build the prompt for AI timeline generation (v1.18.6)
+    Build DFIR-compliant timeline prompt for AI generation (v1.19.0)
     
-    Focus: Chronological timeline from ANALYST-TAGGED events with intelligent consolidation.
+    This prompt follows DFIR best practices:
+    - Chronological event list with precise timestamps
+    - Evidence source for each event
+    - Relevance/analysis context
+    - Proper IOC tracking
+    - Attack progression analysis
+    - Root cause identification
+    - Post-incident recommendations
     
     Args:
         case: Case object
         iocs: List of IOC objects
         systems: List of System objects
-        events_data: List of TAGGED event dicts from OpenSearch (sorted by timestamp)
-        event_count: Total number of events in case (before tagging)
+        events_data: List of TAGGED event dicts from analyst (sorted by timestamp)
+        event_count: Number of tagged events (not total events)
         
     Returns:
-        str: Formatted timeline prompt for analyst-tagged event consolidation
+        str: DFIR-compliant timeline prompt
     """
     
-    tagged_count = len(events_data)
+    # Count first/last event timestamps for summary
+    first_event_time = "Unknown"
+    last_event_time = "Unknown"
+    if events_data:
+        first_event_time = events_data[0].get('_source', {}).get('normalized_timestamp', 'Unknown')
+        last_event_time = events_data[-1].get('_source', {}).get('normalized_timestamp', 'Unknown')
     
-    # Token limit safety check
-    MAX_TAGGED_EVENTS = 1000
-    token_warning = ""
-    if tagged_count > MAX_TAGGED_EVENTS:
-        token_warning = f"⚠️ WARNING: {tagged_count} events tagged, showing first {MAX_TAGGED_EVENTS} due to AI context limits.\n"
-        token_warning += "Consider tagging fewer events or generating timeline in phases.\n\n"
-        events_data = events_data[:MAX_TAGGED_EVENTS]
-        tagged_count = MAX_TAGGED_EVENTS
-    
-    prompt = f"""You are a DFIR Timeline Analysis Engine.
+    prompt = f"""You are a DFIR Timeline Analysis Engine creating a professional forensic timeline report.
 
 ═══════════════════════════════════════════════════════════════════════════════
-MISSION: CHRONOLOGICAL TIMELINE FROM ANALYST-TAGGED EVENTS
+🎯 MISSION: CHRONOLOGICAL TIMELINE FROM ANALYST-TAGGED EVENTS
 ═══════════════════════════════════════════════════════════════════════════════
 
 Create a precise chronological timeline from events the analyst has tagged as significant.
 
-IMPORTANT: The analyst has pre-filtered {event_count:,} events down to {tagged_count} timeline-relevant events.
-Every event below was explicitly tagged by the analyst as important for understanding this case.
-Your job is to organize these tagged events into a coherent timeline narrative.
+⚠️ CRITICAL: The analyst has pre-filtered events and explicitly tagged {len(events_data)} events as timeline-relevant.
+Every event below was manually selected by the analyst as important for understanding this case.
+Your job is to organize these tagged events into a coherent DFIR timeline narrative.
 
 ═══════════════════════════════════════════════════════════════════════════════
-CASE INFORMATION
+📊 CASE INFORMATION
 ═══════════════════════════════════════════════════════════════════════════════
 
 Case Name: {case.name}
@@ -261,86 +264,152 @@ Company: {case.company or 'Unknown'}
 Description: {case.description or 'No description'}
 
 EVENT SCOPE:
-- Total Events in Case: {event_count:,}
-- Events Tagged for Timeline: {tagged_count}
+- Events Tagged for Timeline: {len(events_data)}
 - Active IOCs: {len(iocs)}
 - Systems in Scope: {len(systems)}
+- Timeline Span: {first_event_time} to {last_event_time}
 
 ═══════════════════════════════════════════════════════════════════════════════
-TIMELINE REQUIREMENTS
+📝 REQUIRED TIMELINE SECTIONS (DFIR Standard)
 ═══════════════════════════════════════════════════════════════════════════════
 
-Your timeline MUST include these sections:
+Your timeline report MUST include these sections in this order:
 
-## 1. Timeline Summary
+## Section 1: Timeline Summary
+- First tagged event timestamp (UTC with timezone)
+- Last tagged event timestamp (UTC with timezone)
+- Total time span
+- Total events analyzed: {len(events_data)}
+- Breakdown: Individual entries vs consolidated groups
+- Key activity periods identified
 
-- First tagged event timestamp (UTC)
-- Last tagged event timestamp (UTC)
-- Total time span covered
-- Events analyzed: {tagged_count}
-- Timeline organization:
-  • Individual entries: [N events shown separately]
-  • Consolidated groups: [M groups representing X events]
-  • Total timeline entries: [N + M]
+## Section 2: Event Consolidation Summary
+Create a table showing what was grouped:
 
-## 2. Event Consolidation Summary
+| Category | Individual | Consolidated | Total |
+|----------|-----------|--------------|-------|
+| Logins   | ...       | ...          | ...   |
+| Failed Logins | ... | ...          | ...   |
+| Process Execution | ... | ...      | ...   |
+| TOTAL    | ...       | ...          | {len(events_data)} |
 
-Show which event types were consolidated:
+## Section 3: Chronological Timeline
 
-| Event Type | Individual | Consolidated | Total Events |
-|------------|-----------|--------------|-------------|
-| Example: 4624 Logons | 5 | 3 groups (45 events) | 50 |
+### 3A. Individual Event Timeline (Ungrouped)
+Show each event individually with this structure:
 
-## 3. Chronological Timeline
-
-Format each event or consolidated group:
-
-### For Individual Events:
 ```
 YYYY-MM-DD HH:MM:SS UTC | [SYSTEM-NAME] | Event Description
-├─ IOC: [if IOC detected]
-├─ SIGMA: [if SIGMA violation]
-└─ Context: [why this event matters]
+  ├─ Event ID: [EventID]
+  ├─ Source File: [filename.evtx / filename.ndjson / etc]
+  ├─ Evidence: [Specific log entry, artifact, or data source]
+  ├─ IOC: [if IOC detected - show IOC type and value]
+  ├─ SIGMA: [if SIGMA rule triggered - show rule name]
+  ├─ Key Data: [User accounts, IP addresses, commands, file paths]
+  └─ Relevance: [Why this event is significant, how it fits into attack progression]
 ```
 
-### For Consolidated Groups:
+### 3B. Consolidated Timeline (Grouped Events)
+For better readability, group similar events within 10-minute windows:
+
 ```
-YYYY-MM-DD HH:MM:SS to HH:MM:SS UTC | [PRIMARY-SYSTEM or "Multiple Systems"]
-├─ Activity Type: [Brief description]
-├─ Event Details: EventID [ID] - [N] occurrences
-├─ Key Data:
-│  ├─ User(s): [username(s)]
-│  ├─ Systems: [system1, system2, ... (N total)]
-│  ├─ Source: [IP/hostname if relevant]
-│  └─ Timespan: [duration]
-├─ IOC: [if any events had IOC hits]
-├─ SIGMA: [if any events had SIGMA violations]
-└─ Context: [Why this matters - lateral movement, persistence, etc.]
+YYYY-MM-DD HH:MM:SS to HH:MM:SS UTC | [MULTIPLE SYSTEMS] | Consolidated Event Description
+  ├─ Event Type: [e.g., Failed Login Attempts, Process Executions]
+  ├─ Event Details: EventID [X] - [Y] occurrences
+  ├─ Key Data:
+  │   ├─ Systems Affected: [System1, System2, System3] (N total)
+  │   ├─ User Accounts: [user1, user2]
+  │   ├─ Source IPs: [IP addresses]
+  │   └─ Timespan: [duration in minutes/seconds]
+  ├─ Evidence Source: [Source file types - EVTX, NDJSON, CSV, etc]
+  └─ Context: [Attack technique, significance, correlation with other events]
 ```
 
-## 4. Attack Progression (MITRE ATT&CK Kill Chain)
+## Section 4: Attack Progression Analysis
 
-Map the tagged events to attack phases:
-- **Reconnaissance** (scanning, discovery)
-- **Initial Access** (first successful login, exploit)
-- **Execution** (command execution, script running)
-- **Persistence** (scheduled tasks, registry modifications)
-- **Privilege Escalation** (elevation attempts)
-- **Lateral Movement** (RDP, SMB, network activity)
-- **Exfiltration** (large data transfers, external connections)
+Break the timeline into attack phases:
 
-## 5. IOC Timeline Matrix
+### Phase 1: Reconnaissance (if applicable)
+- Scanning activities
+- Discovery commands
+- Network enumeration
 
-Show when each IOC appears in the tagged events:
+### Phase 2: Initial Access
+- First successful authentication
+- Initial compromise vector
+- Entry point identification
 
-| IOC Type | IOC Value | First Seen (UTC) | Last Seen (UTC) | Tagged Events | Systems |
+### Phase 3: Execution
+- Commands executed
+- Scripts run
+- Processes launched
 
-## 6. System Activity Summary
+### Phase 4: Persistence (if applicable)
+- Scheduled tasks created
+- Registry modifications
+- Startup items added
 
-Per-system activity based on tagged events
+### Phase 5: Privilege Escalation (if applicable)
+- Elevation attempts
+- Credential dumping
+- Token manipulation
+
+### Phase 6: Lateral Movement (if applicable)
+- RDP connections
+- SMB file shares accessed
+- Network authentication events
+
+### Phase 7: Exfiltration (if applicable)
+- Large data transfers
+- External connections
+- Unusual network traffic
+
+## Section 5: IOC Timeline Matrix
+
+Show when each IOC was first/last seen:
+
+| IOC Type | IOC Value | First Seen (UTC) | Last Seen (UTC) | Hit Count | Systems | Threat Level |
+|----------|-----------|------------------|-----------------|-----------|---------|--------------|
+| [type]   | [value]   | [timestamp]      | [timestamp]     | [count]   | [list]  | [level]      |
+
+## Section 6: System Activity Timeline
+
+Per-system summary showing activity windows:
+
+| System Name | System Type | First Activity (UTC) | Last Activity (UTC) | Event Count | Notable Activity |
+|-------------|-------------|---------------------|--------------------|-----------|--------------------|
+| [name]      | [type]      | [timestamp]         | [timestamp]        | [count]   | [summary]          |
+
+## Section 7: Initial Detection and Response
+- How was the incident first detected?
+- What triggered the investigation?
+- Initial response actions taken
+
+## Section 8: Incident Escalation
+- When was the incident escalated?
+- To whom was it escalated?
+- Escalation criteria met
+
+## Section 9: Attacker Activity Summary
+- Tools used by attacker
+- Techniques employed (MITRE ATT&CK TTPs if identifiable)
+- Targets and objectives
+- Dwell time
+
+## Section 10: Root Cause Analysis
+- How did the incident occur?
+- What vulnerabilities were exploited?
+- What controls failed?
+
+## Section 11: Post-Incident Recommendations
+- Immediate containment actions
+- Security improvements needed
+- Monitoring enhancements
+- Policy/procedure updates
+- Training requirements
 
 ═══════════════════════════════════════════════════════════════════════════════
-INDICATORS OF COMPROMISE (IOCs)
+🔍 INDICATORS OF COMPROMISE (IOCs)
 ═══════════════════════════════════════════════════════════════════════════════
 
 """
@@ -350,15 +419,15 @@ INDICATORS OF COMPROMISE (IOCs)
         for ioc in iocs:
             prompt += f"- **{ioc.ioc_type}**: `{ioc.ioc_value}`"
             if ioc.description:
-                prompt += f" ({ioc.description})"
+                prompt += f" - {ioc.description}"
             if ioc.threat_level:
-                prompt += f" [Threat: {ioc.threat_level}]"
+                prompt += f" [Threat Level: {ioc.threat_level}]"
             prompt += "\n"
     else:
-        prompt += "No IOCs defined for this case.\n"
+        prompt += "⚠️ No IOCs defined for this case. Extract potential IOCs from events.\n"
     
     prompt += "\n═══════════════════════════════════════════════════════════════════════════════\n"
-    prompt += "SYSTEMS IN SCOPE\n"
+    prompt += "💻 SYSTEMS IN SCOPE\n"
     prompt += "═══════════════════════════════════════════════════════════════════════════════\n\n"
     
     if systems:
@@ -368,231 +437,266 @@ INDICATORS OF COMPROMISE (IOCs)
                 prompt += f" - IP: {system.ip_address}"
             prompt += "\n"
     else:
-        prompt += "No systems explicitly defined. Extract system names from events.\n"
+        prompt += "⚠️ No systems explicitly defined. Extract system names from events.\n"
     
     prompt += "\n═══════════════════════════════════════════════════════════════════════════════\n"
-    prompt += f"ANALYST-TAGGED EVENTS (ALL {tagged_count} EVENTS BELOW)\n"
+    prompt += f"📋 ANALYST-TAGGED EVENTS (ALL {len(events_data)} EVENTS BELOW)\n"
     prompt += "═══════════════════════════════════════════════════════════════════════════════\n\n"
-    
-    if tagged_count == 0:
-        prompt += "⚠️ WARNING: No events have been tagged for timeline analysis.\n"
-        prompt += "The analyst should tag key events using the search interface before generating a timeline.\n\n"
-    else:
-        prompt += f"{token_warning}"
-        prompt += f"The analyst has tagged these {tagged_count} events as timeline-relevant.\n"
-        prompt += "Each event below is significant and should be included in your timeline.\n\n"
+    prompt += f"""⚠️ CRITICAL CONTEXT:
+The analyst has tagged these {len(events_data)} events as timeline-relevant.
+Each event below is significant and should be included in your timeline.
+Do NOT invent or assume events that are not explicitly listed below.
+Do NOT skip any events - all {len(events_data)} must be accounted for.\n\n"""
     
     if events_data:
-        for idx, event_wrapper in enumerate(events_data, 1):  # NO CAP - show ALL tagged events
+        for idx, event_wrapper in enumerate(events_data, 1):  # NO CAP - Include ALL tagged events
             event = event_wrapper.get('_source', {})
             
-            # v1.18.3 FIX: Use normalized fields (exist at top level)
-            # Original code looked for System.* but actual structure is Event.System.*
+            # Extract event details using normalized fields
             timestamp = event.get('normalized_timestamp', 'Unknown')
             computer = event.get('normalized_computer', 'Unknown')
             event_id = event.get('normalized_event_id', 'N/A')
+            source_file = event.get('source_file', 'Unknown')
             source_type = event.get('source_file_type', 'Unknown')
             has_ioc = event.get('has_ioc', False)
             has_sigma = event.get('has_sigma', False)
             
+            # Check for analyst notes from tagging
+            analyst_notes = event_wrapper.get('analyst_notes', None)
+            tag_color = event_wrapper.get('tag_color', None)
+            from_cache = event_wrapper.get('from_cache', False)
+            
             prompt += f"[{idx}] {timestamp} | {computer} | EventID:{event_id} ({source_type})"
             
             if has_ioc:
-                prompt += " 🎯IOC"
+                matched_iocs = event.get('matched_iocs', [])
+                prompt += f" 🎯IOC"
+                if matched_iocs:
+                    prompt += f":{','.join(matched_iocs[:2])}"  # Show first 2 IOCs
+            
             if has_sigma:
                 sigma_rules = event.get('sigma_rule', '')
                 prompt += f" ⚠️SIGMA:{sigma_rules[:50]}"
             
-            # Add some event data context
-            # EventData is stored as JSON string, need to parse it
+            # Add event data context
             event_obj = event.get('Event', {})
             event_data_str = event_obj.get('EventData', '')
+            user_data_str = event_obj.get('UserData', '')
+            
+            # Try to parse EventData
+            event_data = {}
             if event_data_str and isinstance(event_data_str, str):
                 try:
                     import json
                     event_data = json.loads(event_data_str)
                 except:
-                    event_data = {}
-            else:
-                event_data = event_data_str if isinstance(event_data_str, dict) else {}
+                    pass
+            elif isinstance(event_data_str, dict):
+                event_data = event_data_str
+            
+            # If no EventData, try UserData (for some event types)
+            if not event_data and user_data_str:
+                if isinstance(user_data_str, str):
+                    try:
+                        import json
+                        event_data = json.loads(user_data_str)
+                    except:
+                        pass
+                elif isinstance(user_data_str, dict):
+                    event_data = user_data_str
+            
+            # For NDJSON/EDR events, check top-level fields
+            if not event_data:
+                # Check for common EDR fields
+                if 'process' in event:
+                    event_data = event.get('process', {})
+                elif 'CommandLine' in event or 'command_line' in event:
+                    event_data = {
+                        'CommandLine': event.get('CommandLine') or event.get('command_line'),
+                        'Image': event.get('Image') or event.get('executable'),
+                        'User': event.get('User') or event.get('user', {}).get('name')
+                    }
             
             if event_data:
-                key_fields = ['TargetUserName', 'SubjectUserName', 'IpAddress', 'WorkstationName', 
-                             'CommandLine', 'Image', 'TargetFilename', 'SourceAddress', 'TargetAddress']
-                data_str = []
+                # Show key fields
+                key_fields = [
+                    'TargetUserName', 'SubjectUserName', 'IpAddress', 'WorkstationName', 
+                    'CommandLine', 'command_line', 'Image', 'TargetFilename', 'User',
+                    'DestinationIp', 'DestinationPort', 'SourceIp', 'ProcessName'
+                ]
+                data_parts = []
                 for field in key_fields:
-                    if field in event_data and event_data[field]:
-                        value = str(event_data[field])[:100]  # Truncate long values
-                        data_str.append(f"{field}={value}")
-                if data_str:
-                    prompt += f" | {', '.join(data_str[:3])}"  # Show first 3 fields
+                    value = event_data.get(field)
+                    if value and value != '-' and value != '':
+                        # Truncate long values
+                        if isinstance(value, str) and len(value) > 100:
+                            value = value[:97] + '...'
+                        data_parts.append(f"{field}={value}")
+                
+                if data_parts:
+                    prompt += f" | {', '.join(data_parts[:3])}"  # Show first 3 fields
             
-            # Add timeline tag note if present
-            tag_note = event.get('timeline_tag_note', '')
-            if tag_note:
-                prompt += f" | 📝 Analyst Note: {tag_note}"
+            # Add source file for evidence tracking
+            prompt += f"\n  └─ Source: {source_file}"
+            
+            # Add analyst notes if present
+            if analyst_notes:
+                prompt += f"\n  └─ Analyst Notes: {analyst_notes}"
             
             prompt += "\n"
     else:
-        prompt += "No events available for timeline analysis.\n"
+        prompt += "❌ ERROR: No events available for timeline analysis.\n"
     
     prompt += "\n═══════════════════════════════════════════════════════════════════════════════\n"
-    prompt += "ANALYSIS INSTRUCTIONS\n"
+    prompt += "⚙️ ANALYSIS INSTRUCTIONS - EVENT CONSOLIDATION RULES\n"
     prompt += "═══════════════════════════════════════════════════════════════════════════════\n\n"
+    
     prompt += f"""
-**CRITICAL CONTEXT**: You are analyzing {tagged_count} events that were MANUALLY TAGGED by the analyst.
-Every event above is significant - the analyst has already filtered out noise.
+🔴 CRITICAL CONTEXT:
 
+You are analyzing {len(events_data)} events that were MANUALLY TAGGED by the analyst.
+Every event above is significant - the analyst has already filtered out noise.
 Your task is to organize these events into a readable timeline narrative.
 
 ═══════════════════════════════════════════════════════════════════════════════
-EVENT GROUPING AND CONSOLIDATION RULES
+EVENT GROUPING RULES (OPTIONAL - For Readability)
 ═══════════════════════════════════════════════════════════════════════════════
 
-**You MUST consolidate repetitive events** to create readable narrative flow.
+You MAY group similar events within a **10-minute window** to improve readability:
 
-### When to Group Events:
+**When to Group:**
+✅ Multiple Logins (4624) → "Lateral movement: User X to N systems"
+✅ Failed Logins (4625) → "Brute force: N failed attempts on [system]"
+✅ Process Executions (4688) → "Command execution: [cmd] on N systems"
+✅ File Access (4663) → "File access: N files in [share]"
+✅ Network Connections (Sysmon 3) → "Network: N connections to [destination]"
+✅ Registry Changes (Sysmon 12) → "Registry: N changes to [key path]"
 
-**Group these patterns** when they occur within a 10-minute window:
+**When Consolidating, You MUST:**
+✅ Count total occurrences: "50 occurrences"
+✅ Show time range: "11:00:15 to 11:05:43 UTC"  
+✅ List affected systems: "Systems: SRV01, SRV02, WKS01-WKS12 (15 total)"
+✅ Preserve IOC/SIGMA flags
+✅ Include key data (users, IPs, commands, file paths)
+✅ Reference source files for evidence tracking
 
-1. **Multiple Successful Logins (Event 4624)**
-   - Same user logging into multiple systems
-   - Same logon type (especially Type 3 - Network, Type 10 - RDP)
-   - Consolidate into: "Lateral movement: User X authenticated to N systems"
+**Example of Good Consolidation:**
 
-2. **Failed Login Attempts (Event 4625)**
-   - Multiple failures against same system
-   - Same or different usernames
-   - Consolidate into: "Brute force: N failed login attempts"
-
-3. **Process Execution (Events 4688, Sysmon 1)**
-   - Same command/process on multiple systems
-   - Same user executing multiple similar commands
-   - Consolidate into: "Command execution: User X ran [command] on N systems"
-
-4. **File Access (Events 4663, 5145)**
-   - Multiple file accesses by same user
-   - Same share or directory
-   - Consolidate into: "File access: User X accessed N files in [share]"
-
-5. **Network Connections (Sysmon 3, Firewall logs)**
-   - Multiple connections to same destination
-   - Same protocol/port
-   - Consolidate into: "Network activity: N connections to [destination]"
-
-6. **Registry Modifications (Sysmon 12, 13)**
-   - Multiple registry changes
-   - Same key path pattern
-   - Consolidate into: "Registry modification: N changes to [key path]"
-
-### Consolidation Examples:
-
-**Example 1: Lateral Movement**
 ```
 2025-09-05 11:00:15 to 11:05:43 UTC | Multiple Systems
 ├─ Lateral Movement: User 'DOMAIN\\admin' authenticated to 15 systems
-├─ Event Details: 4624 Type 3 (Network Logon) - 50 occurrences
+├─ Event Details: EventID 4624 Type 3 (Network Logon) - 50 occurrences
 ├─ Key Data:
-│  ├─ User: DOMAIN\\admin
-│  ├─ Systems: SRV01, SRV02, SRV03, WKS01-WKS12 (15 total)
-│  ├─ Source: 192.168.1.100 (admin workstation)
-│  └─ Timespan: 5 minutes 28 seconds
-└─ Context: Rapid authentication across multiple servers suggests lateral movement
-   or legitimate administrative sweep. Investigate admin's intended activity.
+│   ├─ User: DOMAIN\\admin
+│   ├─ Systems: SRV01, SRV02, SRV03, WKS01-WKS12 (15 total)
+│   ├─ Source IP: 192.168.1.100
+│   └─ Timespan: 5 minutes 28 seconds
+├─ Evidence Source: DC01_Security.evtx, SRV01_Security.evtx, [+13 files]
+└─ Relevance: Rapid authentication pattern suggests lateral movement after initial compromise
 ```
 
-**Example 2: Brute Force Attack**
-```
-2025-09-05 14:22:11 to 14:24:33 UTC | DC01
-├─ Brute Force Attack: Failed login attempts for multiple accounts
-├─ Event Details: 4625 (Failed Logon) - 127 occurrences
-├─ Key Data:
-│  ├─ Target Accounts: administrator (50), admin (40), root (37)
-│  ├─ Source IPs: 192.168.1.50, 192.168.1.51
-│  ├─ Failure Reason: Bad password (0xC000006A)
-│  └─ Timespan: 2 minutes 22 seconds (54 attempts/minute)
-├─ SIGMA: Brute Force Detection Rule
-└─ Context: High-frequency failed logins indicate password spray or brute force
-   attack. Source IPs should be investigated and blocked.
-```
-
-**Example 3: Reconnaissance**
-```
-2025-09-05 09:15:00 to 09:16:30 UTC | Multiple Systems
-├─ Network Scanning: Port scan detected across infrastructure
-├─ Event Details: Firewall Deny - 234 occurrences
-├─ Key Data:
-│  ├─ Source: 192.168.1.99 (compromised workstation)
-│  ├─ Targets: 192.168.1.1-192.168.1.254 (entire subnet)
-│  ├─ Ports: 445 (SMB), 3389 (RDP), 22 (SSH)
-│  └─ Timespan: 1 minute 30 seconds
-├─ IOC: 192.168.1.99 marked as compromised host
-└─ Context: Automated scanning suggests attacker reconnaissance phase.
-   Host 192.168.1.99 likely compromised and being used for discovery.
-```
-
-═══════════════════════════════════════════════════════════════════════════════
-WHEN NOT TO GROUP EVENTS
-═══════════════════════════════════════════════════════════════════════════════
-
-**Keep separate** (do NOT consolidate):
-
-1. **Events with different IOC hits** - Each IOC detection is unique
-2. **Events with different SIGMA violations** - Each rule match is significant
-3. **Events with analyst notes** - Analyst tagged each for a reason
-4. **Events separated by > 10 minutes** - Different activity phases
-5. **Events on different attack phases** - Initial access vs. lateral movement
-6. **Privilege escalation events** - Each escalation attempt is critical
-7. **Command execution with different commands** - Show what was run
-8. **Unique or rare events** - Don't group one-off events
+**When NOT to Group (8 Exceptions):**
+❌ Events with different IOC hits
+❌ Events with different SIGMA violations
+❌ Events with analyst notes (show individually)
+❌ Events separated by >10 minutes
+❌ Events in different attack phases
+❌ Privilege escalation events (always show individually)
+❌ Different commands (even if same EventID)
+❌ Unique or rare events
 
 ═══════════════════════════════════════════════════════════════════════════════
 DATA PRESERVATION GUARANTEE
 ═══════════════════════════════════════════════════════════════════════════════
 
-**All {tagged_count} events MUST be accounted for** in your timeline.
+🚨 CRITICAL REQUIREMENT:
 
-When you consolidate:
+All {len(events_data)} events MUST be accounted for in your timeline.
+
+When you consolidate events:
 ✅ Count total occurrences: "50 occurrences"
 ✅ Show time range: "11:00:15 to 11:05:43 UTC"
-✅ List affected systems: "15 systems" with sample names
+✅ List affected systems: "15 systems: [list]"
 ✅ Preserve IOC/SIGMA flags
 ✅ Include key data (users, IPs, commands)
+✅ Reference source files for evidence chain
 
-When you don't consolidate:
-✅ Show individual event with full context
-✅ Explain why this specific event matters
+**Verification**: Your Timeline Summary must show:
+- Total events analyzed: {len(events_data)}
+- Events shown individually: [your count]
+- Events shown in consolidated groups: [your count]
+- Sum of individual + grouped events MUST equal {len(events_data)}
 
-**Verification**: Your timeline should explain what happened with all {tagged_count} tagged events,
-either individually or as part of consolidated groups.
+═══════════════════════════════════════════════════════════════════════════════
+FORMATTING RULES
+═══════════════════════════════════════════════════════════════════════════════
+
+**Timestamps:**
+- Use UTC timezone exclusively (YYYY-MM-DD HH:MM:SS UTC)
+- Always include timezone designation
+- For grouped events, show time range with start and end times
+
+**Evidence and Source:**
+- Always cite source file for each event (filename.evtx, system_name.ndjson, etc.)
+- For grouped events, reference multiple source files if applicable
+- Maintain evidence chain integrity
+
+**Relevance/Analysis:**
+- Explain why each event/group is significant
+- Show how it fits into the attack progression
+- Connect events to IOCs and SIGMA detections
+- Identify patterns (brute force, lateral movement, reconnaissance, etc.)
+
+**Markdown Formatting:**
+- Use tables for IOC matrix and system activity summary
+- Use tree structure (├─ └─) for event details
+- Bold system names, IOC values, and user accounts
+- Keep descriptions concise but complete
+
+**DO NOT:**
+❌ Invent events or timestamps not in the list above
+❌ Make assumptions about events between tagged events  
+❌ Skip any of the {len(events_data)} tagged events
+❌ Summarize without showing specific timestamps and evidence sources
+❌ Create fake analyst notes or recommendations without basis in events
+
+═══════════════════════════════════════════════════════════════════════════════
+DFIR BEST PRACTICES
+═══════════════════════════════════════════════════════════════════════════════
+
+1. **Chronological Integrity**: Maintain strict chronological order
+2. **Evidence Chain**: Always reference source files and artifacts
+3. **IOC Tracking**: Track first/last seen for each IOC across systems
+4. **Attack Phase Mapping**: Map events to MITRE ATT&CK or kill chain phases where applicable
+5. **System Relationships**: Show how systems interact (authentication flows, file shares, network connections)
+6. **Timeline Gaps**: Note significant gaps in activity (>4 hours) and explain possible reasons
+7. **Suspicious Patterns**: Highlight anomalies, brute force, reconnaissance, lateral movement
+8. **Root Cause Focus**: Work backwards from indicators to identify initial compromise vector
+9. **Actionable Recommendations**: Base recommendations on actual findings, not generic advice
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT REQUIREMENTS
 ═══════════════════════════════════════════════════════════════════════════════
 
-**Timeline Summary** must include:
-- Total events analyzed: {tagged_count}
+**Your timeline report must:**
+1. Include ALL 11 required sections listed above
+2. Account for all {len(events_data)} tagged events
+3. Use proper DFIR formatting with timestamps, evidence sources, and relevance
+4. Provide actionable insights based on the events
+5. Be formatted in clean Markdown ready for display
+6. Maintain professional forensic analysis tone
+
+**Timeline Summary must include:**
+- Total events analyzed: {len(events_data)}
 - Events shown individually: [count]
-- Events shown in consolidated groups: [count]
-- Time span: [first to last]
+- Events shown in consolidated groups: [count]  
+- Verification: Individual + Grouped = {len(events_data)}
+- Time span: {first_event_time} to {last_event_time}
 
-**Formatting**:
-- Use UTC timestamps exclusively
-- Use tree structure (├─ └─) for details
-- Bold system names and IOC values
-- Use Markdown tables for IOC matrix
-- Number timeline entries sequentially
+Remember: Consolidation makes the timeline READABLE, not shorter.
+All {len(events_data)} events must be accounted for, just organized intelligently.
 
-**DO NOT**:
-- ❌ Skip events without showing them somewhere (individual or grouped)
-- ❌ Invent events not in the tagged list
-- ❌ Make assumptions about activity between events
-- ❌ Group events across different attack phases
-
-**Remember**: Consolidation makes the timeline READABLE, not shorter.
-All {tagged_count} events must be accounted for, just organized intelligently.
-
-**Output**: A complete Markdown timeline ready for display.
+Begin your analysis now.
 """
     
     return prompt

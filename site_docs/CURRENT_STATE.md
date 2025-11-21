@@ -1,5 +1,5 @@
 # CaseScope 2026 - Current State & Features
-**Version 1.18.6 - Active Features & Known Issues**
+**Version 1.19.0 - Active Features & Known Issues**
 
 **Last Updated**: November 21, 2025  
 **Purpose**: Current system state for AI code assistants
@@ -10,10 +10,56 @@
 
 ## 📊 Current Version
 
-**Version**: 1.18.6  
+**Version**: 1.19.0  
 **Release Date**: November 21, 2025  
 **Stability**: Production  
 **Build**: Stable
+
+---
+
+## 🆕 Recent Changes (v1.19.0)
+
+### **🚨 CRITICAL FIX: AI Timeline Hallucination - Complete Overhaul Using Tagged Events**
+- **Fixed critical bug**: AI timeline generation was hallucinating events and producing inaccurate timelines
+- **Root Cause**: Timeline was fetching random 300 events from ALL events instead of using analyst-tagged events
+  - `tasks.py` ignored `TimelineTag` table completely
+  - Prompt said "ANALYST-TAGGED EVENTS" but received random OpenSearch sample
+  - AI saw placeholder events (Unknown | Unknown | EventID:N/A) and started hallucinating
+- **Complete Solution**:
+  - **PATCH 1 - tasks.py**: Replaced random event fetching with `TimelineTag.query.filter_by(case_id)`
+    - Queries `TimelineTag` table for analyst-curated events
+    - Fetches full event data from OpenSearch for each tagged event
+    - Supports cached fallback if OpenSearch event deleted
+    - No 300-event cap - loads ALL tagged events
+    - Validates tagged events exist (fails with clear error if none)
+  - **PATCH 2 - ai_report.py**: Replaced entire `generate_timeline_prompt()` with DFIR-compliant version
+    - Changed from 6 sections to **11 DFIR-standard sections**:
+      1. Timeline Summary
+      2. Event Consolidation Summary
+      3. Chronological Timeline (3A Individual + 3B Consolidated)
+      4. Attack Progression Analysis (7 phases)
+      5. IOC Timeline Matrix
+      6. System Activity Timeline
+      7. Initial Detection & Response
+      8. Incident Escalation
+      9. Attacker Activity Summary
+      10. Root Cause Analysis
+      11. Post-Incident Recommendations
+    - **Evidence-based output**: Every event cites source file, timestamp with timezone, relevance context
+    - **Comprehensive event data**: Shows source_file, analyst_notes from TimelineTag.notes, supports EventData/UserData/NDJSON fields
+    - **DFIR best practices**: Evidence chain tracking, IOC first/last seen, MITRE ATT&CK mapping, timeline gap analysis
+- **Breaking Change**: Timelines now **REQUIRE tagged events**
+  - Users must tag events in search interface before generating timeline
+  - Clear error message if no events tagged
+- **Results**:
+  - Timeline uses ONLY analyst-tagged events (no random sampling)
+  - AI cannot hallucinate - only events in TimelineTag table provided
+  - Professional DFIR report structure with evidence sourcing
+  - All events accounted for with verification in output
+- **Before**: Random 300 events from 8.7M → AI loops/hallucinates → Unusable output
+- **After**: N tagged events (analyst-curated) → DFIR-compliant timeline → Professional forensic report
+- **Files**: `app/tasks.py` (lines 1657-1850), `app/ai_report.py` (lines 215-780)
+- **Based on**: `COMPLETE_TIMELINE_FIX_v2.md` implementation document
 
 ---
 

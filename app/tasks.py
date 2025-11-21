@@ -1654,64 +1654,147 @@ def generate_case_timeline(self, timeline_id):
             systems = System.query.filter_by(case_id=case.id, hidden=False).all()
             logger.info(f"[TIMELINE] Found {len(systems)} systems")
             
-            # Get sample events from OpenSearch (for timeline context)
-            # We'll fetch events sorted by timestamp to establish chronological boundaries
+            # ========================================================================
+            # STAGE 1B: Load TAGGED events (analyst-curated timeline events)
+            # ========================================================================
             timeline.progress_percent = 30
-            timeline.progress_message = 'Fetching events from OpenSearch...'
+            timeline.progress_message = 'Fetching analyst-tagged events...'
+            db.session.commit()
+            
+            from models import TimelineTag
+            
+            # Query all tagged events for this case
+            tagged_events = TimelineTag.query.filter_by(case_id=case.id).order_by(TimelineTag.created_at).all()
+            logger.info(f"[TIMELINE] Found {len(tagged_events)} analyst-tagged events")
+            
+            # Check if any events are tagged
+            if not tagged_events:
+                logger.error(f"[TIMELINE] No tagged events found for case {case.id}")
+                timeline.error_message = ("No events have been tagged for timeline generation. "
+                                         "Timeline generation requires analyst-tagged events. "
+                                         "Please tag relevant events in the search interface before generating a timeline.")
+                timeline.status = 'failed'
+                timeline.event_count = 0
+                timeline.ioc_count = len(iocs)
+                timeline.system_count = len(systems)
+                db.session.commit()
+                return {'status': 'error', 'message': 'No tagged events found. Please tag events first.'}
+            
+            # Fetch full event data from OpenSearch for each tagged event
+            timeline.progress_percent = 40
+            timeline.progress_message = f'Loading full data for {len(tagged_events)} tagged events...'
             db.session.commit()
             
             events_data = []
-            event_count = 0
+            event_count = len(tagged_events)  # Use TAGGED count, not total database count
+            failed_loads = 0
+            loaded_from_cache = 0
+            
             try:
-                # v1.13.1: Uses consolidated index (case_{id}, not per-file indices)
-                index_pattern = f"case_{case.id}"
-                
-                # Get count first
-                count_result = opensearch_client.count(
-                    index=index_pattern,
-                    body={"query": {"match_all": {}}},
-                    ignore_unavailable=True
-                )
-                event_count = count_result.get('count', 0) if count_result else 0
-                logger.info(f"[TIMELINE] Total events in case: {event_count:,}")
-                
-                if event_count > 0:
-                    # Fetch sample events sorted by timestamp
-                    # v1.18.3 FIX: Use normalized fields for sorting and querying
-                    search_body = {
-                        "query": {"match_all": {}},
-                        "size": min(300, event_count),  # Cap at 300 events for timeline
-                        "sort": [{"normalized_timestamp": {"order": "asc", "unmapped_type": "date"}}],
-                        "_source": {
-                            "includes": [
-                                "Event.System.TimeCreated",
-                                "Event.System.Computer",
-                                "Event.System.EventID",
-                                "Event.EventData",
-                                "normalized_timestamp",
-                                "normalized_computer",
-                                "normalized_event_id",
-                                "source_file_type",
-                                "has_ioc",
-                                "has_sigma",
-                                "sigma_rule"
-                            ]
-                        }
-                    }
-                    
-                    results = opensearch_client.search(
-                        index=index_pattern,
-                        body=search_body,
-                        ignore_unavailable=True
-                    )
-                    
-                    if results and 'hits' in results and 'hits' in results['hits']:
-                        events_data = results['hits']['hits']
-                        logger.info(f"[TIMELINE] Retrieved {len(events_data)} sample events for timeline")
+                for idx, tag in enumerate(tagged_events):
+                    # Update progress every 50 events to avoid excessive DB writes
+                    if idx > 0 and idx % 50 == 0:
+                        progress = 40 + int((idx / len(tagged_events)) * 30)  # Progress from 40% to 70%
+                        timeline.progress_percent = min(progress, 70)
+                        timeline.progress_message = f'Loading event {idx}/{len(tagged_events)}...'
+                        db.session.commit()
                         
+                        # Check for cancellation during event loading
+                        timeline = db.session.get(CaseTimeline, timeline_id)
+                        if timeline.status == 'cancelled':
+                            logger.info(f"[TIMELINE] Timeline {timeline_id} cancelled during event loading")
+                            return {'status': 'cancelled', 'message': 'Timeline generation was cancelled'}
+                    
+                    try:
+                        # Try to get full event from OpenSearch first
+                        event_doc = opensearch_client.get(
+                            index=tag.index_name,
+                            id=tag.event_id,
+                            ignore=[404]
+                        )
+                        
+                        if event_doc and event_doc.get('found'):
+                            # Successfully retrieved from OpenSearch
+                            events_data.append(event_doc)
+                            logger.debug(f"[TIMELINE] Loaded event {tag.event_id} from OpenSearch")
+                        else:
+                            # Event not found in OpenSearch, try cached data
+                            if tag.event_data:
+                                import json as json_lib
+                                try:
+                                    cached_event = json_lib.loads(tag.event_data)
+                                    events_data.append({
+                                        '_source': cached_event,
+                                        '_id': tag.event_id,
+                                        '_index': tag.index_name,
+                                        'from_cache': True,
+                                        'analyst_notes': tag.notes if tag.notes else None,
+                                        'tag_color': tag.tag_color
+                                    })
+                                    loaded_from_cache += 1
+                                    logger.debug(f"[TIMELINE] Using cached data for event {tag.event_id}")
+                                except json_lib.JSONDecodeError as je:
+                                    logger.warning(f"[TIMELINE] Failed to parse cached data for {tag.event_id}: {je}")
+                                    failed_loads += 1
+                            else:
+                                logger.warning(f"[TIMELINE] Event {tag.event_id} not found and no cached data available")
+                                failed_loads += 1
+                    
+                    except Exception as e:
+                        logger.warning(f"[TIMELINE] Error fetching event {tag.event_id}: {e}")
+                        # Try cached data as fallback
+                        if tag.event_data:
+                            try:
+                                import json as json_lib
+                                cached_event = json_lib.loads(tag.event_data)
+                                events_data.append({
+                                    '_source': cached_event,
+                                    '_id': tag.event_id,
+                                    '_index': tag.index_name,
+                                    'from_cache': True,
+                                    'analyst_notes': tag.notes if tag.notes else None,
+                                    'tag_color': tag.tag_color
+                                })
+                                loaded_from_cache += 1
+                                logger.debug(f"[TIMELINE] Used cached data after fetch error for {tag.event_id}")
+                            except Exception as cache_err:
+                                logger.warning(f"[TIMELINE] Could not use cached data for {tag.event_id}: {cache_err}")
+                                failed_loads += 1
+                        else:
+                            failed_loads += 1
+            
+                logger.info(f"[TIMELINE] Loaded {len(events_data)}/{len(tagged_events)} events "
+                           f"({loaded_from_cache} from cache, {failed_loads} failed)")
+                
+                # Sort events by timestamp (chronological order)
+                events_data.sort(key=lambda x: x.get('_source', {}).get('normalized_timestamp', ''))
+            
             except Exception as e:
-                logger.warning(f"[TIMELINE] Error fetching events: {e}")
-                # Continue without events
+                logger.error(f"[TIMELINE] Critical error loading tagged events: {e}")
+                timeline.error_message = f"Error loading tagged events: {str(e)}"
+                timeline.status = 'failed'
+                timeline.event_count = 0
+                timeline.ioc_count = len(iocs)
+                timeline.system_count = len(systems)
+                db.session.commit()
+                return {'status': 'error', 'message': f'Error loading events: {str(e)}'}
+            
+            # Verify we got at least some events
+            if not events_data:
+                logger.error(f"[TIMELINE] No event data could be loaded for any tagged events")
+                timeline.error_message = ("Could not load any tagged event data from OpenSearch. "
+                                         "Events may have been deleted or indices may be unavailable.")
+                timeline.status = 'failed'
+                timeline.event_count = 0
+                timeline.ioc_count = len(iocs)
+                timeline.system_count = len(systems)
+                db.session.commit()
+                return {'status': 'error', 'message': 'No event data available'}
+            
+            # Warn if significant number of events failed to load
+            if failed_loads > 0:
+                logger.warning(f"[TIMELINE] {failed_loads} events failed to load out of {len(tagged_events)} "
+                              f"({failed_loads/len(tagged_events)*100:.1f}%)")
             
             # Check for cancellation before prompt building
             timeline = db.session.get(CaseTimeline, timeline_id)
