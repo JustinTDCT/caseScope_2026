@@ -1943,23 +1943,35 @@ function checkTimelineStatus() {
                             </span>
                         </a>
                     `;
+                    timelineBtn.disabled = false;
                     timelineBtn.innerHTML = '<span>🔄</span><span>Regenerate Timeline</span>';
+                    timelineBtn.onclick = generateTimeline;
                 } else if (timeline.status === 'generating') {
                     statusEl.innerHTML = '<span class="status-badge" style="background: rgba(251, 191, 36, 0.1); color: #f59e0b;">⏳ Generating...</span>';
-                    timelineBtn.disabled = true;
-                    timelineBtn.innerHTML = '<span>⏳</span><span>Generating...</span>';
+                    timelineBtn.disabled = false;
+                    timelineBtn.innerHTML = '<span>⏳</span><span>View Generation</span>';
+                    // Change button to show the modal for ongoing generation
+                    timelineBtn.onclick = () => {
+                        showTimelineProgressModal(timeline.timeline_id, 4);
+                        pollTimelineProgress(timeline.timeline_id);
+                    };
                     // Poll for updates
                     setTimeout(checkTimelineStatus, 3000);
                 } else if (timeline.status === 'failed') {
                     statusEl.innerHTML = '<span class="status-badge" style="background: rgba(239, 68, 68, 0.1); color: #ef4444;">❌ Failed</span>';
+                    timelineBtn.disabled = false;
                     timelineBtn.innerHTML = '<span>🔄</span><span>Retry Timeline</span>';
+                    timelineBtn.onclick = generateTimeline;
                 } else {
                     statusEl.innerHTML = '<span class="status-badge" style="background: rgba(251, 191, 36, 0.1); color: #f59e0b;">⏳ Pending...</span>';
                     timelineBtn.disabled = true;
+                    timelineBtn.innerHTML = '<span>⏳</span><span>Pending...</span>';
                 }
             } else {
                 statusEl.innerHTML = '<span class="status-badge" style="background: rgba(156, 163, 175, 0.1); color: #6b7280;">⚠️ No Timeline</span>';
+                timelineBtn.disabled = false;
                 timelineBtn.innerHTML = '<span>📅</span><span>AI Case Timeline</span>';
+                timelineBtn.onclick = generateTimeline;
             }
         })
         .catch(error => {
@@ -2068,12 +2080,29 @@ function showTimelineProgressModal(timelineId, estimatedMinutes = 4) {
             <div id="timelineProgressLog" style="background: var(--color-background); border: 1px solid var(--color-border); border-radius: var(--border-radius); padding: var(--spacing-sm); max-height: 120px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: var(--color-text-muted);"></div>
             
             <div style="display: flex; gap: var(--spacing-md); margin-top: var(--spacing-md); align-items: center;">
+                <button id="toggleTimelinePreviewBtn" onclick="toggleTimelineLivePreview(${timelineId})" style="background: var(--color-success); color: white; border: none; padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--border-radius); cursor: pointer; font-weight: 600; transition: all 0.2s;">
+                    📄 Show Live Preview
+                </button>
                 <button id="cancelTimelineBtn" onclick="cancelTimeline(${timelineId})" style="background: var(--color-error); color: white; border: none; padding: var(--spacing-sm) var(--spacing-md); border-radius: var(--border-radius); cursor: pointer; font-weight: 600; transition: all 0.2s;">
                     ⛔ Cancel Generation
                 </button>
                 <p style="margin: 0; flex: 1; text-align: right; font-size: 0.875rem; color: var(--color-text-muted);">
                     💡 You can close this and the timeline will continue
                 </p>
+            </div>
+            
+            <!-- Live Preview Container (Hidden by default) -->
+            <div id="timelineLivePreviewContainer" style="display: none; margin-top: var(--spacing-md); border-top: 2px solid var(--color-border); padding-top: var(--spacing-md);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-sm);">
+                    <h3 style="margin: 0; font-size: 1rem; display: flex; align-items: center; gap: var(--spacing-xs);">
+                        <span>📝</span>
+                        <span>Live Timeline Preview</span>
+                    </h3>
+                    <span id="timelinePreviewUpdateIndicator" style="font-size: 0.75rem; color: var(--color-text-muted);">Updates every 3 seconds</span>
+                </div>
+                <div id="timelineLivePreviewContent" style="background: #ffffff; border: 1px solid var(--color-border); border-radius: var(--border-radius); padding: var(--spacing-md); max-height: 400px; overflow-y: auto; font-size: 0.875rem; line-height: 1.6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #1a1a1a;">
+                    <p style="color: #666; text-align: center; padding: var(--spacing-lg);">Loading preview...</p>
+                </div>
             </div>
         </div>
     `;
@@ -2184,6 +2213,110 @@ function updateTimelineElapsedTime() {
     }
 }
 
+// Global variable for timeline preview interval
+let timelinePreviewVisible = false;
+let timelinePreviewInterval = null;
+
+function toggleTimelineLivePreview(timelineId) {
+    const container = document.getElementById('timelineLivePreviewContainer');
+    const button = document.getElementById('toggleTimelinePreviewBtn');
+    
+    if (!container || !button) return;
+    
+    timelinePreviewVisible = !timelinePreviewVisible;
+    
+    if (timelinePreviewVisible) {
+        container.style.display = 'block';
+        button.innerHTML = '📄 Hide Live Preview';
+        button.style.background = 'var(--color-warning)';
+        
+        // Start auto-refresh
+        updateTimelineLivePreview(timelineId);
+        timelinePreviewInterval = setInterval(() => updateTimelineLivePreview(timelineId), 3000);
+    } else {
+        container.style.display = 'none';
+        button.innerHTML = '📄 Show Live Preview';
+        button.style.background = 'var(--color-success)';
+        
+        // Stop auto-refresh
+        if (timelinePreviewInterval) {
+            clearInterval(timelinePreviewInterval);
+            timelinePreviewInterval = null;
+        }
+    }
+}
+
+function updateTimelineLivePreview(timelineId) {
+    const contentDiv = document.getElementById('timelineLivePreviewContent');
+    const indicator = document.getElementById('timelinePreviewUpdateIndicator');
+    
+    if (!contentDiv) {
+        // Modal was closed, stop interval
+        if (timelinePreviewInterval) {
+            clearInterval(timelinePreviewInterval);
+            timelinePreviewInterval = null;
+        }
+        return;
+    }
+    
+    // Flash update indicator
+    if (indicator) {
+        indicator.style.color = 'var(--color-success)';
+        indicator.textContent = 'Updating...';
+    }
+    
+    fetch(`/timeline/${timelineId}/api`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.timeline_content && data.timeline_content.length > 0) {
+                // Convert markdown to simple HTML (basic formatting)
+                let html = data.timeline_content
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/\n\n/g, '</p><p>')
+                    .replace(/\n/g, '<br>')
+                    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/^# (.+)$/gm, '<h1 style="font-size: 1.5rem; font-weight: 700; margin: 1rem 0 0.5rem 0; color: #1a1a1a;">$1</h1>')
+                    .replace(/^## (.+)$/gm, '<h2 style="font-size: 1.25rem; font-weight: 700; margin: 1rem 0 0.5rem 0; color: #333;">$1</h2>')
+                    .replace(/^### (.+)$/gm, '<h3 style="font-size: 1.1rem; font-weight: 600; margin: 0.75rem 0 0.5rem 0; color: #444;">$1</h3>');
+                
+                contentDiv.innerHTML = `<div style="line-height: 1.7;">${html}</div>`;
+                
+                // Scroll to bottom to show latest content
+                contentDiv.scrollTop = contentDiv.scrollHeight;
+            } else {
+                contentDiv.innerHTML = '<p style="color: #999; text-align: center; padding: var(--spacing-lg);">Waiting for AI to start generating...</p>';
+            }
+            
+            // Reset indicator
+            if (indicator) {
+                setTimeout(() => {
+                    indicator.style.color = 'var(--color-text-muted)';
+                    indicator.textContent = `Updates every 3 seconds`;
+                }, 500);
+            }
+            
+            // Stop updating if timeline is complete
+            if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
+                if (timelinePreviewInterval) {
+                    clearInterval(timelinePreviewInterval);
+                    timelinePreviewInterval = null;
+                }
+                if (indicator) {
+                    indicator.textContent = `Generation ${data.status}`;
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Failed to update timeline preview:', err);
+            if (indicator) {
+                indicator.style.color = 'var(--color-error)';
+                indicator.textContent = 'Update failed';
+            }
+        });
+}
+
 function pollTimelineProgress(timelineId, attempts = 0) {
     const maxAttempts = 200; // 200 * 2s = ~6.5 minutes max
     
@@ -2206,6 +2339,12 @@ function pollTimelineProgress(timelineId, attempts = 0) {
             
             // Check if completed
             if (data.status === 'completed') {
+                // Stop preview interval if running
+                if (timelinePreviewInterval) {
+                    clearInterval(timelinePreviewInterval);
+                    timelinePreviewInterval = null;
+                }
+                
                 setTimeout(() => {
                     const modal = document.getElementById('timelineProgressModal');
                     if (modal) modal.remove();
@@ -2231,6 +2370,12 @@ function pollTimelineProgress(timelineId, attempts = 0) {
             
             // Check if failed
             if (data.status === 'failed') {
+                // Stop preview interval if running
+                if (timelinePreviewInterval) {
+                    clearInterval(timelinePreviewInterval);
+                    timelinePreviewInterval = null;
+                }
+                
                 const modal = document.getElementById('timelineProgressModal');
                 if (modal) modal.remove();
                 alert(`❌ Timeline generation failed:\n\n${data.error_message || 'Unknown error'}`);
@@ -2240,6 +2385,12 @@ function pollTimelineProgress(timelineId, attempts = 0) {
             
             // Check if cancelled
             if (data.status === 'cancelled') {
+                // Stop preview interval if running
+                if (timelinePreviewInterval) {
+                    clearInterval(timelinePreviewInterval);
+                    timelinePreviewInterval = null;
+                }
+                
                 const modal = document.getElementById('timelineProgressModal');
                 if (modal) modal.remove();
                 showFlash('Timeline generation cancelled', 'info');
