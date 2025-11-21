@@ -489,15 +489,24 @@ Response: Streaming markdown content
 
 ## 🔧 Admin Routes
 
-### **File**: `routes/admin.py` (259 lines)
+### **File**: `routes/admin.py` (504 lines)
 
 | Route | Method | Function | Purpose |
 |-------|--------|----------|---------|
-| `/admin/audit` | GET | `admin_audit()` | View audit logs |
-| `/admin/logs` | GET | `admin_logs()` | View system logs |
-| `/admin/cases` | GET | `admin_cases()` | Manage all cases |
-| `/admin/stats` | GET | `admin_stats()` | System statistics |
-| `/admin/maintenance` | POST | `run_maintenance()` | Run maintenance tasks |
+| `/admin/audit` | GET | `audit_trail()` | View audit logs |
+| `/admin/system_logs` | GET | `system_logs()` | View system logs |
+| `/admin/system_logs/download/<service>` | GET | `download_log()` | Download service logs |
+| `/admin/diagnostics` | GET | `diagnostics()` | System diagnostics dashboard |
+| `/admin/diagnostics/restart_web` | POST | `restart_web_service()` | Restart web service |
+| `/admin/diagnostics/restart_worker` | POST | `restart_worker_service()` | Restart worker service |
+| `/admin/diagnostics/clear_queue` | POST | `clear_queue()` | Clear processing queue |
+
+#### Diagnostics Features (NEW v1.18.3)
+- **System Status**: Real-time monitoring of Database, OpenSearch, Celery, Disk Space
+- **Service Controls**: Restart web/worker services without SSH access
+- **Queue Management**: Clear stuck queues and reset files to initial state
+- **Audit Logging**: All actions logged to database with user details
+- **Admin-Only**: Requires administrator role
 
 ---
 

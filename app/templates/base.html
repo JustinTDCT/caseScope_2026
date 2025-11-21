@@ -165,7 +165,16 @@
                 </a>
                 {% endif %}
                 
-                <!-- 15. Settings - Must be administrator -->
+                <!-- 15. Diagnostics - Must be administrator -->
+                {% if current_user.role == 'administrator' %}
+                <a href="{{ url_for('admin.diagnostics') }}" 
+                   class="sidebar-nav-item {% if request.endpoint == 'admin.diagnostics' %}active{% endif %}">
+                    <span class="sidebar-nav-icon">🔬</span>
+                    <span>Diagnostics</span>
+                </a>
+                {% endif %}
+                
+                <!-- 16. Settings - Must be administrator -->
                 {% if current_user.role == 'administrator' %}
                 <a href="{{ url_for('settings.index') }}" 
                    class="sidebar-nav-item {% if request.endpoint and request.endpoint.startswith('settings.') %}active{% endif %}">

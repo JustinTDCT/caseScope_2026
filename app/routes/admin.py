@@ -257,3 +257,245 @@ def download_logs(service):
     except Exception as e:
         return f"Error downloading logs: {str(e)}", 500
 
+
+# ============================================================================
+# SYSTEM DIAGNOSTICS
+# ============================================================================
+
+@admin_bp.route('/diagnostics')
+@login_required
+@admin_required
+def diagnostics():
+    """System diagnostics page with service controls and queue management"""
+    return render_template('diagnostics.html')
+
+
+@admin_bp.route('/diagnostics/restart_web', methods=['POST'])
+@login_required
+@admin_required
+def restart_web_service():
+    """Restart the CaseScope web service"""
+    from audit_logger import log_action
+    
+    try:
+        # Log the action
+        log_action(
+            action='restart_web_service',
+            resource_type='system',
+            resource_name='casescope.service',
+            status='initiated',
+            details={'user': current_user.username}
+        )
+        
+        # Restart the service
+        result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', 'casescope.service'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            log_action(
+                action='restart_web_service',
+                resource_type='system',
+                resource_name='casescope.service',
+                status='success',
+                details={'user': current_user.username}
+            )
+            return jsonify({
+                'success': True,
+                'message': '✅ Web service restarted successfully'
+            })
+        else:
+            error_msg = result.stderr or 'Unknown error'
+            log_action(
+                action='restart_web_service',
+                resource_type='system',
+                resource_name='casescope.service',
+                status='failed',
+                details={'user': current_user.username, 'error': error_msg}
+            )
+            return jsonify({
+                'success': False,
+                'error': f'Failed to restart service: {error_msg}'
+            }), 500
+            
+    except Exception as e:
+        log_action(
+            action='restart_web_service',
+            resource_type='system',
+            resource_name='casescope.service',
+            status='error',
+            details={'user': current_user.username, 'error': str(e)}
+        )
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@admin_bp.route('/diagnostics/restart_worker', methods=['POST'])
+@login_required
+@admin_required
+def restart_worker_service():
+    """Restart the CaseScope worker service"""
+    from audit_logger import log_action
+    
+    try:
+        # Log the action
+        log_action(
+            action='restart_worker_service',
+            resource_type='system',
+            resource_name='casescope-worker.service',
+            status='initiated',
+            details={'user': current_user.username}
+        )
+        
+        # Restart the service
+        result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', 'casescope-worker.service'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            log_action(
+                action='restart_worker_service',
+                resource_type='system',
+                resource_name='casescope-worker.service',
+                status='success',
+                details={'user': current_user.username}
+            )
+            return jsonify({
+                'success': True,
+                'message': '✅ Worker service restarted successfully'
+            })
+        else:
+            error_msg = result.stderr or 'Unknown error'
+            log_action(
+                action='restart_worker_service',
+                resource_type='system',
+                resource_name='casescope-worker.service',
+                status='failed',
+                details={'user': current_user.username, 'error': error_msg}
+            )
+            return jsonify({
+                'success': False,
+                'error': f'Failed to restart service: {error_msg}'
+            }), 500
+            
+    except Exception as e:
+        log_action(
+            action='restart_worker_service',
+            resource_type='system',
+            resource_name='casescope-worker.service',
+            status='error',
+            details={'user': current_user.username, 'error': str(e)}
+        )
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@admin_bp.route('/diagnostics/clear_queue', methods=['POST'])
+@login_required
+@admin_required
+def clear_queue():
+    """Clear the entire queue and reset all queued files to initial state"""
+    from main import db, app
+    from models import CaseFile
+    from audit_logger import log_action
+    
+    try:
+        # Log the action
+        log_action(
+            action='clear_queue',
+            resource_type='system',
+            resource_name='celery_queue',
+            status='initiated',
+            details={'user': current_user.username}
+        )
+        
+        # Get all files with celery_task_id (currently queued or processing)
+        queued_files = db.session.query(CaseFile).filter(
+            CaseFile.celery_task_id.isnot(None)
+        ).all()
+        
+        queued_count = len(queued_files)
+        
+        if queued_count == 0:
+            return jsonify({
+                'success': True,
+                'message': 'ℹ️ Queue is already empty',
+                'files_cleared': 0,
+                'files': []
+            })
+        
+        # Reset each file to initial state
+        reset_files = []
+        for file in queued_files:
+            file_info = {
+                'id': file.id,
+                'filename': file.original_filename,
+                'case_id': file.case_id,
+                'previous_status': file.indexing_status
+            }
+            
+            # Reset to initial state
+            file.celery_task_id = None
+            file.indexing_status = 'Pending'
+            file.is_indexed = False
+            file.event_count = 0
+            file.ioc_event_count = 0
+            file.violation_count = 0
+            file.error_message = None
+            
+            reset_files.append(file_info)
+        
+        db.session.commit()
+        
+        # Purge the Celery queue (Redis)
+        try:
+            from celery_app import celery_app as celery
+            celery.control.purge()
+        except Exception as celery_error:
+            # Log but don't fail - DB reset is more important
+            print(f"Warning: Could not purge Celery queue: {celery_error}")
+        
+        # Log success
+        log_action(
+            action='clear_queue',
+            resource_type='system',
+            resource_name='celery_queue',
+            status='success',
+            details={
+                'user': current_user.username,
+                'files_cleared': queued_count,
+                'files': reset_files
+            }
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': f'✅ Queue cleared: {queued_count} file(s) reset to Pending status',
+            'files_cleared': queued_count,
+            'files': reset_files
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        log_action(
+            action='clear_queue',
+            resource_type='system',
+            resource_name='celery_queue',
+            status='error',
+            details={'user': current_user.username, 'error': str(e)}
+        )
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
