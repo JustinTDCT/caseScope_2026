@@ -6,6 +6,7 @@ Minimal viable product - essential routes only
 
 import os
 import logging
+import shutil
 from datetime import datetime
 from flask import Flask, render_template_string, render_template, request, redirect, url_for, jsonify, session, flash
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
@@ -410,73 +411,160 @@ def db_health_check():
 @login_required
 def system_health_check():
     """
-    Overall system health check endpoint.
+    Overall system health check endpoint with detailed metrics.
     
     Checks:
-    - Database connection
-    - OpenSearch connection
-    - Redis connection (Celery)
+    - Database connection pool
+    - OpenSearch cluster
+    - Celery workers
     - Disk space
     
     Returns:
-        JSON with system health status
+        JSON with detailed system health metrics for diagnostics dashboard
     """
     from system_stats import get_system_status
+    import shutil
     
-    health = {
-        'status': 'healthy',
-        'checks': {}
-    }
+    response = {}
     
-    # Check database
+    # DATABASE - Get pool statistics
     try:
-        db.session.execute(text('SELECT 1'))
-        health['checks']['database'] = {'status': 'ok', 'message': 'Connected'}
+        pool = db.engine.pool
+        checked_out = pool.checkedout()
+        checked_in = pool.checkedin()
+        size = pool.size()
+        max_overflow = pool._max_overflow
+        total_available = size + max_overflow
+        utilization = (checked_out / total_available * 100) if total_available > 0 else 0
+        
+        if utilization < 50:
+            status = 'healthy'
+        elif utilization < 80:
+            status = 'warning'
+        else:
+            status = 'critical'
+        
+        response['database'] = {
+            'status': status,
+            'message': f'Pool: {checked_out}/{total_available} connections in use',
+            'pool': {
+                'size': size,
+                'checked_out': checked_out,
+                'checked_in': checked_in,
+                'max_overflow': max_overflow,
+                'total_available': total_available,
+                'utilization_percent': round(utilization, 1)
+            }
+        }
     except Exception as e:
-        health['checks']['database'] = {'status': 'error', 'message': str(e)}
-        health['status'] = 'unhealthy'
+        logger.error(f"[HEALTH] Database check failed: {e}")
+        response['database'] = {
+            'status': 'unknown',
+            'message': f'Error: {str(e)}',
+            'pool': {}
+        }
     
-    # Check OpenSearch
+    # OPENSEARCH - Get cluster info
     try:
-        opensearch_client.cluster.health()
-        health['checks']['opensearch'] = {'status': 'ok', 'message': 'Connected'}
+        cluster_health = opensearch_client.cluster.health()
+        cluster_stats = opensearch_client.cluster.stats()
+        indices_count = opensearch_client.cat.indices(format='json')
+        
+        status_map = {
+            'green': 'healthy',
+            'yellow': 'warning',
+            'red': 'critical'
+        }
+        
+        response['opensearch'] = {
+            'status': status_map.get(cluster_health.get('status', 'unknown'), 'unknown'),
+            'message': f"Cluster: {cluster_health.get('cluster_name', 'unknown')}",
+            'cluster_name': cluster_health.get('cluster_name', 'N/A'),
+            'indices_count': len(indices_count) if indices_count else 0,
+            'nodes': cluster_health.get('number_of_nodes', 0)
+        }
     except Exception as e:
-        health['checks']['opensearch'] = {'status': 'error', 'message': str(e)}
-        health['status'] = 'unhealthy'
+        logger.error(f"[HEALTH] OpenSearch check failed: {e}")
+        response['opensearch'] = {
+            'status': 'unknown',
+            'message': f'Error: {str(e)}',
+            'cluster_name': 'N/A',
+            'indices_count': 0
+        }
     
-    # Check Celery/Redis
+    # CELERY - Get worker statistics
     try:
         from celery_app import celery_app as celery
         inspect = celery.control.inspect()
         stats = inspect.stats()
+        active = inspect.active()
+        
         if stats:
-            health['checks']['celery'] = {'status': 'ok', 'message': f'{len(stats)} workers active'}
+            active_workers = len(stats)
+            active_tasks = sum(len(tasks) for tasks in active.values()) if active else 0
+            
+            if active_workers == 0:
+                status = 'critical'
+            elif active_tasks > 100:
+                status = 'warning'
+            else:
+                status = 'healthy'
+            
+            response['celery'] = {
+                'status': status,
+                'message': f'{active_workers} workers, {active_tasks} tasks',
+                'active_workers': active_workers,
+                'active_tasks': active_tasks
+            }
         else:
-            health['checks']['celery'] = {'status': 'warning', 'message': 'No workers responding'}
-            if health['status'] == 'healthy':
-                health['status'] = 'degraded'
+            response['celery'] = {
+                'status': 'critical',
+                'message': 'No workers responding',
+                'active_workers': 0,
+                'active_tasks': 0
+            }
     except Exception as e:
-        health['checks']['celery'] = {'status': 'error', 'message': str(e)}
-        if health['status'] == 'healthy':
-            health['status'] = 'degraded'
+        logger.error(f"[HEALTH] Celery check failed: {e}")
+        response['celery'] = {
+            'status': 'unknown',
+            'message': f'Error: {str(e)}',
+            'active_workers': 0,
+            'active_tasks': 0
+        }
     
-    # Check disk space
+    # DISK SPACE - Get usage statistics
     try:
-        system_status = get_system_status()
-        disk_free_percent = system_status.get('disk_free_percent', 0)
-        if disk_free_percent < 10:
-            health['checks']['disk'] = {'status': 'critical', 'message': f'Only {disk_free_percent}% free'}
-            health['status'] = 'unhealthy'
-        elif disk_free_percent < 20:
-            health['checks']['disk'] = {'status': 'warning', 'message': f'{disk_free_percent}% free'}
-            if health['status'] == 'healthy':
-                health['status'] = 'degraded'
+        disk_usage = shutil.disk_usage('/opt/casescope')
+        free_gb = disk_usage.free / (1024**3)
+        total_gb = disk_usage.total / (1024**3)
+        used_gb = disk_usage.used / (1024**3)
+        percent_used = (disk_usage.used / disk_usage.total * 100) if disk_usage.total > 0 else 0
+        
+        if percent_used > 90:
+            status = 'critical'
+        elif percent_used > 80:
+            status = 'warning'
         else:
-            health['checks']['disk'] = {'status': 'ok', 'message': f'{disk_free_percent}% free'}
+            status = 'healthy'
+        
+        response['disk'] = {
+            'status': status,
+            'message': f'{round(free_gb, 1)} GB free ({round(100 - percent_used, 1)}% available)',
+            'free_gb': round(free_gb, 1),
+            'used_gb': round(used_gb, 1),
+            'total_gb': round(total_gb, 1),
+            'percent_used': round(percent_used, 1)
+        }
     except Exception as e:
-        health['checks']['disk'] = {'status': 'error', 'message': str(e)}
+        logger.error(f"[HEALTH] Disk check failed: {e}")
+        response['disk'] = {
+            'status': 'unknown',
+            'message': f'Error: {str(e)}',
+            'free_gb': 0,
+            'percent_used': 0
+        }
     
-    return jsonify(health)
+    return jsonify(response)
 
 
 # ============================================================================
