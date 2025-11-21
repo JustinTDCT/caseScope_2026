@@ -876,7 +876,8 @@ def extract_event_fields(event_source: Dict[str, Any]) -> Dict[str, Any]:
         }
         meaningful = []
         for key, val in event_source.items():
-            if key not in skip_fields and not key.startswith('_'):
+            # v1.19.4: Skip forensic_ fields (extracted from EventData/UserData) - they're for searching, not display
+            if key not in skip_fields and not key.startswith('_') and not key.startswith('forensic_'):
                 if isinstance(val, (str, int, float)) and str(val).strip():
                     meaningful.append(f"{key}={val}")
                     if len(meaningful) >= 3:
