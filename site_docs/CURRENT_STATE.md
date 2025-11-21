@@ -1,7 +1,7 @@
 # CaseScope 2026 - Current State & Features
-**Version 1.17.1 - Active Features & Known Issues**
+**Version 1.18.4 - Active Features & Known Issues**
 
-**Last Updated**: November 20, 2025  
+**Last Updated**: November 21, 2025  
 **Purpose**: Current system state for AI code assistants
 
 **Note**: Full version history archived in `version_ARCHIVE_20251120.json` and `APP_MAP_ARCHIVE_20251120.md`
@@ -10,10 +10,27 @@
 
 ## 📊 Current Version
 
-**Version**: 1.17.1  
-**Release Date**: November 20, 2025  
+**Version**: 1.18.4  
+**Release Date**: November 21, 2025  
 **Stability**: Production  
 **Build**: Stable
+
+---
+
+## 🆕 Recent Changes (v1.18.4)
+
+### **AI Timeline Prompt Overhaul - Sample-Based Approach**
+- **Changed mission** from "complete timeline" to "sample-based key event timeline"
+- **Added Section 0**: Sampling Assessment & Confidence
+  - Shows sample size (e.g., 300 / 8,700,000 = 0.003%)
+  - States high/medium/low confidence findings
+  - Identifies sampling bias
+- **Updated Section 1**: Timeline Summary explicitly states "Based on Provided Sample"
+- **Enhanced Section 2**: Heavy event clustering (1-30 min bursts instead of individual events)
+- **Robust Section 3**: Attack progression with confidence qualifiers (Confirmed/Likely/Possible/No evidence)
+- **Added few-shot example**: 15-20 lines showing proper structure
+- **Result**: Eliminates looping behavior, reduces hallucinations, honest gap assessment
+- **Files**: `app/ai_report.py` (lines 215-406)
 
 ---
 

@@ -214,9 +214,9 @@ def check_ollama_status():
 
 def generate_timeline_prompt(case, iocs, systems, events_data, event_count):
     """
-    Build the prompt for AI timeline generation using Qwen model (v1.16.3)
+    Build the prompt for AI timeline generation (v1.18.4)
     
-    Focus: Chronological timeline construction with event ordering, IOC relationships, and system activity.
+    Focus: Sample-based key event timeline with explicit confidence assessment.
     
     Args:
         case: Case object
@@ -226,17 +226,26 @@ def generate_timeline_prompt(case, iocs, systems, events_data, event_count):
         event_count: Total number of events in case
         
     Returns:
-        str: Formatted timeline prompt optimized for Qwen's structured reasoning
+        str: Formatted timeline prompt optimized for sample-based analysis
     """
     
-    prompt = f"""You are a DFIR Timeline Analysis Engine powered by Qwen 2.5.
+    # Calculate sample percentage
+    sample_percentage = (len(events_data) / event_count * 100) if event_count > 0 else 0
+    
+    prompt = f"""You are a DFIR Timeline Analysis Engine.
 
 ═══════════════════════════════════════════════════════════════════════════════
-MISSION: CHRONOLOGICAL TIMELINE CONSTRUCTION
+MISSION: SAMPLE-BASED KEY EVENT TIMELINE & ATTACK NARRATIVE
 ═══════════════════════════════════════════════════════════════════════════════
 
-Create a precise chronological timeline for this forensic case.
-Focus on temporal relationships, event sequences, and attack progression.
+You are receiving only a representative sample of events (up to 300) from a case 
+that may contain millions of events.
+
+Your job is NOT to reconstruct the complete timeline.
+
+Your job is to extract the most forensically significant sequence from the sample, 
+identify the attacker's likely progression, and highlight what the sample proves 
+vs what remains uncertain due to sampling.
 
 ═══════════════════════════════════════════════════════════════════════════════
 CASE INFORMATION
@@ -255,34 +264,54 @@ TIMELINE REQUIREMENTS
 
 Your timeline MUST include these sections:
 
-## 1. Timeline Summary
-- First event timestamp (UTC)
-- Last event timestamp (UTC)  
-- Total time span
-- Key activity periods identified
+## 0. Sampling Assessment & Confidence
 
-## 2. Chronological Timeline
+- Sample size: {len(events_data)} events shown out of {event_count:,} total ({sample_percentage:.1f}% of case)
+- Sample time window: from first to last event in sample
+- Does the sample appear chronologically biased? (e.g. only initial compromise phase)
+- High-confidence findings (directly observed in sample)
+- Medium-confidence inferences (strong pattern in sample)
+- Low-confidence / not observable in sample
 
-Format each entry as:
+## 1. Timeline Summary (Based on Provided Sample)
+
+- Earliest observed timestamp in sample: [first event time]
+- Latest observed timestamp in sample: [last event time]
+- Sample duration: [time span of sample]
+- Estimated full case duration: (if min/max aggregations were provided — otherwise state "Unknown")
+- Activity density: X events per hour in sample
+- Key observation periods within sample
+
+## 2. Condensed Chronological Timeline (Sample-Based)
+
+Heavily cluster events into logical bursts (1–30 minute windows recommended when >15 events in an hour).
+Only expand individual events when they are IOC/SIGMA hits or tactically significant.
+
+Use this exact format:
+
 ```
-YYYY-MM-DD HH:MM:SS UTC | [SYSTEM-NAME] | Event Description
-  ├─ IOC: [if IOC detected]
-  ├─ SIGMA: [if SIGMA violation]
-  └─ Context: [brief explanation]
+2025-11-10 08:21:03 UTC | WORKSTATION-07 | Successful logon (EventID 4624) - TargetUserName=administrator from IpAddress=192.168.10.8
+├─ IOC: IP 192.168.10.8 (Malicious gateway)
+├─ SIGMA: Suspicious_Logon_Type_10
+└─ Context: Likely initial RDP brute-force success → Initial Access phase
+
+2025-11-10 08:21:15 – 08:23:47 UTC | WORKSTATION-07 | 47 events – PowerShell execution spree (EventID 4104, 4103)
+└─ Context: Multiple encoded commands, Empire beaconing pattern detected → Execution phase
 ```
 
-Group related events within 1-hour windows to reduce noise.
-Highlight suspicious activities, authentication events, IOC hits, SIGMA detections.
+## 3. Attack Progression (MITRE ATT&CK Kill Chain)
 
-## 3. Attack Progression Analysis
-Break timeline into phases:
-- **Reconnaissance** (scanning, discovery)
-- **Initial Access** (first successful login, exploit)
-- **Execution** (command execution, script running)
-- **Persistence** (scheduled tasks, registry modifications)
-- **Privilege Escalation** (elevation attempts)
-- **Lateral Movement** (RDP, SMB, network activity)
-- **Exfiltration** (large data transfers, external connections)
+Assign each cluster or key event to the most likely phase.
+Use "Possible" / "Likely" / "Confirmed" qualifiers.
+If a phase is missing entirely in the sample → state "No evidence in sample".
+
+Example:
+- **Initial Access**     → Confirmed (RDP brute force success at 2025-11-10 08:21:03)
+- **Execution**          → Confirmed (PowerShell Empire stager)
+- **Persistence**        → Possible (schtasks.exe creation observed)
+- **Privilege Escalation** → No evidence in sample
+- **Lateral Movement**   → Likely (RDP connections to multiple hosts)
+- **Exfiltration**       → No evidence in sample
 
 ## 4. IOC Timeline Matrix
 Show when each IOC was first/last seen:
@@ -379,13 +408,13 @@ INDICATORS OF COMPROMISE (IOCs)
     prompt += "ANALYSIS INSTRUCTIONS\n"
     prompt += "═══════════════════════════════════════════════════════════════════════════════\n\n"
     prompt += """
-1. **Chronological Ordering**: Sort ALL events by timestamp (oldest to newest)
-2. **Event Clustering**: Group events within 1-hour windows to reduce noise
-3. **IOC Tracking**: Show first/last seen timestamps for each IOC
-4. **Attack Phase Identification**: Map events to kill chain phases
-5. **System Relationships**: Show how systems interact (RDP, SMB, network flows)
-6. **Timeline Gaps**: Identify significant gaps in activity (> 4 hours)
-7. **Suspicious Patterns**: Highlight brute force attempts, reconnaissance, lateral movement
+1. **Chronological Ordering**: Sort events in sample by timestamp (oldest to newest)
+2. **Heavy Event Clustering**: Group events into 1-30 minute bursts when >15 events in an hour
+3. **IOC Tracking**: Show first/last seen timestamps for each IOC in the sample
+4. **Attack Phase Identification**: Map events to kill chain phases with confidence qualifiers
+5. **System Relationships**: Show how systems interact based on sample data
+6. **Timeline Gaps**: Identify gaps in the sample (may not reflect actual timeline gaps)
+7. **Suspicious Patterns**: Highlight brute force, reconnaissance, lateral movement observed in sample
 
 **Formatting Rules**:
 - Use UTC timestamps exclusively
@@ -393,12 +422,43 @@ INDICATORS OF COMPROMISE (IOCs)
 - Use tree structure (├─ └─) for event details
 - Bold system names and IOC values
 - Keep descriptions concise (1-2 lines per event)
+- Use confidence qualifiers (Confirmed, Likely, Possible, No evidence)
 
 **DO NOT**:
 - Invent events or timestamps
 - Make assumptions about missing data
 - Skip events with IOC or SIGMA hits
 - Summarize without showing specific timestamps
+- State or imply that this is the complete timeline
+
+═══════════════════════════════════════════════════════════════════════════════
+EXAMPLE OUTPUT FRAGMENT (you must follow this style exactly)
+═══════════════════════════════════════════════════════════════════════════════
+
+## 0. Sampling Assessment & Confidence
+
+- Sample size: 212 / 2,847,221 total (0.007%)
+- Sample heavily biased toward 2025-11-10 08:00–09:30 period
+- High confidence: Initial access via RDP, Empire beaconing
+- Low confidence: Persistence mechanism, exfiltration
+
+## 1. Timeline Summary (Based on Provided Sample)
+
+- Earliest: 2025-11-10 08:21:03 UTC
+- Latest: 2025-11-10 09:27:44 UTC
+- Sample duration: 66 minutes
+
+## 2. Condensed Chronological Timeline (Sample-Based)
+
+2025-11-10 08:21:03 UTC | WORKSTATION-07 | Successful logon (EventID 4624) - TargetUserName=administrator from IpAddress=192.168.10.8
+├─ IOC: IP 192.168.10.8 (Malicious gateway)
+├─ SIGMA: Suspicious_Logon_Type_10
+└─ Context: Likely initial RDP brute-force success → Initial Access phase
+
+2025-11-10 08:21:15 – 08:23:47 UTC | WORKSTATION-07 | 47 events – PowerShell execution spree (EventID 4104, 4103)
+└─ Context: Multiple encoded commands, Empire beaconing pattern detected → Execution phase
+
+═══════════════════════════════════════════════════════════════════════════════
 
 **Output**: A complete timeline in Markdown format ready for display.
 """
