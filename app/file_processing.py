@@ -312,16 +312,21 @@ def normalize_event_structure(event):
 
 def extract_forensic_fields(event_data, user_data, event_id):
     """
-    Extract key forensic fields from EventData/UserData for top-level indexing.
+    Extract ALL fields from EventData/UserData for top-level indexing.
     
     Problem: EventData is stored as JSON string to avoid mapping conflicts (v1.13.9).
-    Solution: Extract important fields BEFORE stringification for searchability.
+    Solution: Extract ALL fields BEFORE stringification for searchability.
+    
+    Philosophy: Extract everything, let analysts search/filter what matters.
+    - Works for ANY application (Windows, Sysmon, Tableau, custom apps)
+    - Future-proof (no need to maintain field lists)
+    - Still keeps JSON blob for full-text search (backward compatible)
     
     Benefits:
-    - Direct search/filter by TargetUserName, IpAddress, ProcessName, etc.
-    - Add extracted fields as IOCs easily
-    - Display as columns in search results
-    - Better SIGMA detection coverage
+    - Direct search/filter by ANY field
+    - Add any field as IOC easily
+    - Display any field as column
+    - Works with custom/unknown event types
     
     Args:
         event_data: EventData dict (before JSON stringification)
@@ -329,12 +334,9 @@ def extract_forensic_fields(event_data, user_data, event_id):
         event_id: Windows Event ID (string or int)
         
     Returns:
-        dict: Extracted forensic fields with 'forensic_' prefix
+        dict: ALL extracted fields with 'forensic_' prefix
     """
     extracted = {}
-    
-    # Convert event_id to string for comparison
-    event_id_str = str(event_id)
     
     # Parse EventData if it's already a JSON string (shouldn't happen in normal flow)
     if isinstance(event_data, str):
@@ -359,113 +361,65 @@ def extract_forensic_fields(event_data, user_data, event_id):
         user_data = {}
     
     # ========================================================================
-    # COMMON FORENSIC FIELDS (extracted for all events)
+    # EXTRACT ALL EVENTDATA FIELDS (v1.19.2 - Universal Extraction)
     # ========================================================================
     
-    # User-related fields (most important for DFIR)
-    user_fields = [
-        'TargetUserName', 'SubjectUserName', 'User', 'UserName', 'AccountName',
-        'TargetUserSid', 'SubjectUserSid', 'UserSid'
-    ]
-    for field in user_fields:
-        if field in event_data and event_data[field] and event_data[field] != '-':
-            extracted[f'forensic_{field}'] = str(event_data[field])
-    
-    # Network-related fields
-    network_fields = [
-        'IpAddress', 'SourceAddress', 'DestinationAddress', 'SourceIp', 'DestinationIp',
-        'IpPort', 'SourcePort', 'DestinationPort', 'WorkstationName', 'Workstation'
-    ]
-    for field in network_fields:
-        if field in event_data and event_data[field] and event_data[field] not in ['-', '0.0.0.0', '::']:
-            extracted[f'forensic_{field}'] = str(event_data[field])
-    
-    # Process/Execution fields
-    process_fields = [
-        'ProcessName', 'Image', 'CommandLine', 'ParentImage', 'ParentCommandLine',
-        'TargetFilename', 'SourceFilename', 'FileName', 'Application'
-    ]
-    for field in process_fields:
-        if field in event_data and event_data[field] and event_data[field] != '-':
-            extracted[f'forensic_{field}'] = str(event_data[field])
-    
-    # Domain/Authentication fields
-    auth_fields = [
-        'TargetDomainName', 'SubjectDomainName', 'Domain', 'LogonType',
-        'AuthenticationPackageName', 'LogonProcessName', 'Status', 'SubStatus'
-    ]
-    for field in auth_fields:
-        if field in event_data and event_data[field] and event_data[field] != '-':
-            extracted[f'forensic_{field}'] = str(event_data[field])
-    
-    # ========================================================================
-    # EVENT-SPECIFIC FIELDS (based on Event ID)
-    # ========================================================================
-    
-    # 4624 - Successful Logon
-    # 4625 - Failed Logon
-    if event_id_str in ['4624', '4625']:
-        if 'LogonType' in event_data:
-            extracted['forensic_LogonType'] = str(event_data['LogonType'])
-        if 'WorkstationName' in event_data and event_data['WorkstationName'] != '-':
-            extracted['forensic_WorkstationName'] = str(event_data['WorkstationName'])
-    
-    # 4688 - Process Creation
-    # Sysmon 1 - Process Create
-    if event_id_str in ['4688', '1']:
-        if 'NewProcessName' in event_data:
-            extracted['forensic_ProcessName'] = str(event_data['NewProcessName'])
-        if 'CommandLine' in event_data and event_data['CommandLine'] != '-':
-            extracted['forensic_CommandLine'] = str(event_data['CommandLine'])
-        if 'ParentProcessName' in event_data:
-            extracted['forensic_ParentProcessName'] = str(event_data['ParentProcessName'])
-    
-    # Sysmon 3 - Network Connection
-    if event_id_str == '3':
-        if 'DestinationIp' in event_data:
-            extracted['forensic_DestinationIp'] = str(event_data['DestinationIp'])
-        if 'DestinationPort' in event_data:
-            extracted['forensic_DestinationPort'] = str(event_data['DestinationPort'])
-        if 'SourceIp' in event_data:
-            extracted['forensic_SourceIp'] = str(event_data['SourceIp'])
-    
-    # Sysmon 11 - File Create
-    if event_id_str == '11':
-        if 'TargetFilename' in event_data:
-            extracted['forensic_TargetFilename'] = str(event_data['TargetFilename'])
-    
-    # 4663 - File Access / Object Access
-    # 5145 - Network Share Access
-    if event_id_str in ['4663', '5145']:
-        if 'ObjectName' in event_data:
-            extracted['forensic_ObjectName'] = str(event_data['ObjectName'])
-        if 'ShareName' in event_data and event_data['ShareName'] != '-':
-            extracted['forensic_ShareName'] = str(event_data['ShareName'])
-        if 'RelativeTargetName' in event_data:
-            extracted['forensic_RelativeTargetName'] = str(event_data['RelativeTargetName'])
-    
-    # ========================================================================
-    # USERDATA EXTRACTION (for events like 1149)
-    # ========================================================================
-    
-    # Events with UserData instead of EventData (like Tableau 1149)
-    if user_data:
-        # Check for EventXML structure
-        if 'EventXML' in user_data:
-            event_xml = user_data['EventXML']
-            if isinstance(event_xml, dict):
-                # Extract Param1, Param2, Param3 (common in UserData events)
-                for i in range(1, 10):
-                    param_key = f'Param{i}'
-                    if param_key in event_xml and event_xml[param_key]:
-                        value = str(event_xml[param_key])
-                        if value and value != '-':
-                            extracted[f'forensic_Param{i}'] = value
+    def extract_all_fields(data_dict, prefix='forensic_'):
+        """
+        Recursively extract all fields from a dictionary.
+        Handles nested dicts, lists, and converts all values to strings.
+        """
+        fields = {}
         
-        # Extract any top-level UserData fields
-        for key, value in user_data.items():
-            if isinstance(value, (str, int, float)) and value and value != '-':
-                extracted[f'forensic_UserData_{key}'] = str(value)
+        for key, value in data_dict.items():
+            # Skip internal XML attributes
+            if key.startswith('#') or key.startswith('@'):
+                continue
+            
+            # Create field name with prefix
+            field_name = f'{prefix}{key}'
+            
+            # Handle different value types
+            if value is None or value == '' or value == '-':
+                # Skip empty/null/placeholder values
+                continue
+            elif isinstance(value, dict):
+                # For nested dicts, check if it's an EventXML structure
+                if 'EventXML' in str(key) or '#text' in value:
+                    # Extract #text if present (XML structure)
+                    if '#text' in value:
+                        fields[field_name] = str(value['#text'])
+                    # Also recurse into the dict
+                    nested_fields = extract_all_fields(value, prefix=f'{prefix}{key}_')
+                    fields.update(nested_fields)
+                else:
+                    # Regular nested dict - recurse with dot notation
+                    nested_fields = extract_all_fields(value, prefix=f'{prefix}{key}_')
+                    fields.update(nested_fields)
+            elif isinstance(value, list):
+                # For lists, extract each item with index
+                for idx, item in enumerate(value):
+                    if isinstance(item, dict):
+                        nested_fields = extract_all_fields(item, prefix=f'{prefix}{key}_{idx}_')
+                        fields.update(nested_fields)
+                    elif item and item != '-':
+                        fields[f'{prefix}{key}_{idx}'] = str(item)
+            else:
+                # Simple value (string, int, float, bool) - convert to string
+                str_value = str(value)
+                # Skip common placeholder values
+                if str_value not in ['', '-', '0.0.0.0', '::', '0x0']:
+                    fields[field_name] = str_value
+        
+        return fields
+    
+    # Extract all EventData fields
+    if event_data:
+        extracted.update(extract_all_fields(event_data, prefix='forensic_'))
+    
+    # Extract all UserData fields
+    if user_data:
+        extracted.update(extract_all_fields(user_data, prefix='forensic_UserData_'))
     
     return extracted
 
