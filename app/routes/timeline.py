@@ -237,6 +237,12 @@ def get_timeline(timeline_id):
     if not case:
         return jsonify({'error': 'Case not found'}), 404
     
+    # v1.18.3 FIX: Show partial content during generation from raw_response
+    content = timeline.timeline_content
+    if timeline.status == 'generating' and not content and hasattr(timeline, 'raw_response') and timeline.raw_response:
+        # Use partial content from raw_response during generation
+        content = timeline.raw_response
+    
     return jsonify({
         'success': True,
         'timeline_id': timeline.id,
@@ -246,7 +252,7 @@ def get_timeline(timeline_id):
         'version': timeline.version,
         'model_name': timeline.model_name,
         'timeline_title': timeline.timeline_title,
-        'timeline_content': timeline.timeline_content,
+        'timeline_content': content,  # v1.18.3: Shows partial content during generation
         'timeline_json': timeline.timeline_json,
         'event_count': timeline.event_count,
         'ioc_count': timeline.ioc_count,
@@ -255,7 +261,8 @@ def get_timeline(timeline_id):
         'created_at': timeline.created_at.isoformat() if timeline.created_at else None,
         'error_message': timeline.error_message if hasattr(timeline, 'error_message') else None,
         'progress_percent': timeline.progress_percent if hasattr(timeline, 'progress_percent') else None,
-        'progress_message': timeline.progress_message if hasattr(timeline, 'progress_message') else None
+        'progress_message': timeline.progress_message if hasattr(timeline, 'progress_message') else None,
+        'is_partial': timeline.status == 'generating'  # v1.18.3: Flag to indicate partial content
     })
 
 
