@@ -1,5 +1,5 @@
 # CaseScope 2026 - Current State & Features
-**Version 1.18.4 - Active Features & Known Issues**
+**Version 1.18.5 - Active Features & Known Issues**
 
 **Last Updated**: November 21, 2025  
 **Purpose**: Current system state for AI code assistants
@@ -10,16 +10,35 @@
 
 ## 📊 Current Version
 
-**Version**: 1.18.4  
+**Version**: 1.18.5  
 **Release Date**: November 21, 2025  
 **Stability**: Production  
 **Build**: Stable
 
 ---
 
-## 🆕 Recent Changes (v1.18.4)
+## 🆕 Recent Changes (v1.18.5)
 
-### **AI Timeline Prompt Overhaul - Sample-Based Approach**
+### **Timeline Live Preview & Button Improvements**
+- **FIXED**: Timeline preview and button behavior from v1.18.3 (wasn't working)
+- **Added live preview** to timeline generation modal (matches AI report modal)
+  - Toggle button "Show/Hide Live Preview"
+  - Auto-updates every 3 seconds with latest timeline content
+  - Converts Markdown → HTML with formatting
+  - Scrolls to bottom automatically
+- **Button behavior fixed** during generation
+  - Button stays **enabled** during generation (was disabled)
+  - Changes to "View Generation" when generating (clickable)
+  - Click button anytime to reopen progress modal
+  - Can close and reopen modal during generation
+- **Button states**:
+  - No Timeline → "AI Case Timeline" (green)
+  - Generating → "View Generation" (orange, enabled)
+  - Completed → "Regenerate Timeline" (orange)
+  - Failed → "Retry Timeline" (orange)
+- **Files**: `templates/view_case_enhanced.html` (lines 2068-2100, 2204-2280, 1936-1962)
+
+### **AI Timeline Prompt Overhaul - Sample-Based Approach (v1.18.4)**
 - **Changed mission** from "complete timeline" to "sample-based key event timeline"
 - **Added Section 0**: Sampling Assessment & Confidence
   - Shows sample size (e.g., 300 / 8,700,000 = 0.003%)
