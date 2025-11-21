@@ -1,7 +1,7 @@
 # CaseScope 2026 - Quick Reference for AI Code Assistants
 **Common Patterns, Functions, and Code Examples**
 
-**Last Updated**: November 20, 2025  
+**Last Updated**: November 21, 2025  
 **Purpose**: Fast lookup for AI assistants working with the codebase
 
 ---
@@ -176,6 +176,46 @@ def update_ioc_flags(opensearch_client, case_id, event_ids):
     ]
     
     helpers.bulk(opensearch_client, actions)
+```
+
+#### Search Forensic Fields (v1.19.3+)
+```python
+# v1.19.3+: All EventData/UserData fields extracted as forensic_* fields
+# Examples: forensic_TargetUserName, forensic_IpAddress, forensic_ProcessName
+
+# Search for specific username
+response = opensearch_client.search(
+    index=f"case_{case_id}",
+    body={
+        "query": {
+            "term": {"forensic_TargetUserName.keyword": "administrator"}
+        }
+    }
+)
+
+# Search for IP address
+response = opensearch_client.search(
+    index=f"case_{case_id}",
+    body={
+        "query": {
+            "term": {"forensic_IpAddress": "192.168.1.100"}
+        }
+    }
+)
+
+# Search for logon type
+response = opensearch_client.search(
+    index=f"case_{case_id}",
+    body={
+        "query": {
+            "term": {"forensic_LogonType": "3"}
+        }
+    }
+)
+
+# NOTE: Original EventData/UserData still exist as JSON strings
+# forensic_* fields are for filtering/searching specific fields
+# EventData/UserData strings are for full-text search
 ```
 
 ---
