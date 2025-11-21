@@ -287,9 +287,9 @@ def restart_web_service():
             details={'user': current_user.username}
         )
         
-        # Restart the service
+        # Restart the service (use full path to sudo)
         result = subprocess.run(
-            ['sudo', 'systemctl', 'restart', 'casescope.service'],
+            ['/usr/bin/sudo', '/usr/bin/systemctl', 'restart', 'casescope.service'],
             capture_output=True,
             text=True,
             timeout=30
@@ -352,9 +352,9 @@ def restart_worker_service():
             details={'user': current_user.username}
         )
         
-        # Restart the service
+        # Restart the service (use full path to sudo)
         result = subprocess.run(
-            ['sudo', 'systemctl', 'restart', 'casescope-worker.service'],
+            ['/usr/bin/sudo', '/usr/bin/systemctl', 'restart', 'casescope-worker.service'],
             capture_output=True,
             text=True,
             timeout=30
