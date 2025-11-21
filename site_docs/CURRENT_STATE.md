@@ -1,5 +1,5 @@
 # CaseScope 2026 - Current State & Features
-**Version 1.19.0 - Active Features & Known Issues**
+**Version 1.19.5 - Active Features & Known Issues**
 
 **Last Updated**: November 21, 2025  
 **Purpose**: Current system state for AI code assistants
@@ -10,10 +10,79 @@
 
 ## 📊 Current Version
 
-**Version**: 1.19.0  
+**Version**: 1.19.5  
 **Release Date**: November 21, 2025  
 **Stability**: Production  
 **Build**: Stable
+
+---
+
+## 🆕 Recent Changes (v1.19.5)
+
+### **🐛 BUG FIX: Search Results Description Showing Forensic Fields**
+- **Problem**: Search results DESCRIPTION column displaying extracted `forensic_` fields instead of readable event descriptions
+  - User screenshot showed: `forensic_Data=['Stopped', 'Available', ...`, `forensic_requestGuid=852F1564...`, `forensic_value=265`
+  - Made search results unreadable with raw field data
+- **Root Cause**: v1.19.3 forensic field extraction added fields prefixed with `forensic_`
+  - `extract_event_fields()` in `search_utils.py` has "last resort" fallback for descriptions
+  - Fallback iterates through ALL fields not in `skip_fields` and not starting with underscore
+  - `forensic_` fields met both criteria → appeared in descriptions
+- **Solution**: Modified line 879 in `search_utils.py` to skip fields starting with `forensic_`:
+  - Before: `if key not in skip_fields and not key.startswith('_'):`
+  - After: `if key not in skip_fields and not key.startswith('_') and not key.startswith('forensic_'):`
+  - Added comment: "v1.19.4: Skip forensic_ fields (extracted from EventData/UserData) - they're for searching, not display"
+- **Results**:
+  - Search results DESCRIPTION now shows proper event descriptions (`event_title`, `event_description`, or meaningful fallback fields)
+  - Forensic fields remain fully searchable and filterable
+  - UI is clean and readable
+  - No performance impact
+- **Files**: `app/search_utils.py` (line 879)
+
+---
+
+## 🆕 Recent Changes (v1.19.4)
+
+### **🐛 BUG FIX: Bulk Operation 'Please Wait' Modal Not Showing**
+- **Problem**: Re-index/Re-SIGMA/Re-Hunt buttons not showing preparation modal with spinner
+  - User expected: Spinning wheel modal (like archive/dearchive)
+  - User got: Nothing, page just refreshed
+- **Root Cause**: Duplicate JavaScript function definitions
+  - OLD functions (no modal): Lines 797-825 (case_files), 619-647 (global_files)
+  - NEW functions (with modal): Lines 1107-1147 (case_files), 968-1005 (global_files)
+  - JavaScript used FIRST definition found (old ones without modal)
+- **Solution**: Deleted old duplicate functions (`confirmReindex`, `confirmReSigma`, `confirmReHunt`)
+- **Results**:
+  - Re-Index/Re-SIGMA/Re-Hunt now show "Preparing operation..." modal with spinner
+  - Modal displays during 10-60 second preparation phase (clearing indices/violations)
+  - Modal auto-clears once files start processing
+  - Matches archive/dearchive behavior
+- **Files**: `app/templates/case_files.html`, `app/templates/global_files.html`
+
+---
+
+## 🆕 Recent Changes (v1.19.3)
+
+### **🔍 MAJOR FEATURE: Universal Forensic Field Extraction**
+- **Goal**: Make ALL important EVTX fields directly searchable and filterable
+- **Previous Issue**: Fields like `TargetUserName`, `IpAddress`, `ProcessName`, `LogonType`, `Param1` buried in `EventData`/`UserData` JSON blob
+  - Could search text but couldn't filter, sort, or add as IOCs easily
+- **Solution**: Recursive field extraction from nested `EventData` and `UserData` dictionaries/lists
+  - ALL fields extracted and promoted to top-level `forensic_` prefixed fields
+  - Examples: `forensic_TargetUserName`, `forensic_IpAddress`, `forensic_ProcessName`, `forensic_EventData_Param1`
+  - Handles nested structures with dot-notation: `forensic_EventXML_Param1`
+  - Skips empty/placeholder values (`''`, `'-'`, `'0x0'`)
+  - Preserves newlines (`\r\n`) in extracted string values
+- **Original JSON Blob Preserved**: `EventData` and `UserData` remain as JSON strings for full-text search and complex data
+- **Implementation**:
+  - Added `extract_all_fields()` function: Recursively extracts all key-value pairs
+  - Modified `normalize_event_structure()`: Calls extraction BEFORE JSON stringification
+  - All extracted fields prefixed with `forensic_` to distinguish from original fields
+- **Results**:
+  - **Searchable**: Can search for specific field values (e.g., `forensic_TargetUserName:"admin"`)
+  - **Filterable**: Can filter by field existence or value in UI
+  - **IOC-Ready**: Can copy field values and add as IOCs directly
+  - **No Breaking Changes**: Original JSON blobs preserved for backward compatibility
+- **Files**: `app/file_processing.py` (lines 78-115, 140-171)
 
 ---
 
