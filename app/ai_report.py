@@ -332,10 +332,11 @@ INDICATORS OF COMPROMISE (IOCs)
         for idx, event_wrapper in enumerate(events_data[:300], 1):  # Cap at 300
             event = event_wrapper.get('_source', {})
             
-            # Extract key fields
-            timestamp = event.get('System', {}).get('TimeCreated', {}).get('SystemTime', 'Unknown')
-            computer = event.get('System', {}).get('Computer', 'Unknown')
-            event_id = event.get('System', {}).get('EventID', 'N/A')
+            # v1.18.3 FIX: Use normalized fields (exist at top level)
+            # Original code looked for System.* but actual structure is Event.System.*
+            timestamp = event.get('normalized_timestamp', 'Unknown')
+            computer = event.get('normalized_computer', 'Unknown')
+            event_id = event.get('normalized_event_id', 'N/A')
             source_type = event.get('source_file_type', 'Unknown')
             has_ioc = event.get('has_ioc', False)
             has_sigma = event.get('has_sigma', False)
@@ -349,7 +350,18 @@ INDICATORS OF COMPROMISE (IOCs)
                 prompt += f" ⚠️SIGMA:{sigma_rules[:50]}"
             
             # Add some event data context
-            event_data = event.get('EventData', {})
+            # EventData is stored as JSON string, need to parse it
+            event_obj = event.get('Event', {})
+            event_data_str = event_obj.get('EventData', '')
+            if event_data_str and isinstance(event_data_str, str):
+                try:
+                    import json
+                    event_data = json.loads(event_data_str)
+                except:
+                    event_data = {}
+            else:
+                event_data = event_data_str if isinstance(event_data_str, dict) else {}
+            
             if event_data:
                 key_fields = ['TargetUserName', 'SubjectUserName', 'IpAddress', 'WorkstationName', 'CommandLine', 'Image', 'TargetFilename']
                 data_str = []
