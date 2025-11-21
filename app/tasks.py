@@ -1134,8 +1134,8 @@ def generate_ai_report(self, report_id):
                     
                     # Fetch full event data from OpenSearch (no limit - send ALL tagged events to AI)
                     if len(tagged_event_ids) > 0:
-                        # v1.18.3 FIX: Correct index pattern (was "case_{id}", should be "case{id}_*")
-                        index_pattern = f"case{case.id}_*"
+                        # v1.13.1: Uses consolidated index (case_{id}, not per-file indices)
+                        index_pattern = f"case_{case.id}"
                         
                         search_body = {
                             "query": {
@@ -1663,8 +1663,8 @@ def generate_case_timeline(self, timeline_id):
             events_data = []
             event_count = 0
             try:
-                # v1.18.3 FIX: Correct index pattern (was "case_{id}", should be "case{id}_*")
-                index_pattern = f"case{case.id}_*"
+                # v1.13.1: Uses consolidated index (case_{id}, not per-file indices)
+                index_pattern = f"case_{case.id}"
                 
                 # Get count first
                 count_result = opensearch_client.count(
