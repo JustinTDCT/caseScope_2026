@@ -214,38 +214,43 @@ def check_ollama_status():
 
 def generate_timeline_prompt(case, iocs, systems, events_data, event_count):
     """
-    Build the prompt for AI timeline generation (v1.18.4)
+    Build the prompt for AI timeline generation (v1.18.6)
     
-    Focus: Sample-based key event timeline with explicit confidence assessment.
+    Focus: Chronological timeline from ANALYST-TAGGED events with intelligent consolidation.
     
     Args:
         case: Case object
         iocs: List of IOC objects
         systems: List of System objects
-        events_data: List of sample event dicts from OpenSearch (sorted by timestamp)
-        event_count: Total number of events in case
+        events_data: List of TAGGED event dicts from OpenSearch (sorted by timestamp)
+        event_count: Total number of events in case (before tagging)
         
     Returns:
-        str: Formatted timeline prompt optimized for sample-based analysis
+        str: Formatted timeline prompt for analyst-tagged event consolidation
     """
     
-    # Calculate sample percentage
-    sample_percentage = (len(events_data) / event_count * 100) if event_count > 0 else 0
+    tagged_count = len(events_data)
+    
+    # Token limit safety check
+    MAX_TAGGED_EVENTS = 1000
+    token_warning = ""
+    if tagged_count > MAX_TAGGED_EVENTS:
+        token_warning = f"⚠️ WARNING: {tagged_count} events tagged, showing first {MAX_TAGGED_EVENTS} due to AI context limits.\n"
+        token_warning += "Consider tagging fewer events or generating timeline in phases.\n\n"
+        events_data = events_data[:MAX_TAGGED_EVENTS]
+        tagged_count = MAX_TAGGED_EVENTS
     
     prompt = f"""You are a DFIR Timeline Analysis Engine.
 
 ═══════════════════════════════════════════════════════════════════════════════
-MISSION: SAMPLE-BASED KEY EVENT TIMELINE & ATTACK NARRATIVE
+MISSION: CHRONOLOGICAL TIMELINE FROM ANALYST-TAGGED EVENTS
 ═══════════════════════════════════════════════════════════════════════════════
 
-You are receiving only a representative sample of events (up to 300) from a case 
-that may contain millions of events.
+Create a precise chronological timeline from events the analyst has tagged as significant.
 
-Your job is NOT to reconstruct the complete timeline.
-
-Your job is to extract the most forensically significant sequence from the sample, 
-identify the attacker's likely progression, and highlight what the sample proves 
-vs what remains uncertain due to sampling.
+IMPORTANT: The analyst has pre-filtered {event_count:,} events down to {tagged_count} timeline-relevant events.
+Every event below was explicitly tagged by the analyst as important for understanding this case.
+Your job is to organize these tagged events into a coherent timeline narrative.
 
 ═══════════════════════════════════════════════════════════════════════════════
 CASE INFORMATION
@@ -254,9 +259,12 @@ CASE INFORMATION
 Case Name: {case.name}
 Company: {case.company or 'Unknown'}
 Description: {case.description or 'No description'}
-Total Events: {event_count:,}
-Active IOCs: {len(iocs)}
-Systems: {len(systems)}
+
+EVENT SCOPE:
+- Total Events in Case: {event_count:,}
+- Events Tagged for Timeline: {tagged_count}
+- Active IOCs: {len(iocs)}
+- Systems in Scope: {len(systems)}
 
 ═══════════════════════════════════════════════════════════════════════════════
 TIMELINE REQUIREMENTS
@@ -264,63 +272,72 @@ TIMELINE REQUIREMENTS
 
 Your timeline MUST include these sections:
 
-## 0. Sampling Assessment & Confidence
+## 1. Timeline Summary
 
-- Sample size: {len(events_data)} events shown out of {event_count:,} total ({sample_percentage:.1f}% of case)
-- Sample time window: from first to last event in sample
-- Does the sample appear chronologically biased? (e.g. only initial compromise phase)
-- High-confidence findings (directly observed in sample)
-- Medium-confidence inferences (strong pattern in sample)
-- Low-confidence / not observable in sample
+- First tagged event timestamp (UTC)
+- Last tagged event timestamp (UTC)
+- Total time span covered
+- Events analyzed: {tagged_count}
+- Timeline organization:
+  • Individual entries: [N events shown separately]
+  • Consolidated groups: [M groups representing X events]
+  • Total timeline entries: [N + M]
 
-## 1. Timeline Summary (Based on Provided Sample)
+## 2. Event Consolidation Summary
 
-- Earliest observed timestamp in sample: [first event time]
-- Latest observed timestamp in sample: [last event time]
-- Sample duration: [time span of sample]
-- Estimated full case duration: (if min/max aggregations were provided — otherwise state "Unknown")
-- Activity density: X events per hour in sample
-- Key observation periods within sample
+Show which event types were consolidated:
 
-## 2. Condensed Chronological Timeline (Sample-Based)
+| Event Type | Individual | Consolidated | Total Events |
+|------------|-----------|--------------|-------------|
+| Example: 4624 Logons | 5 | 3 groups (45 events) | 50 |
 
-Heavily cluster events into logical bursts (1–30 minute windows recommended when >15 events in an hour).
-Only expand individual events when they are IOC/SIGMA hits or tactically significant.
+## 3. Chronological Timeline
 
-Use this exact format:
+Format each event or consolidated group:
 
+### For Individual Events:
 ```
-2025-11-10 08:21:03 UTC | WORKSTATION-07 | Successful logon (EventID 4624) - TargetUserName=administrator from IpAddress=192.168.10.8
-├─ IOC: IP 192.168.10.8 (Malicious gateway)
-├─ SIGMA: Suspicious_Logon_Type_10
-└─ Context: Likely initial RDP brute-force success → Initial Access phase
-
-2025-11-10 08:21:15 – 08:23:47 UTC | WORKSTATION-07 | 47 events – PowerShell execution spree (EventID 4104, 4103)
-└─ Context: Multiple encoded commands, Empire beaconing pattern detected → Execution phase
+YYYY-MM-DD HH:MM:SS UTC | [SYSTEM-NAME] | Event Description
+├─ IOC: [if IOC detected]
+├─ SIGMA: [if SIGMA violation]
+└─ Context: [why this event matters]
 ```
 
-## 3. Attack Progression (MITRE ATT&CK Kill Chain)
-
-Assign each cluster or key event to the most likely phase.
-Use "Possible" / "Likely" / "Confirmed" qualifiers.
-If a phase is missing entirely in the sample → state "No evidence in sample".
-
-Example:
-- **Initial Access**     → Confirmed (RDP brute force success at 2025-11-10 08:21:03)
-- **Execution**          → Confirmed (PowerShell Empire stager)
-- **Persistence**        → Possible (schtasks.exe creation observed)
-- **Privilege Escalation** → No evidence in sample
-- **Lateral Movement**   → Likely (RDP connections to multiple hosts)
-- **Exfiltration**       → No evidence in sample
-
-## 4. IOC Timeline Matrix
-Show when each IOC was first/last seen:
+### For Consolidated Groups:
 ```
-| IOC Type | IOC Value | First Seen (UTC) | Last Seen (UTC) | Hit Count | Systems |
+YYYY-MM-DD HH:MM:SS to HH:MM:SS UTC | [PRIMARY-SYSTEM or "Multiple Systems"]
+├─ Activity Type: [Brief description]
+├─ Event Details: EventID [ID] - [N] occurrences
+├─ Key Data:
+│  ├─ User(s): [username(s)]
+│  ├─ Systems: [system1, system2, ... (N total)]
+│  ├─ Source: [IP/hostname if relevant]
+│  └─ Timespan: [duration]
+├─ IOC: [if any events had IOC hits]
+├─ SIGMA: [if any events had SIGMA violations]
+└─ Context: [Why this matters - lateral movement, persistence, etc.]
 ```
 
-## 5. System Activity Timeline
-Per-system activity summary showing when each system was active.
+## 4. Attack Progression (MITRE ATT&CK Kill Chain)
+
+Map the tagged events to attack phases:
+- **Reconnaissance** (scanning, discovery)
+- **Initial Access** (first successful login, exploit)
+- **Execution** (command execution, script running)
+- **Persistence** (scheduled tasks, registry modifications)
+- **Privilege Escalation** (elevation attempts)
+- **Lateral Movement** (RDP, SMB, network activity)
+- **Exfiltration** (large data transfers, external connections)
+
+## 5. IOC Timeline Matrix
+
+Show when each IOC appears in the tagged events:
+
+| IOC Type | IOC Value | First Seen (UTC) | Last Seen (UTC) | Tagged Events | Systems |
+
+## 6. System Activity Summary
+
+Per-system activity based on tagged events
 
 ═══════════════════════════════════════════════════════════════════════════════
 INDICATORS OF COMPROMISE (IOCs)
@@ -354,11 +371,19 @@ INDICATORS OF COMPROMISE (IOCs)
         prompt += "No systems explicitly defined. Extract system names from events.\n"
     
     prompt += "\n═══════════════════════════════════════════════════════════════════════════════\n"
-    prompt += f"SAMPLE EVENTS (showing {len(events_data)} of {event_count:,} total)\n"
+    prompt += f"ANALYST-TAGGED EVENTS (ALL {tagged_count} EVENTS BELOW)\n"
     prompt += "═══════════════════════════════════════════════════════════════════════════════\n\n"
     
+    if tagged_count == 0:
+        prompt += "⚠️ WARNING: No events have been tagged for timeline analysis.\n"
+        prompt += "The analyst should tag key events using the search interface before generating a timeline.\n\n"
+    else:
+        prompt += f"{token_warning}"
+        prompt += f"The analyst has tagged these {tagged_count} events as timeline-relevant.\n"
+        prompt += "Each event below is significant and should be included in your timeline.\n\n"
+    
     if events_data:
-        for idx, event_wrapper in enumerate(events_data[:300], 1):  # Cap at 300
+        for idx, event_wrapper in enumerate(events_data, 1):  # NO CAP - show ALL tagged events
             event = event_wrapper.get('_source', {})
             
             # v1.18.3 FIX: Use normalized fields (exist at top level)
@@ -392,13 +417,20 @@ INDICATORS OF COMPROMISE (IOCs)
                 event_data = event_data_str if isinstance(event_data_str, dict) else {}
             
             if event_data:
-                key_fields = ['TargetUserName', 'SubjectUserName', 'IpAddress', 'WorkstationName', 'CommandLine', 'Image', 'TargetFilename']
+                key_fields = ['TargetUserName', 'SubjectUserName', 'IpAddress', 'WorkstationName', 
+                             'CommandLine', 'Image', 'TargetFilename', 'SourceAddress', 'TargetAddress']
                 data_str = []
                 for field in key_fields:
                     if field in event_data and event_data[field]:
-                        data_str.append(f"{field}={event_data[field]}")
+                        value = str(event_data[field])[:100]  # Truncate long values
+                        data_str.append(f"{field}={value}")
                 if data_str:
                     prompt += f" | {', '.join(data_str[:3])}"  # Show first 3 fields
+            
+            # Add timeline tag note if present
+            tag_note = event.get('timeline_tag_note', '')
+            if tag_note:
+                prompt += f" | 📝 Analyst Note: {tag_note}"
             
             prompt += "\n"
     else:
@@ -407,60 +439,160 @@ INDICATORS OF COMPROMISE (IOCs)
     prompt += "\n═══════════════════════════════════════════════════════════════════════════════\n"
     prompt += "ANALYSIS INSTRUCTIONS\n"
     prompt += "═══════════════════════════════════════════════════════════════════════════════\n\n"
-    prompt += """
-1. **Chronological Ordering**: Sort events in sample by timestamp (oldest to newest)
-2. **Heavy Event Clustering**: Group events into 1-30 minute bursts when >15 events in an hour
-3. **IOC Tracking**: Show first/last seen timestamps for each IOC in the sample
-4. **Attack Phase Identification**: Map events to kill chain phases with confidence qualifiers
-5. **System Relationships**: Show how systems interact based on sample data
-6. **Timeline Gaps**: Identify gaps in the sample (may not reflect actual timeline gaps)
-7. **Suspicious Patterns**: Highlight brute force, reconnaissance, lateral movement observed in sample
+    prompt += f"""
+**CRITICAL CONTEXT**: You are analyzing {tagged_count} events that were MANUALLY TAGGED by the analyst.
+Every event above is significant - the analyst has already filtered out noise.
 
-**Formatting Rules**:
+Your task is to organize these events into a readable timeline narrative.
+
+═══════════════════════════════════════════════════════════════════════════════
+EVENT GROUPING AND CONSOLIDATION RULES
+═══════════════════════════════════════════════════════════════════════════════
+
+**You MUST consolidate repetitive events** to create readable narrative flow.
+
+### When to Group Events:
+
+**Group these patterns** when they occur within a 10-minute window:
+
+1. **Multiple Successful Logins (Event 4624)**
+   - Same user logging into multiple systems
+   - Same logon type (especially Type 3 - Network, Type 10 - RDP)
+   - Consolidate into: "Lateral movement: User X authenticated to N systems"
+
+2. **Failed Login Attempts (Event 4625)**
+   - Multiple failures against same system
+   - Same or different usernames
+   - Consolidate into: "Brute force: N failed login attempts"
+
+3. **Process Execution (Events 4688, Sysmon 1)**
+   - Same command/process on multiple systems
+   - Same user executing multiple similar commands
+   - Consolidate into: "Command execution: User X ran [command] on N systems"
+
+4. **File Access (Events 4663, 5145)**
+   - Multiple file accesses by same user
+   - Same share or directory
+   - Consolidate into: "File access: User X accessed N files in [share]"
+
+5. **Network Connections (Sysmon 3, Firewall logs)**
+   - Multiple connections to same destination
+   - Same protocol/port
+   - Consolidate into: "Network activity: N connections to [destination]"
+
+6. **Registry Modifications (Sysmon 12, 13)**
+   - Multiple registry changes
+   - Same key path pattern
+   - Consolidate into: "Registry modification: N changes to [key path]"
+
+### Consolidation Examples:
+
+**Example 1: Lateral Movement**
+```
+2025-09-05 11:00:15 to 11:05:43 UTC | Multiple Systems
+├─ Lateral Movement: User 'DOMAIN\\admin' authenticated to 15 systems
+├─ Event Details: 4624 Type 3 (Network Logon) - 50 occurrences
+├─ Key Data:
+│  ├─ User: DOMAIN\\admin
+│  ├─ Systems: SRV01, SRV02, SRV03, WKS01-WKS12 (15 total)
+│  ├─ Source: 192.168.1.100 (admin workstation)
+│  └─ Timespan: 5 minutes 28 seconds
+└─ Context: Rapid authentication across multiple servers suggests lateral movement
+   or legitimate administrative sweep. Investigate admin's intended activity.
+```
+
+**Example 2: Brute Force Attack**
+```
+2025-09-05 14:22:11 to 14:24:33 UTC | DC01
+├─ Brute Force Attack: Failed login attempts for multiple accounts
+├─ Event Details: 4625 (Failed Logon) - 127 occurrences
+├─ Key Data:
+│  ├─ Target Accounts: administrator (50), admin (40), root (37)
+│  ├─ Source IPs: 192.168.1.50, 192.168.1.51
+│  ├─ Failure Reason: Bad password (0xC000006A)
+│  └─ Timespan: 2 minutes 22 seconds (54 attempts/minute)
+├─ SIGMA: Brute Force Detection Rule
+└─ Context: High-frequency failed logins indicate password spray or brute force
+   attack. Source IPs should be investigated and blocked.
+```
+
+**Example 3: Reconnaissance**
+```
+2025-09-05 09:15:00 to 09:16:30 UTC | Multiple Systems
+├─ Network Scanning: Port scan detected across infrastructure
+├─ Event Details: Firewall Deny - 234 occurrences
+├─ Key Data:
+│  ├─ Source: 192.168.1.99 (compromised workstation)
+│  ├─ Targets: 192.168.1.1-192.168.1.254 (entire subnet)
+│  ├─ Ports: 445 (SMB), 3389 (RDP), 22 (SSH)
+│  └─ Timespan: 1 minute 30 seconds
+├─ IOC: 192.168.1.99 marked as compromised host
+└─ Context: Automated scanning suggests attacker reconnaissance phase.
+   Host 192.168.1.99 likely compromised and being used for discovery.
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+WHEN NOT TO GROUP EVENTS
+═══════════════════════════════════════════════════════════════════════════════
+
+**Keep separate** (do NOT consolidate):
+
+1. **Events with different IOC hits** - Each IOC detection is unique
+2. **Events with different SIGMA violations** - Each rule match is significant
+3. **Events with analyst notes** - Analyst tagged each for a reason
+4. **Events separated by > 10 minutes** - Different activity phases
+5. **Events on different attack phases** - Initial access vs. lateral movement
+6. **Privilege escalation events** - Each escalation attempt is critical
+7. **Command execution with different commands** - Show what was run
+8. **Unique or rare events** - Don't group one-off events
+
+═══════════════════════════════════════════════════════════════════════════════
+DATA PRESERVATION GUARANTEE
+═══════════════════════════════════════════════════════════════════════════════
+
+**All {tagged_count} events MUST be accounted for** in your timeline.
+
+When you consolidate:
+✅ Count total occurrences: "50 occurrences"
+✅ Show time range: "11:00:15 to 11:05:43 UTC"
+✅ List affected systems: "15 systems" with sample names
+✅ Preserve IOC/SIGMA flags
+✅ Include key data (users, IPs, commands)
+
+When you don't consolidate:
+✅ Show individual event with full context
+✅ Explain why this specific event matters
+
+**Verification**: Your timeline should explain what happened with all {tagged_count} tagged events,
+either individually or as part of consolidated groups.
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT REQUIREMENTS
+═══════════════════════════════════════════════════════════════════════════════
+
+**Timeline Summary** must include:
+- Total events analyzed: {tagged_count}
+- Events shown individually: [count]
+- Events shown in consolidated groups: [count]
+- Time span: [first to last]
+
+**Formatting**:
 - Use UTC timestamps exclusively
-- Use Markdown tables for IOC matrix
-- Use tree structure (├─ └─) for event details
+- Use tree structure (├─ └─) for details
 - Bold system names and IOC values
-- Keep descriptions concise (1-2 lines per event)
-- Use confidence qualifiers (Confirmed, Likely, Possible, No evidence)
+- Use Markdown tables for IOC matrix
+- Number timeline entries sequentially
 
 **DO NOT**:
-- Invent events or timestamps
-- Make assumptions about missing data
-- Skip events with IOC or SIGMA hits
-- Summarize without showing specific timestamps
-- State or imply that this is the complete timeline
+- ❌ Skip events without showing them somewhere (individual or grouped)
+- ❌ Invent events not in the tagged list
+- ❌ Make assumptions about activity between events
+- ❌ Group events across different attack phases
 
-═══════════════════════════════════════════════════════════════════════════════
-EXAMPLE OUTPUT FRAGMENT (you must follow this style exactly)
-═══════════════════════════════════════════════════════════════════════════════
+**Remember**: Consolidation makes the timeline READABLE, not shorter.
+All {tagged_count} events must be accounted for, just organized intelligently.
 
-## 0. Sampling Assessment & Confidence
-
-- Sample size: 212 / 2,847,221 total (0.007%)
-- Sample heavily biased toward 2025-11-10 08:00–09:30 period
-- High confidence: Initial access via RDP, Empire beaconing
-- Low confidence: Persistence mechanism, exfiltration
-
-## 1. Timeline Summary (Based on Provided Sample)
-
-- Earliest: 2025-11-10 08:21:03 UTC
-- Latest: 2025-11-10 09:27:44 UTC
-- Sample duration: 66 minutes
-
-## 2. Condensed Chronological Timeline (Sample-Based)
-
-2025-11-10 08:21:03 UTC | WORKSTATION-07 | Successful logon (EventID 4624) - TargetUserName=administrator from IpAddress=192.168.10.8
-├─ IOC: IP 192.168.10.8 (Malicious gateway)
-├─ SIGMA: Suspicious_Logon_Type_10
-└─ Context: Likely initial RDP brute-force success → Initial Access phase
-
-2025-11-10 08:21:15 – 08:23:47 UTC | WORKSTATION-07 | 47 events – PowerShell execution spree (EventID 4104, 4103)
-└─ Context: Multiple encoded commands, Empire beaconing pattern detected → Execution phase
-
-═══════════════════════════════════════════════════════════════════════════════
-
-**Output**: A complete timeline in Markdown format ready for display.
+**Output**: A complete Markdown timeline ready for display.
 """
     
     return prompt
