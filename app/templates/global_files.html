@@ -616,35 +616,7 @@ function requeueFailedFiles() {
     }
 }
 
-function confirmReindex() {
-    if (confirm('🔄 Re-Index ALL Files (Global)\n\nThis will:\n• Clear all OpenSearch indices across ALL CASES\n• Clear all database metadata (events, SIGMA, IOCs) GLOBALLY\n• Skip hidden files (0-event/CyLR artifacts)\n• Re-process all visible files from scratch\n• Rebuild all indices and detections\n\nThis is a GLOBAL FULL REBUILD and may take SIGNIFICANT time.\n\nAre you SURE you want to proceed?')) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/files/global/bulk_reindex`;
-        document.body.appendChild(form);
-        form.submit();
-    }
-}
-
-function confirmReSigma() {
-    if (confirm('🛡️ Re-SIGMA ALL Files (Global)\n\nThis will:\n• Clear all existing SIGMA violations across ALL CASES\n• Re-run SIGMA detection on all indexed files globally\n• Update violation counts\n\nOld violations will be removed before re-processing.\n\nContinue?')) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/files/global/bulk_rechainsaw`;
-        document.body.appendChild(form);
-        form.submit();
-    }
-}
-
-function confirmReHunt() {
-    if (confirm('🎯 Re-Hunt IOCs on ALL Files (Global)\n\nThis will:\n• Clear all existing IOC matches across ALL CASES\n• Re-scan all indexed files for IOC matches globally\n• Update IOC event counts\n\nOld matches will be removed before re-scanning.\n\nContinue?')) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/files/global/bulk_rehunt_iocs`;
-        document.body.appendChild(form);
-        form.submit();
-    }
-}
+// OLD DUPLICATE FUNCTIONS REMOVED - See lines 968-1005 for actual implementations with modals
 
 function confirmDeleteAll() {
     if (confirm('⚠️ WARNING: Delete ALL Files (GLOBAL)\n\nThis will PERMANENTLY:\n• Delete ALL files from ALL cases from the filesystem\n• Remove ALL database records (files, SIGMA violations, IOC matches) GLOBALLY\n• Remove ALL data from OpenSearch across ALL cases\n• Delete ALL staging, archive, and upload directories\n\nThis action CANNOT be undone!\n\nAre you ABSOLUTELY SURE?')) {

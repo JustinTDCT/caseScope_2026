@@ -794,35 +794,7 @@ function queueCleanup() {
     });
 }
 
-function confirmReindex() {
-    if (confirm('🔄 Re-Index All Files\n\nThis will:\n• Clear all OpenSearch indices for this case\n• Clear all database metadata (events, SIGMA, IOCs)\n• Clear all timeline tags (event references will change)\n• Skip hidden files (0-event/CyLR artifacts)\n• Re-process all visible files from scratch\n• Rebuild all indices and detections\n\nThis is a FULL REBUILD and may take significant time.\n\nContinue?')) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/case/${CASE_ID}/bulk_reindex`;
-        document.body.appendChild(form);
-        form.submit();
-    }
-}
-
-function confirmReSigma() {
-    if (confirm('🛡️ Re-SIGMA All Files\n\nThis will:\n• Clear all existing SIGMA violations for this case\n• Re-run SIGMA detection on all indexed files\n• Update violation counts\n\nOld violations will be removed before re-processing.\n\nContinue?')) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/case/${CASE_ID}/bulk_rechainsaw`;
-        document.body.appendChild(form);
-        form.submit();
-    }
-}
-
-function confirmReHunt() {
-    if (confirm('🎯 Re-Hunt IOCs on All Files\n\nThis will:\n• Clear all existing IOC matches for this case\n• Re-scan all indexed files for IOC matches\n• Update IOC event counts\n\nOld matches will be removed before re-scanning.\n\nContinue?')) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/case/${CASE_ID}/bulk_rehunt_iocs`;
-        document.body.appendChild(form);
-        form.submit();
-    }
-}
+// OLD DUPLICATE FUNCTIONS REMOVED - See lines 1107-1147 for actual implementations with modals
 
 function confirmRefreshDescriptions() {
     if (confirm('🔁 Refresh Event Descriptions for This Case\n\nThis will update event_title, event_description, and event_category fields for ALL indexed events in this case.\n\nUse this after:\n• Adding custom event descriptions\n• Updating event descriptions from sources\n\nThis operation:\n• Updates OpenSearch WITHOUT re-indexing files\n• Processes in the background\n• Does not affect file processing queue\n\nContinue?')) {
