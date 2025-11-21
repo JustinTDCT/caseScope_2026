@@ -1,5 +1,5 @@
 # CaseScope 2026 - Current State & Features
-**Version 1.18.5 - Active Features & Known Issues**
+**Version 1.18.6 - Active Features & Known Issues**
 
 **Last Updated**: November 21, 2025  
 **Purpose**: Current system state for AI code assistants
@@ -10,12 +10,39 @@
 
 ## 📊 Current Version
 
-**Version**: 1.18.5  
+**Version**: 1.18.6  
 **Release Date**: November 21, 2025  
 **Stability**: Production  
 **Build**: Stable
 
 ---
+
+## 🆕 Recent Changes (v1.18.6)
+
+### **🎯 MAJOR: AI Timeline Prompt - Analyst-Tagged Events & Intelligent Consolidation**
+- **Fixed critical context problem**: AI thought events were "random sample" when they're analyst-selected
+  - Previous: "You have 300 random events from 8.7M, need to extrapolate" (WRONG)
+  - Now: "Analyst pre-filtered 8.7M down to 450 key events, organize these" (CORRECT)
+- **Fixed consolidation confusion**: Contradictory instructions resolved
+  - Previous: "Group events" BUT ALSO "Don't summarize" (conflicting)
+  - Now: Clear rules for WHEN and WHEN NOT to consolidate
+- **Mission changed**: From "SAMPLE-BASED TIMELINE" to "ANALYST-TAGGED EVENTS TIMELINE"
+- **Removed 300-event cap**: Shows ALL tagged events (max 1000 with warning)
+- **Added consolidation rules with 6 patterns**:
+  1. Multiple Logins (4624) → "Lateral movement: User X to N systems"
+  2. Failed Logins (4625) → "Brute force: N attempts"
+  3. Process Execution (4688) → "Command: [cmd] on N systems"
+  4. File Access (4663) → "File access: N files in [share]"
+  5. Network (Sysmon 3) → "Network: N connections to [dest]"
+  6. Registry (Sysmon 12) → "Registry: N changes to [key]"
+- **When to group**: Within 10-minute window, same pattern
+- **When NOT to group**: Different IOCs, different SIGMA, analyst notes, >10 min apart, different phases, unique events
+- **3 detailed examples**: Lateral movement (50→1), brute force (127→1), reconnaissance (234→1)
+- **Data preservation**: ALL events accounted for (individual or grouped)
+- **Timeline summary**: Shows Individual entries, Consolidated groups, Total
+- **Event consolidation table**: Shows what was grouped
+- **Result**: Readable timelines with intelligent grouping, all data preserved
+- **Files**: `app/ai_report.py` (lines 215-480)
 
 ## 🆕 Recent Changes (v1.18.5)
 
