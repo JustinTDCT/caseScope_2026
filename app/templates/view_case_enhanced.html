@@ -1962,6 +1962,11 @@ function checkTimelineStatus() {
                     timelineBtn.disabled = false;
                     timelineBtn.innerHTML = '<span>🔄</span><span>Retry Timeline</span>';
                     timelineBtn.onclick = generateTimeline;
+                } else if (timeline.status === 'cancelled') {
+                    statusEl.innerHTML = '<span class="status-badge" style="background: rgba(156, 163, 175, 0.1); color: #6b7280;">⚠️ Cancelled</span>';
+                    timelineBtn.disabled = false;
+                    timelineBtn.innerHTML = '<span>🔄</span><span>Generate Timeline</span>';
+                    timelineBtn.onclick = generateTimeline;
                 } else {
                     statusEl.innerHTML = '<span class="status-badge" style="background: rgba(251, 191, 36, 0.1); color: #f59e0b;">⏳ Pending...</span>';
                     timelineBtn.disabled = true;
