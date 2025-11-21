@@ -1677,18 +1677,21 @@ def generate_case_timeline(self, timeline_id):
                 
                 if event_count > 0:
                     # Fetch sample events sorted by timestamp
-                    # Get first 100, last 100, and some from middle for context
+                    # v1.18.3 FIX: Use normalized fields for sorting and querying
                     search_body = {
                         "query": {"match_all": {}},
                         "size": min(300, event_count),  # Cap at 300 events for timeline
-                        "sort": [{"System.TimeCreated.SystemTime": {"order": "asc", "unmapped_type": "date"}}],
+                        "sort": [{"normalized_timestamp": {"order": "asc", "unmapped_type": "date"}}],
                         "_source": {
                             "includes": [
-                                "System.TimeCreated.SystemTime",
-                                "System.Computer",
-                                "System.EventID",
+                                "Event.System.TimeCreated",
+                                "Event.System.Computer",
+                                "Event.System.EventID",
+                                "Event.EventData",
+                                "normalized_timestamp",
+                                "normalized_computer",
+                                "normalized_event_id",
                                 "source_file_type",
-                                "EventData.*",
                                 "has_ioc",
                                 "has_sigma",
                                 "sigma_rule"
