@@ -522,10 +522,16 @@ def reindex_single_file(case_id, file_id):
     from main import db, CaseFile, Case, opensearch_client
     from bulk_operations import clear_file_sigma_violations, clear_file_ioc_matches
     from tasks import process_file
+    import time
+    
+    # Check if request wants JSON (for modal updates) or redirect (for backward compat)
+    wants_json = request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html
     
     case_file = db.session.get(CaseFile, file_id)
     
     if not case_file or case_file.case_id != case_id:
+        if wants_json:
+            return jsonify({'success': False, 'error': 'File not found'}), 404
         flash('File not found', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
@@ -533,11 +539,36 @@ def reindex_single_file(case_id, file_id):
     from archive_utils import is_case_archived
     case = db.session.get(Case, case_id)
     if case and is_case_archived(case):
+        if wants_json:
+            return jsonify({'success': False, 'error': 'Cannot re-index archived case'}), 403
         flash('❌ Cannot re-index archived case. Please restore the case first.', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Clear OpenSearch events for this file (v1.13.1: delete by file_id, not entire index)
-    if case_file.opensearch_key:
+    # Track steps for modal updates
+    steps = []
+    start_time = time.time()
+    
+    # STEP 1: Clear database entries (reset to fresh import state)
+    steps.append({'step': 'clearing_db', 'message': 'Clearing database entries', 'status': 'in_progress'})
+    case_file.event_count = 0
+    case_file.violation_count = 0
+    case_file.ioc_event_count = 0
+    case_file.is_indexed = False
+    case_file.indexing_status = 'Queued'
+    case_file.opensearch_key = None
+    case_file.celery_task_id = None
+    case_file.error_message = None
+    clear_file_sigma_violations(db, file_id)
+    clear_file_ioc_matches(db, file_id)
+    db.session.commit()
+    steps[-1]['status'] = 'completed'
+    steps[-1]['duration'] = round(time.time() - start_time, 2)
+    
+    # STEP 2: Clear OpenSearch entries
+    step_start = time.time()
+    steps.append({'step': 'clearing_opensearch', 'message': 'Clearing OpenSearch entries', 'status': 'in_progress'})
+    deleted_count = 0
+    if case_file.opensearch_key or True:  # Always try to delete by file_id
         try:
             from utils import make_index_name
             index_name = make_index_name(case_id)  # Gets case index (not per-file)
@@ -555,25 +586,29 @@ def reindex_single_file(case_id, file_id):
             )
             deleted_count = result.get('deleted', 0) if isinstance(result, dict) else 0
             logger.info(f"[REINDEX SINGLE] Deleted {deleted_count} events for file {file_id} from index {index_name}")
+            steps[-1]['status'] = 'completed'
+            steps[-1]['deleted_events'] = deleted_count
         except Exception as e:
             logger.warning(f"[REINDEX SINGLE] Could not delete events: {e}")
+            steps[-1]['status'] = 'completed'  # Continue anyway
+            steps[-1]['warning'] = str(e)[:100]
+    else:
+        steps[-1]['status'] = 'completed'
+        steps[-1]['message'] = 'No OpenSearch data to clear'
+    steps[-1]['duration'] = round(time.time() - step_start, 2)
     
-    # Clear SIGMA and IOC data
-    clear_file_sigma_violations(db, file_id)
-    clear_file_ioc_matches(db, file_id)
-    
-    # Reset file metadata
-    case_file.event_count = 0
-    case_file.violation_count = 0
-    case_file.ioc_event_count = 0
-    case_file.is_indexed = False
-    case_file.indexing_status = 'Queued'
-    case_file.opensearch_key = None
-    
-    db.session.commit()
+    # STEP 3: Build file queue
+    step_start = time.time()
+    steps.append({'step': 'building_queue', 'message': 'Building file queue', 'status': 'in_progress'})
     
     # Queue for re-indexing (v1.16.25: Use 'reindex' operation to force processing)
-    process_file.delay(file_id, operation='reindex')
+    task = process_file.delay(file_id, operation='reindex')
+    case_file.celery_task_id = task.id if hasattr(task, 'id') else None
+    db.session.commit()
+    
+    steps[-1]['status'] = 'completed'
+    steps[-1]['files_queued'] = 1
+    steps[-1]['duration'] = round(time.time() - step_start, 2)
     
     # Audit log
     from audit_logger import log_action
@@ -581,8 +616,21 @@ def reindex_single_file(case_id, file_id):
               resource_name=case_file.original_filename,
               details={'case_id': case_id, 'case_name': case_file.case.name})
     
-    flash(f'Re-indexing queued for "{case_file.original_filename}". All data will be cleared and rebuilt.', 'success')
-    return redirect(url_for('files.case_files', case_id=case_id))
+    total_duration = round(time.time() - start_time, 2)
+    
+    # Return JSON for modal updates or redirect for backward compatibility
+    if wants_json:
+        return jsonify({
+            'success': True,
+            'message': 'Re-indexing queued successfully',
+            'steps': steps,
+            'total_duration': total_duration,
+            'files_queued': 1,
+            'events_deleted': deleted_count
+        })
+    else:
+        flash(f'Re-indexing queued for "{case_file.original_filename}". All data will be cleared and rebuilt.', 'success')
+        return redirect(url_for('files.case_files', case_id=case_id))
 
 
 @files_bp.route('/case/<int:case_id>/file/<int:file_id>/rechainsaw', methods=['POST'])
@@ -808,23 +856,33 @@ def bulk_reindex_selected(case_id):
     from bulk_operations import clear_file_sigma_violations, clear_file_ioc_matches, reset_file_metadata, queue_file_processing
     from tasks import process_file
     from celery_health import check_workers_available
+    import time
+    
+    # Check if request wants JSON (for modal updates) or redirect (for backward compat)
+    wants_json = request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html
     
     # Archive guard (v1.18.0): Prevent re-indexing archived cases
     from archive_utils import is_case_archived
     case = db.session.get(Case, case_id)
     if case and is_case_archived(case):
+        if wants_json:
+            return jsonify({'success': False, 'error': 'Cannot re-index archived case'}), 403
         flash('❌ Cannot re-index archived case. Please restore the case first.', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
     # Safety check: Ensure Celery workers are available
     workers_ok, worker_count, error_msg = check_workers_available(min_workers=1)
     if not workers_ok:
+        if wants_json:
+            return jsonify({'success': False, 'error': f'No Celery workers available: {error_msg}'}), 503
         flash(f'⚠️ Cannot start bulk operation: {error_msg}. Please check Celery workers.', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    file_ids = request.form.getlist('file_ids', type=int)
+    file_ids = request.form.getlist('file_ids', type=int) if not wants_json else request.get_json().get('file_ids', [])
     
     if not file_ids:
+        if wants_json:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
         flash('No files selected', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
@@ -836,42 +894,71 @@ def bulk_reindex_selected(case_id):
     ).all()
     
     if not files:
+        if wants_json:
+            return jsonify({'success': False, 'error': 'No valid files found'}), 404
         flash('No valid files found', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Process each file
+    # Track steps for modal updates
+    steps = []
+    start_time = time.time()
+    
+    # STEP 1: Clear database entries (reset to fresh import state)
+    steps.append({'step': 'clearing_db', 'message': f'Clearing database entries for {len(files)} files', 'status': 'in_progress'})
+    for file in files:
+        # Reset file metadata (same as import would set)
+        reset_file_metadata(file, reset_opensearch_key=True)
+        # Also clear error message
+        file.error_message = None
+        file.celery_task_id = None
+        # Clear SIGMA and IOC data
+        clear_file_sigma_violations(db, file.id)
+        clear_file_ioc_matches(db, file.id)
+    
+    db.session.commit()
+    steps[-1]['status'] = 'completed'
+    steps[-1]['files_processed'] = len(files)
+    steps[-1]['duration'] = round(time.time() - start_time, 2)
+    
+    # STEP 2: Clear OpenSearch entries
+    step_start = time.time()
+    steps.append({'step': 'clearing_opensearch', 'message': f'Clearing OpenSearch entries for {len(files)} files', 'status': 'in_progress'})
+    total_deleted = 0
+    
     from utils import make_index_name
     index_name = make_index_name(case_id)  # Gets case index (shared by all files)
     
     for file in files:
-        # Clear OpenSearch events for this file (v1.13.1: delete by file_id)
-        if file.opensearch_key:
-            try:
-                # Delete events by file_id (not entire index - it's shared)
-                opensearch_client.delete_by_query(
-                    index=index_name,
-                    body={"query": {"term": {"file_id": file.id}}},
-                    conflicts='proceed',
-                    ignore=[404]
-                )
-            except Exception as e:
-                logger.warning(f"[BULK REINDEX SELECTED] Could not delete events for file {file.id}: {e}")
-        
-        # Clear SIGMA and IOC data
-        clear_file_sigma_violations(db, file.id)
-        clear_file_ioc_matches(db, file.id)
-        
-        # Reset file metadata
-        reset_file_metadata(file, reset_opensearch_key=True)
+        try:
+            # Delete events by file_id (not entire index - it's shared)
+            result = opensearch_client.delete_by_query(
+                index=index_name,
+                body={"query": {"term": {"file_id": file.id}}},
+                conflicts='proceed',
+                ignore=[404]
+            )
+            deleted = result.get('deleted', 0) if isinstance(result, dict) else 0
+            total_deleted += deleted
+        except Exception as e:
+            logger.warning(f"[BULK REINDEX SELECTED] Could not delete events for file {file.id}: {e}")
     
-    db.session.commit()
+    steps[-1]['status'] = 'completed'
+    steps[-1]['deleted_events'] = total_deleted
+    steps[-1]['duration'] = round(time.time() - step_start, 2)
+    
+    # STEP 3: Build file queue
+    step_start = time.time()
+    steps.append({'step': 'building_queue', 'message': f'Building queue for {len(files)} files', 'status': 'in_progress'})
     
     # Queue for re-indexing (v1.16.25: Use 'reindex' operation to force processing)
     queue_file_processing(process_file, files, operation='reindex')
     
+    steps[-1]['status'] = 'completed'
+    steps[-1]['files_queued'] = len(files)
+    steps[-1]['duration'] = round(time.time() - step_start, 2)
+    
     # Audit log
     from audit_logger import log_action
-    from main import Case
     case = db.session.get(Case, case_id)
     log_action('bulk_reindex_files', resource_type='file', resource_id=None,
               resource_name=f'{len(files)} files',
@@ -882,8 +969,21 @@ def bulk_reindex_selected(case_id):
                   'file_ids': [f.id for f in files[:10]]  # Log first 10 IDs
               })
     
-    flash(f'Re-indexing queued for {len(files)} selected file(s). All data will be cleared and rebuilt.', 'success')
-    return redirect(url_for('files.case_files', case_id=case_id))
+    total_duration = round(time.time() - start_time, 2)
+    
+    # Return JSON for modal updates or redirect for backward compatibility
+    if wants_json:
+        return jsonify({
+            'success': True,
+            'message': f'Re-indexing queued for {len(files)} files',
+            'steps': steps,
+            'total_duration': total_duration,
+            'files_queued': len(files),
+            'events_deleted': total_deleted
+        })
+    else:
+        flash(f'Re-indexing queued for {len(files)} selected file(s). All data will be cleared and rebuilt.', 'success')
+        return redirect(url_for('files.case_files', case_id=case_id))
 
 
 @files_bp.route('/case/<int:case_id>/bulk_rechainsaw_selected', methods=['POST'])
@@ -1642,33 +1742,72 @@ def bulk_reindex_global_route():
     from bulk_operations import (get_files, clear_opensearch_events, clear_sigma_violations, 
                                  clear_ioc_matches, prepare_files_for_reindex, queue_file_processing)
     from tasks import process_file
+    import time
+    
+    # Check if request wants JSON (for modal updates) or redirect (for backward compat)
+    wants_json = request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html
     
     # Safety check
     workers_ok, worker_count, error_msg = check_workers_available(min_workers=1)
     if not workers_ok:
+        if wants_json:
+            return jsonify({'success': False, 'error': f'No Celery workers available: {error_msg}'}), 503
         flash(f'⚠️ Cannot start global bulk operation: {error_msg}', 'error')
         return redirect(url_for('files.global_files'))
     
     try:
+        # Track steps for modal updates
+        steps = []
+        start_time = time.time()
+        
         # Get all indexed files across all cases (excluding archived cases - v1.18.0)
         from archive_utils import is_case_archived
         all_files = [f for f in get_files(db, scope='global', include_hidden=False) if f.is_indexed]
         files = [f for f in all_files if not is_case_archived(f.case)]
         
         if not files:
+            if wants_json:
+                return jsonify({'success': True, 'message': 'No files to reindex', 'steps': [], 'files_queued': 0})
             flash('No indexed files found globally (archived cases excluded)', 'warning')
             return redirect(url_for('files.global_files'))
         
-        # Clear OpenSearch events
-        clear_opensearch_events(opensearch_client, files, scope='global')
+        # STEP 1: Clear database entries (reset to fresh import state)
+        steps.append({'step': 'clearing_db', 'message': f'Clearing database entries for {len(files)} files', 'status': 'in_progress'})
         
         # Clear SIGMA and IOC data
-        clear_sigma_violations(db, scope='global')
-        clear_ioc_matches(db, scope='global')
+        sigma_deleted = clear_sigma_violations(db, scope='global')
+        ioc_deleted = clear_ioc_matches(db, scope='global')
         
-        # Prepare and queue files
+        # Prepare files for reindex
         prepare_files_for_reindex(db, files, scope='global')
-        queued = queue_file_processing(process_file, files, 'full', db.session, scope='global')
+        
+        steps[-1]['status'] = 'completed'
+        steps[-1]['files_processed'] = len(files)
+        steps[-1]['sigma_deleted'] = sigma_deleted
+        steps[-1]['ioc_deleted'] = ioc_deleted
+        steps[-1]['duration'] = round(time.time() - start_time, 2)
+        
+        # STEP 2: Clear OpenSearch entries
+        step_start = time.time()
+        steps.append({'step': 'clearing_opensearch', 'message': f'Clearing OpenSearch entries for {len(files)} files', 'status': 'in_progress'})
+        
+        # Clear OpenSearch events
+        events_deleted = clear_opensearch_events(opensearch_client, files, scope='global')
+        
+        steps[-1]['status'] = 'completed'
+        steps[-1]['deleted_events'] = events_deleted
+        steps[-1]['duration'] = round(time.time() - step_start, 2)
+        
+        # STEP 3: Build file queue
+        step_start = time.time()
+        steps.append({'step': 'building_queue', 'message': f'Building queue for {len(files)} files', 'status': 'in_progress'})
+        
+        # Queue files with 'reindex' operation (v1.16.25 fix)
+        queued = queue_file_processing(process_file, files, operation='reindex', db_session=db.session, scope='global')
+        
+        steps[-1]['status'] = 'completed'
+        steps[-1]['files_queued'] = queued
+        steps[-1]['duration'] = round(time.time() - step_start, 2)
         
         # Audit log - HIGH: Global reindex operation
         from audit_logger import log_action
@@ -1681,11 +1820,28 @@ def bulk_reindex_global_route():
                       'operation': 'GLOBAL_REINDEX'
                   })
         
-        flash(f'✅ Re-indexing queued for {queued} file(s) across all cases ({worker_count} worker(s) available)', 'success')
-        return redirect(url_for('files.global_files'))
+        total_duration = round(time.time() - start_time, 2)
+        
+        # Return JSON for modal updates or redirect for backward compatibility
+        if wants_json:
+            return jsonify({
+                'success': True,
+                'message': f'Re-indexing queued for {queued} files across all cases',
+                'steps': steps,
+                'total_duration': total_duration,
+                'files_queued': queued,
+                'events_deleted': events_deleted,
+                'sigma_deleted': sigma_deleted,
+                'ioc_deleted': ioc_deleted
+            })
+        else:
+            flash(f'✅ Re-indexing queued for {queued} file(s) across all cases ({worker_count} worker(s) available)', 'success')
+            return redirect(url_for('files.global_files'))
     
     except Exception as e:
         logger.error(f"[GLOBAL BULK] Reindex error: {e}", exc_info=True)
+        if wants_json:
+            return jsonify({'success': False, 'error': str(e)}), 500
         flash(f'Error: {str(e)}', 'error')
         return redirect(url_for('files.global_files'))
 
@@ -1858,19 +2014,31 @@ def bulk_reindex_selected_global_route():
     from bulk_operations import (get_files, clear_opensearch_events, clear_sigma_violations,
                                  clear_ioc_matches, prepare_files_for_reindex, queue_file_processing)
     from tasks import process_file
+    import time
     
-    file_ids = request.form.getlist('file_ids[]', type=int)
+    # Check if request wants JSON (for modal updates) or redirect (for backward compat)
+    wants_json = request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html
+    
+    file_ids = request.form.getlist('file_ids[]', type=int) if not wants_json else request.get_json().get('file_ids', [])
     if not file_ids:
+        if wants_json:
+            return jsonify({'success': False, 'error': 'No files selected'}), 400
         flash('No files selected', 'warning')
         return redirect(url_for('files.global_files'))
     
     # Safety check
     workers_ok, worker_count, error_msg = check_workers_available(min_workers=1)
     if not workers_ok:
+        if wants_json:
+            return jsonify({'success': False, 'error': f'No Celery workers available: {error_msg}'}), 503
         flash(f'⚠️ Cannot start operation: {error_msg}', 'error')
         return redirect(url_for('files.global_files'))
     
     try:
+        # Track steps for modal updates
+        steps = []
+        start_time = time.time()
+        
         all_files = get_files(db, scope='global', file_ids=file_ids)
         
         # Filter out files from archived cases (v1.18.0)
@@ -1880,22 +2048,54 @@ def bulk_reindex_selected_global_route():
         
         if not files:
             if archived_count > 0:
-                flash(f'Cannot re-index: All {archived_count} selected file(s) are in archived cases', 'error')
+                error_msg = f'Cannot re-index: All {archived_count} selected file(s) are in archived cases'
+                if wants_json:
+                    return jsonify({'success': False, 'error': error_msg}), 403
+                flash(error_msg, 'error')
             else:
+                if wants_json:
+                    return jsonify({'success': False, 'error': 'Selected files not found'}), 404
                 flash('Selected files not found', 'warning')
             return redirect(url_for('files.global_files'))
         
-        if archived_count > 0:
-            flash(f'⚠️ Skipped {archived_count} file(s) from archived cases', 'warning')
+        # STEP 1: Clear database entries (reset to fresh import state)
+        steps.append({'step': 'clearing_db', 'message': f'Clearing database entries for {len(files)} files', 'status': 'in_progress'})
         
         # Clear data
-        clear_opensearch_events(opensearch_client, files, scope='global')
-        clear_sigma_violations(db, scope='global', file_ids=file_ids)
-        clear_ioc_matches(db, scope='global', file_ids=file_ids)
+        sigma_deleted = clear_sigma_violations(db, scope='global', file_ids=file_ids)
+        ioc_deleted = clear_ioc_matches(db, scope='global', file_ids=file_ids)
         
-        # Prepare and queue (v1.16.25: Use 'reindex' operation to force processing)
+        # Prepare files for reindex
         prepare_files_for_reindex(db, files, scope='global')
-        queued = queue_file_processing(process_file, files, 'reindex', db.session, scope='global')
+        
+        steps[-1]['status'] = 'completed'
+        steps[-1]['files_processed'] = len(files)
+        steps[-1]['sigma_deleted'] = sigma_deleted
+        steps[-1]['ioc_deleted'] = ioc_deleted
+        if archived_count > 0:
+            steps[-1]['archived_skipped'] = archived_count
+        steps[-1]['duration'] = round(time.time() - start_time, 2)
+        
+        # STEP 2: Clear OpenSearch entries
+        step_start = time.time()
+        steps.append({'step': 'clearing_opensearch', 'message': f'Clearing OpenSearch entries for {len(files)} files', 'status': 'in_progress'})
+        
+        events_deleted = clear_opensearch_events(opensearch_client, files, scope='global')
+        
+        steps[-1]['status'] = 'completed'
+        steps[-1]['deleted_events'] = events_deleted
+        steps[-1]['duration'] = round(time.time() - step_start, 2)
+        
+        # STEP 3: Build file queue
+        step_start = time.time()
+        steps.append({'step': 'building_queue', 'message': f'Building queue for {len(files)} files', 'status': 'in_progress'})
+        
+        # Queue files (v1.16.25: Use 'reindex' operation to force processing)
+        queued = queue_file_processing(process_file, files, operation='reindex', db_session=db.session, scope='global')
+        
+        steps[-1]['status'] = 'completed'
+        steps[-1]['files_queued'] = queued
+        steps[-1]['duration'] = round(time.time() - step_start, 2)
         
         # Audit log - MEDIUM: Global reindex selected files
         from audit_logger import log_action
@@ -1909,11 +2109,33 @@ def bulk_reindex_selected_global_route():
                       'operation': 'GLOBAL_REINDEX_SELECTED'
                   })
         
-        flash(f'✅ Re-indexing queued for {queued} selected file(s) ({worker_count} worker(s) available)', 'success')
-        return redirect(url_for('files.global_files'))
+        total_duration = round(time.time() - start_time, 2)
+        
+        # Return JSON for modal updates or redirect for backward compatibility
+        if wants_json:
+            response = {
+                'success': True,
+                'message': f'Re-indexing queued for {queued} selected files',
+                'steps': steps,
+                'total_duration': total_duration,
+                'files_queued': queued,
+                'events_deleted': events_deleted,
+                'sigma_deleted': sigma_deleted,
+                'ioc_deleted': ioc_deleted
+            }
+            if archived_count > 0:
+                response['warning'] = f'Skipped {archived_count} file(s) from archived cases'
+            return jsonify(response)
+        else:
+            if archived_count > 0:
+                flash(f'⚠️ Skipped {archived_count} file(s) from archived cases', 'warning')
+            flash(f'✅ Re-indexing queued for {queued} selected file(s) ({worker_count} worker(s) available)', 'success')
+            return redirect(url_for('files.global_files'))
     
     except Exception as e:
         logger.error(f"[GLOBAL BULK] Selected reindex error: {e}", exc_info=True)
+        if wants_json:
+            return jsonify({'success': False, 'error': str(e)}), 500
         flash(f'Error: {str(e)}', 'error')
         return redirect(url_for('files.global_files'))
 

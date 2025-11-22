@@ -3896,40 +3896,124 @@ def clear_all_files(case_id):
 @login_required
 def bulk_reindex_route(case_id):
     """Re-index all files in a case"""
-    from tasks import bulk_reindex
     from celery_health import check_workers_available
+    from bulk_operations import (
+        get_case_files, clear_case_opensearch_indices, 
+        clear_case_sigma_violations, clear_case_ioc_matches,
+        clear_case_timeline_tags, reset_file_metadata, queue_file_processing
+    )
+    from tasks import process_file
+    import time
+    
+    # Check if request wants JSON (for modal updates) or redirect (for backward compat)
+    wants_json = request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html
     
     case = db.session.get(Case, case_id)
     if not case:
+        if wants_json:
+            return jsonify({'success': False, 'error': 'Case not found'}), 404
         flash('Case not found', 'error')
         return redirect(url_for('dashboard'))
     
     # Archive guard (v1.18.0): Prevent re-indexing archived cases
     from archive_utils import is_case_archived
     if is_case_archived(case):
+        if wants_json:
+            return jsonify({'success': False, 'error': 'Cannot re-index archived case'}), 403
         flash('❌ Cannot re-index archived case. Please restore the case first.', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
     # Safety check: Ensure Celery workers are available
     workers_ok, worker_count, error_msg = check_workers_available(min_workers=1)
     if not workers_ok:
+        if wants_json:
+            return jsonify({'success': False, 'error': f'No Celery workers available: {error_msg}'}), 503
         flash(f'⚠️ Cannot start bulk operation: {error_msg}. Please check Celery workers.', 'error')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    file_count = db.session.query(CaseFile).filter_by(
-        case_id=case_id,
-        is_deleted=False
-    ).count()
+    # Track steps for modal updates
+    steps = []
+    start_time = time.time()
     
-    if file_count == 0:
+    # Get all files for case (exclude deleted and hidden files)
+    files = get_case_files(db, case_id, include_deleted=False, include_hidden=False)
+    
+    if not files:
+        if wants_json:
+            return jsonify({'success': True, 'message': 'No files to reindex', 'steps': [], 'files_queued': 0})
         flash('No files found to re-index', 'warning')
         return redirect(url_for('files.case_files', case_id=case_id))
     
-    # Queue re-index task (clears OpenSearch + DB metadata)
-    bulk_reindex.delay(case_id)
+    # STEP 1: Clear database entries (reset to fresh import state)
+    steps.append({'step': 'clearing_db', 'message': f'Clearing database entries for {len(files)} files', 'status': 'in_progress'})
     
-    flash(f'✅ Re-indexing queued for {file_count} file(s) ({worker_count} worker(s) available). All data will be cleared and rebuilt.', 'success')
-    return redirect(url_for('files.case_files', case_id=case_id))
+    # Clear all SIGMA violations, IOC matches, and timeline tags for this case
+    sigma_deleted = clear_case_sigma_violations(db, case_id)
+    ioc_deleted = clear_case_ioc_matches(db, case_id)
+    tags_deleted = clear_case_timeline_tags(db, case_id)
+    
+    # Reset all file metadata (including opensearch_key)
+    for f in files:
+        reset_file_metadata(f, reset_opensearch_key=True)
+        f.error_message = None
+        f.celery_task_id = None
+    
+    from tasks import commit_with_retry
+    commit_with_retry(db.session, logger_instance=logger)
+    
+    steps[-1]['status'] = 'completed'
+    steps[-1]['files_processed'] = len(files)
+    steps[-1]['sigma_deleted'] = sigma_deleted
+    steps[-1]['ioc_deleted'] = ioc_deleted
+    steps[-1]['tags_deleted'] = tags_deleted
+    steps[-1]['duration'] = round(time.time() - start_time, 2)
+    
+    # STEP 2: Clear OpenSearch entries
+    step_start = time.time()
+    steps.append({'step': 'clearing_opensearch', 'message': 'Clearing OpenSearch indices', 'status': 'in_progress'})
+    
+    # Clear all OpenSearch indices for this case
+    indices_deleted = clear_case_opensearch_indices(opensearch_client, case_id, files)
+    
+    steps[-1]['status'] = 'completed'
+    steps[-1]['indices_cleared'] = indices_deleted
+    steps[-1]['duration'] = round(time.time() - step_start, 2)
+    
+    # STEP 3: Build file queue
+    step_start = time.time()
+    steps.append({'step': 'building_queue', 'message': f'Building queue for {len(files)} files', 'status': 'in_progress'})
+    
+    # Queue for re-indexing (v1.16.25: Use 'reindex' operation to force processing)
+    queued = queue_file_processing(process_file, files, operation='reindex', db_session=db.session)
+    
+    steps[-1]['status'] = 'completed'
+    steps[-1]['files_queued'] = queued
+    steps[-1]['duration'] = round(time.time() - step_start, 2)
+    
+    # Audit log
+    from audit_logger import log_action
+    log_action('bulk_reindex_case', resource_type='case', resource_id=case_id,
+              resource_name=case.name,
+              details={'file_count': len(files), 'worker_count': worker_count})
+    
+    total_duration = round(time.time() - start_time, 2)
+    
+    # Return JSON for modal updates or redirect for backward compatibility
+    if wants_json:
+        return jsonify({
+            'success': True,
+            'message': f'Re-indexing queued for {len(files)} files',
+            'steps': steps,
+            'total_duration': total_duration,
+            'files_queued': queued,
+            'indices_cleared': indices_deleted,
+            'sigma_deleted': sigma_deleted,
+            'ioc_deleted': ioc_deleted,
+            'tags_deleted': tags_deleted
+        })
+    else:
+        flash(f'✅ Re-indexing queued for {len(files)} file(s) ({worker_count} worker(s) available). All data will be cleared and rebuilt.', 'success')
+        return redirect(url_for('files.case_files', case_id=case_id))
 
 
 @app.route('/case/<int:case_id>/bulk_rechainsaw', methods=['POST'])

@@ -1,7 +1,7 @@
 # CaseScope 2026 - Current State & Features
-**Version 1.19.5 - Active Features & Known Issues**
+**Version 1.19.6 - Active Features & Known Issues**
 
-**Last Updated**: November 21, 2025  
+**Last Updated**: November 22, 2025  
 **Purpose**: Current system state for AI code assistants
 
 **Note**: Full version history archived in `version_ARCHIVE_20251120.json` and `APP_MAP_ARCHIVE_20251120.md`
@@ -10,10 +10,67 @@
 
 ## 📊 Current Version
 
-**Version**: 1.19.5  
-**Release Date**: November 21, 2025  
+**Version**: 1.19.6  
+**Release Date**: November 22, 2025  
 **Stability**: Production  
 **Build**: Stable
+
+---
+
+## 🆕 Recent Changes (v1.19.6)
+
+### **🎯 MAJOR UX IMPROVEMENT: Step-by-Step Re-Index Modal with Progress Updates**
+- **Problem**: Re-index modal only showed "Preparing operation..." with no visibility into what was happening
+  - Users reported files failing to re-index with "Indexing failed: 0 of X events indexed"
+  - No feedback during multi-step process (clear DB, clear OpenSearch, queue files)
+  - Modal used polling to detect queue items, not actual step completion
+- **Solution**: Complete rewrite of re-index flow with synchronous step-by-step updates
+  - **Backend Changes**:
+    - Modified all reindex routes to return JSON responses with step-by-step progress
+    - Tracks timing for each step (clearing DB, clearing OpenSearch, building queue)
+    - Returns detailed statistics (files processed, events deleted, violations cleared, etc.)
+    - All routes support both JSON (for modal) and HTML redirect (for backward compatibility)
+  - **Frontend Changes**:
+    - New `showReindexModal()` function displays modern progress modal
+    - `updateModalWithSteps()` dynamically updates modal with each completed step
+    - Each step shows: icon (✅/⏳), message, duration, and detailed statistics
+    - Visual feedback with colored borders (green for completed, blue for in-progress)
+    - Modal closes automatically 2 seconds after all steps complete, then refreshes page
+  - **Step Details Shown**:
+    1. **Clearing Database Entries**: Shows files processed, SIGMA/IOC data cleared
+    2. **Clearing OpenSearch Entries**: Shows events deleted, indices cleared
+    3. **Building File Queue**: Shows files queued for processing
+- **Improved DB Flag Reset**: Ensures all flags reset to fresh import state
+  - `event_count = 0`
+  - `violation_count = 0`
+  - `ioc_event_count = 0`
+  - `is_indexed = False`
+  - `indexing_status = 'Queued'`
+  - `opensearch_key = None`
+  - `celery_task_id = None`
+  - `error_message = None`
+- **Coverage**: Applied to ALL re-index operations
+  - Single file re-index (case-level)
+  - Bulk selected files re-index (case-level)
+  - Bulk all files re-index (case-level)
+  - Global bulk re-index (all cases)
+  - Global selected files re-index (cross-case)
+- **Results**:
+  - Users see exactly what's happening at each step
+  - Clear feedback on how many files/events/violations are being processed
+  - Timing information helps identify slow operations
+  - Professional, modern UI that matches archive/dearchive modals
+  - Eliminates confusion about whether operation is working
+- **Files Modified**:
+  - `app/routes/files.py`: Updated `reindex_single_file()`, `bulk_reindex_selected()`, `bulk_reindex_global_route()`, `bulk_reindex_selected_global_route()`
+  - `app/main.py`: Updated `bulk_reindex_route()`
+  - `app/templates/case_files.html`: Added `showReindexModal()`, `updateModalWithSteps()`, `updateModalMessage()`, `closeReindexModal()` functions
+  - `app/templates/global_files.html`: Added same modal functions for global operations
+- **Technical Notes**:
+  - Routes detect JSON requests via `Accept: application/json` header
+  - Backward compatible: HTML form submissions still work (redirects)
+  - Uses `time.time()` for accurate duration tracking
+  - Error handling includes JSON error responses with proper HTTP status codes
 
 ---
 
