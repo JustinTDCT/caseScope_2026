@@ -1003,23 +1003,27 @@ setTimeout(updateStatuses, 1000);
 let preparationPollInterval = null;
 
 function showPreparationModal(operationType, message, details) {
-    // Create modal
+    // v1.20.0: Standardized to modal-overlay pattern
     const modal = document.createElement('div');
     modal.id = 'preparationModal';
-    modal.className = 'modal';
+    modal.className = 'modal-overlay';
     modal.style.display = 'flex';
     modal.innerHTML = `
-        <div class="modal-content" style="max-width: 600px; text-align: center;">
-            <h3 style="margin-bottom: var(--spacing-lg);">${getOperationIcon(operationType)} ${message}</h3>
-            <div style="margin: var(--spacing-xl) 0;">
-                <div class="spinner"></div>
+        <div class="modal-container" style="max-width: 600px;">
+            <div class="modal-header" style="text-align: center; border-bottom: none;">
+                <h2 class="modal-title">${getOperationIcon(operationType)} ${message}</h2>
             </div>
-            <p id="prepMessage" style="color: var(--color-text); margin-bottom: var(--spacing-sm); font-size: 1.1em;">
-                <strong>Preparing operation...</strong>
-            </p>
-            <p id="prepDetails" style="color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
-                ${details}
-            </p>
+            <div class="modal-body" style="text-align: center;">
+                <div style="margin: var(--spacing-xl) 0;">
+                    <div class="spinner"></div>
+                </div>
+                <p id="prepMessage" style="color: var(--color-text); margin-bottom: var(--spacing-sm); font-size: 1.1em;">
+                    <strong>Preparing operation...</strong>
+                </p>
+                <p id="prepDetails" style="color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                    ${details}
+                </p>
+            </div>
         </div>
     `;
     document.body.appendChild(modal);
@@ -1028,19 +1032,19 @@ function showPreparationModal(operationType, message, details) {
     startPreparationPolling(operationType);
 }
 
-// NEW MODAL FUNCTIONS FOR STEP-BY-STEP REINDEX (v1.19.6)
+// NEW MODAL FUNCTIONS FOR STEP-BY-STEP REINDEX (v1.19.6, v1.20.0: Standardized)
 function showReindexModal(operationType, message) {
-    // Create modal
+    // v1.20.0: Standardized to modal-overlay pattern
     const modal = document.createElement('div');
     modal.id = 'reindexModal';
-    modal.className = 'modal';
+    modal.className = 'modal-overlay';
     modal.style.display = 'flex';
     modal.innerHTML = `
-        <div class="modal-content" style="max-width: 700px;">
-            <h3 style="margin-bottom: var(--spacing-lg); text-align: center;">
-                ${getOperationIcon(operationType)} ${message}
-            </h3>
-            <div style="margin: var(--spacing-lg) 0;">
+        <div class="modal-container" style="max-width: 700px;">
+            <div class="modal-header" style="text-align: center; border-bottom: none;">
+                <h2 class="modal-title">${getOperationIcon(operationType)} ${message}</h2>
+            </div>
+            <div class="modal-body">
                 <div style="text-align: center; margin-bottom: var(--spacing-lg);">
                     <div class="spinner"></div>
                 </div>
@@ -1228,32 +1232,30 @@ function confirmReindex() {
     }
 }
 
-// v1.19.8: Show index version mismatch warning with option to full re-index
+// v1.19.8: Show index version mismatch warning (v1.20.0: Standardized modal)
 function showIndexVersionWarning(title, message, caseId) {
     closeReindexModal(); // Close progress modal
     
-    // Create warning modal
+    // v1.20.0: Standardized to modal-overlay pattern
     const modal = document.createElement('div');
     modal.id = 'versionWarningModal';
-    modal.className = 'modal';
+    modal.className = 'modal-overlay';
     modal.style.display = 'flex';
     modal.innerHTML = `
-        <div class="modal-content" style="max-width: 700px;">
-            <h3 style="margin-bottom: var(--spacing-lg); color: var(--color-warning);">
-                ⚠️ ${title}
-            </h3>
-            <div style="margin: var(--spacing-lg) 0; white-space: pre-wrap; line-height: 1.6;">
+        <div class="modal-container" style="max-width: 700px;">
+            <div class="modal-header">
+                <h2 class="modal-title" style="color: var(--color-warning);">
+                    ⚠️ ${title}
+                </h2>
+            </div>
+            <div class="modal-body" style="white-space: pre-wrap; line-height: 1.6;">
                 ${message}
             </div>
-            <div style="display: flex; gap: var(--spacing-md); justify-content: flex-end; margin-top: var(--spacing-xl);">
-                <button onclick="closeVersionWarning()" 
-                        style="padding: var(--spacing-sm) var(--spacing-lg); background: var(--color-bg-secondary); 
-                               border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer;">
+            <div class="modal-footer" style="display: flex; gap: var(--spacing-md); justify-content: flex-end;">
+                <button onclick="closeVersionWarning()" class="btn btn-secondary">
                     Cancel
                 </button>
-                <button onclick="doFullReindex(${caseId})"
-                        style="padding: var(--spacing-sm) var(--spacing-lg); background: var(--color-primary); 
-                               color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                <button onclick="doFullReindex(${caseId})" class="btn btn-primary">
                     🔄 Full Re-Index All Files
                 </button>
             </div>
@@ -1306,7 +1308,7 @@ function confirmReHunt() {
 }
 </script>
 
-<!-- Preparation Modal Styles -->
+<!-- Spinner Animation (v1.20.0: Kept for modal loading indicators) -->
 <style>
 .spinner {
     display: inline-block;
@@ -1320,45 +1322,6 @@ function confirmReHunt() {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
-}
-</style>
-
-
-<style>
-/* Re-Index Preparation Modal - Added v1.19.1 */
-.modal {
-    display: none;
-    position: fixed;
-    z-index: 10000; /* CRITICAL: Must be above everything else */
-    left: 0;
-    top: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(4px);
-    align-items: center;
-    justify-content: center;
-}
-
-.modal-content {
-    background: var(--color-background);
-    padding: var(--spacing-xl);
-    border-radius: 12px;
-    max-width: 600px;
-    width: 90%;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-    position: relative;
-    z-index: 10001;
-}
-
-.modal h3 {
-    color: var(--color-text-primary);
-    margin-bottom: var(--spacing-md);
-}
-
-.modal p {
-    color: var(--color-text);
-    line-height: 1.6;
 }
 </style>
 

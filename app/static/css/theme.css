@@ -847,6 +847,23 @@ tbody tr:last-child td {
     margin: auto;
 }
 
+/* v1.20.0: Modal Size Variants */
+.modal-container-sm {
+    max-width: 400px;
+}
+
+.modal-container-md {
+    max-width: 600px; /* Default size */
+}
+
+.modal-container-lg {
+    max-width: 800px;
+}
+
+.modal-container-xl {
+    max-width: 1200px;
+}
+
 .modal-header {
     display: flex;
     justify-content: space-between;

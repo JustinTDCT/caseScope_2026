@@ -856,23 +856,27 @@ setTimeout(updateStatuses, 1000);
 let preparationPollInterval = null;
 
 function showPreparationModal(operationType, message, details) {
-    // Create modal
+    // v1.20.0: Standardized to modal-overlay pattern
     const modal = document.createElement('div');
     modal.id = 'preparationModal';
-    modal.className = 'modal';
+    modal.className = 'modal-overlay';
     modal.style.display = 'flex';
     modal.innerHTML = `
-        <div class="modal-content" style="max-width: 600px; text-align: center;">
-            <h3 style="margin-bottom: var(--spacing-lg);">${getOperationIcon(operationType)} ${message}</h3>
-            <div style="margin: var(--spacing-xl) 0;">
-                <div class="spinner"></div>
+        <div class="modal-container" style="max-width: 600px;">
+            <div class="modal-header" style="text-align: center; border-bottom: none;">
+                <h2 class="modal-title">${getOperationIcon(operationType)} ${message}</h2>
             </div>
-            <p id="prepMessage" style="color: var(--color-text); margin-bottom: var(--spacing-sm); font-size: 1.1em;">
-                <strong>Preparing operation...</strong>
-            </p>
-            <p id="prepDetails" style="color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
-                ${details}
-            </p>
+            <div class="modal-body" style="text-align: center;">
+                <div style="margin: var(--spacing-xl) 0;">
+                    <div class="spinner"></div>
+                </div>
+                <p id="prepMessage" style="color: var(--color-text); margin-bottom: var(--spacing-sm); font-size: 1.1em;">
+                    <strong>Preparing operation...</strong>
+                </p>
+                <p id="prepDetails" style="color: var(--color-text-muted); font-size: 0.875rem; line-height: 1.6;">
+                    ${details}
+                </p>
+            </div>
         </div>
     `;
     document.body.appendChild(modal);
@@ -881,19 +885,19 @@ function showPreparationModal(operationType, message, details) {
     startPreparationPolling(operationType);
 }
 
-// NEW MODAL FUNCTIONS FOR STEP-BY-STEP REINDEX (v1.19.6)
+// NEW MODAL FUNCTIONS FOR STEP-BY-STEP REINDEX (v1.19.6, v1.20.0: Standardized)
 function showReindexModal(operationType, message) {
-    // Create modal
+    // v1.20.0: Standardized to modal-overlay pattern
     const modal = document.createElement('div');
     modal.id = 'reindexModal';
-    modal.className = 'modal';
+    modal.className = 'modal-overlay';
     modal.style.display = 'flex';
     modal.innerHTML = `
-        <div class="modal-content" style="max-width: 700px;">
-            <h3 style="margin-bottom: var(--spacing-lg); text-align: center;">
-                ${getOperationIcon(operationType)} ${message}
-            </h3>
-            <div style="margin: var(--spacing-lg) 0;">
+        <div class="modal-container" style="max-width: 700px;">
+            <div class="modal-header" style="text-align: center; border-bottom: none;">
+                <h2 class="modal-title">${getOperationIcon(operationType)} ${message}</h2>
+            </div>
+            <div class="modal-body">
                 <div style="text-align: center; margin-bottom: var(--spacing-lg);">
                     <div class="spinner"></div>
                 </div>
@@ -1104,7 +1108,7 @@ function confirmReHunt() {
 }
 </script>
 
-<!-- Preparation Modal Styles -->
+<!-- Spinner Animation (v1.20.0: Kept for modal loading indicators) -->
 <style>
 .spinner {
     display: inline-block;
