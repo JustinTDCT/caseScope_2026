@@ -1207,10 +1207,15 @@ function confirmReindex() {
                     location.reload();
                 }, 2000);
             } else {
-                updateModalMessage('Error: ' + data.error, true);
-                setTimeout(() => {
-                    closeReindexModal();
-                }, 3000);
+                // v1.19.8: Check for index version mismatch (shouldn't happen for bulk, but just in case)
+                if (data.error === 'index_version_mismatch') {
+                    showIndexVersionWarning(data.warning_title, data.warning_message, data.case_id);
+                } else {
+                    updateModalMessage('Error: ' + data.error, true);
+                    setTimeout(() => {
+                        closeReindexModal();
+                    }, 3000);
+                }
             }
         })
         .catch(error => {
@@ -1221,6 +1226,55 @@ function confirmReindex() {
             }, 3000);
         });
     }
+}
+
+// v1.19.8: Show index version mismatch warning with option to full re-index
+function showIndexVersionWarning(title, message, caseId) {
+    closeReindexModal(); // Close progress modal
+    
+    // Create warning modal
+    const modal = document.createElement('div');
+    modal.id = 'versionWarningModal';
+    modal.className = 'modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 700px;">
+            <h3 style="margin-bottom: var(--spacing-lg); color: var(--color-warning);">
+                ⚠️ ${title}
+            </h3>
+            <div style="margin: var(--spacing-lg) 0; white-space: pre-wrap; line-height: 1.6;">
+                ${message}
+            </div>
+            <div style="display: flex; gap: var(--spacing-md); justify-content: flex-end; margin-top: var(--spacing-xl);">
+                <button onclick="closeVersionWarning()" 
+                        style="padding: var(--spacing-sm) var(--spacing-lg); background: var(--color-bg-secondary); 
+                               border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer;">
+                    Cancel
+                </button>
+                <button onclick="doFullReindex(${caseId})"
+                        style="padding: var(--spacing-sm) var(--spacing-lg); background: var(--color-primary); 
+                               color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    🔄 Full Re-Index All Files
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function closeVersionWarning() {
+    const modal = document.getElementById('versionWarningModal');
+    if (modal) {
+        modal.remove();
+    }
+    // Also reload page to refresh stats
+    location.reload();
+}
+
+function doFullReindex(caseId) {
+    closeVersionWarning();
+    // Trigger the bulk re-index
+    confirmReindex();
 }
 
 function confirmReSigma() {

@@ -522,10 +522,26 @@ def reindex_single_file(case_id, file_id):
     from main import db, CaseFile, Case, opensearch_client
     from bulk_operations import clear_file_sigma_violations, clear_file_ioc_matches
     from tasks import process_file
+    from index_version import check_index_compatibility, get_compatibility_warning
     import time
     
     # Check if request wants JSON (for modal updates) or redirect (for backward compat)
     wants_json = request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html
+    
+    # v1.19.8: Check index compatibility before single file re-index
+    is_compatible, current_ver, required_ver = check_index_compatibility(opensearch_client, case_id)
+    if not is_compatible:
+        warning = get_compatibility_warning(current_ver, required_ver)
+        if wants_json:
+            return jsonify({
+                'success': False,
+                'error': 'index_version_mismatch',
+                'warning_title': warning['title'],
+                'warning_message': warning['message'],
+                'case_id': case_id
+            }), 409  # 409 Conflict
+        flash('⚠️ Index version mismatch detected. Full case re-index required.', 'warning')
+        return redirect(url_for('files.case_files', case_id=case_id))
     
     case_file = db.session.get(CaseFile, file_id)
     
@@ -856,10 +872,26 @@ def bulk_reindex_selected(case_id):
     from bulk_operations import clear_file_sigma_violations, clear_file_ioc_matches, reset_file_metadata, queue_file_processing
     from tasks import process_file
     from celery_health import check_workers_available
+    from index_version import check_index_compatibility, get_compatibility_warning
     import time
     
     # Check if request wants JSON (for modal updates) or redirect (for backward compat)
     wants_json = request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html
+    
+    # v1.19.8: Check index compatibility before selected files re-index
+    is_compatible, current_ver, required_ver = check_index_compatibility(opensearch_client, case_id)
+    if not is_compatible:
+        warning = get_compatibility_warning(current_ver, required_ver)
+        if wants_json:
+            return jsonify({
+                'success': False,
+                'error': 'index_version_mismatch',
+                'warning_title': warning['title'],
+                'warning_message': warning['message'],
+                'case_id': case_id
+            }), 409  # 409 Conflict
+        flash('⚠️ Index version mismatch detected. Full case re-index required.', 'warning')
+        return redirect(url_for('files.case_files', case_id=case_id))
     
     # Archive guard (v1.18.0): Prevent re-indexing archived cases
     from archive_utils import is_case_archived

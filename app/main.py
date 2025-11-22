@@ -3968,12 +3968,22 @@ def bulk_reindex_route(case_id):
     steps[-1]['tags_deleted'] = tags_deleted
     steps[-1]['duration'] = round(time.time() - start_time, 2)
     
-    # STEP 2: Clear OpenSearch entries
+    # STEP 2: Clear OpenSearch entries (DELETE ENTIRE INDEX for clean slate)
     step_start = time.time()
-    steps.append({'step': 'clearing_opensearch', 'message': 'Clearing OpenSearch indices', 'status': 'in_progress'})
+    steps.append({'step': 'clearing_opensearch', 'message': 'Deleting case index for clean rebuild', 'status': 'in_progress'})
     
-    # Clear all OpenSearch indices for this case
-    indices_deleted = clear_case_opensearch_indices(opensearch_client, case_id, files)
+    # v1.19.8: Delete entire case index to prevent mapping conflicts
+    # When re-indexing ALL files, we want a clean slate with fresh mappings
+    from utils import make_index_name
+    index_name = make_index_name(case_id)
+    try:
+        opensearch_client.indices.delete(index=index_name, ignore=[404])
+        logger.info(f"[BULK REINDEX] Deleted index {index_name} for clean rebuild")
+        indices_deleted = 1
+    except Exception as e:
+        logger.warning(f"[BULK REINDEX] Could not delete index {index_name}: {e}")
+        # Fallback to clearing events
+        indices_deleted = clear_case_opensearch_indices(opensearch_client, case_id, files)
     
     steps[-1]['status'] = 'completed'
     steps[-1]['indices_cleared'] = indices_deleted
