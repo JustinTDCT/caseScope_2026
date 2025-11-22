@@ -2,13 +2,7 @@
 
 {% block title %}Case Files - {{ case.name }} - CaseScope 2026{% endblock %}
 
-{% block head %}
-<!-- Force browser to reload this page - no caching -->
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<meta name="template-version" content="{{ cache_bust }}">
-{% endblock %}
+<!-- Force browser cache refresh: v1.19.5.1 - Modal fix -->
 
 {% block content %}
 <div class="content-header">
@@ -1050,7 +1044,7 @@ function startPreparationPolling(operationType) {
         })
         .then(response => response.json())
         .then(data => {
-            const activeCount = (data.queued_count || 0) + (data.processing_count || 0);
+            const activeCount = (data.queued || 0) + (data.processing || 0);
             
             if (activeCount > 0) {
                 // Files are now in queue - close modal and refresh
@@ -1141,45 +1135,6 @@ function confirmReHunt() {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
-}
-</style>
-
-
-<style>
-/* Re-Index Preparation Modal - Added v1.19.1 */
-.modal {
-    display: none;
-    position: fixed;
-    z-index: 10000; /* CRITICAL: Must be above everything else */
-    left: 0;
-    top: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.75);
-    backdrop-filter: blur(4px);
-    align-items: center;
-    justify-content: center;
-}
-
-.modal-content {
-    background: var(--color-background);
-    padding: var(--spacing-xl);
-    border-radius: 12px;
-    max-width: 600px;
-    width: 90%;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-    position: relative;
-    z-index: 10001;
-}
-
-.modal h3 {
-    color: var(--color-text-primary);
-    margin-bottom: var(--spacing-md);
-}
-
-.modal p {
-    color: var(--color-text);
-    line-height: 1.6;
 }
 </style>
 

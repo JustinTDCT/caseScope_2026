@@ -83,9 +83,11 @@ app.jinja_env.filters['get_nested'] = get_nested_field
 # Disable static file caching for CSS/JS
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
-# Cache busting timestamp for static files
+# Cache busting timestamp for static files and templates
+# Update this whenever templates change to force browser reload
 import time
-CACHE_BUST_TIME = str(int(time.time()))
+CACHE_BUST_TIME = str(int(time.time()))  # Auto-updates on server restart
+TEMPLATE_VERSION = "v1.19.5.3"  # Manual: Modal CSS + polling fix applied
 
 # Initialize extensions
 db.init_app(app)
