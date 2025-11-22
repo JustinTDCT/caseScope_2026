@@ -342,9 +342,15 @@ function addUser(event) {
     event.preventDefault();
     
     const formData = new FormData(event.target);
-    const button = event.target.querySelector('button[type="submit"]');
-    button.disabled = true;
-    button.textContent = 'Adding...';
+    
+    // v1.20.0: Button is now in modal-footer, not inside form
+    const modal = document.getElementById('addUserModal');
+    const button = modal.querySelector('.modal-footer .btn-primary');
+    
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Adding...';
+    }
     
     fetch('/case/{{ case_id }}/known_users/add', {
         method: 'POST',
@@ -356,15 +362,19 @@ function addUser(event) {
             window.location.reload();
         } else {
             alert('❌ Error: ' + (data.error || 'Failed to add user'));
-            button.disabled = false;
-            button.textContent = 'Add User';
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Add User';
+            }
         }
     })
     .catch(err => {
         console.error('Add user error:', err);
         alert('❌ Error: ' + err.message);
-        button.disabled = false;
-        button.textContent = 'Add User';
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Add User';
+        }
     });
 }
 
@@ -386,9 +396,15 @@ function updateUser(event) {
     
     const userId = document.getElementById('edit_user_id').value;
     const formData = new FormData(event.target);
-    const button = event.target.querySelector('button[type="submit"]');
-    button.disabled = true;
-    button.textContent = 'Updating...';
+    
+    // v1.20.0: Button is now in modal-footer, not inside form
+    const modal = document.getElementById('editUserModal');
+    const button = modal.querySelector('.modal-footer .btn-primary');
+    
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Updating...';
+    }
     
     fetch(`/case/{{ case_id }}/known_users/${userId}/update`, {
         method: 'POST',
@@ -400,15 +416,19 @@ function updateUser(event) {
             window.location.reload();
         } else {
             alert('❌ Error: ' + (data.error || 'Failed to update user'));
-            button.disabled = false;
-            button.textContent = 'Update User';
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Update User';
+            }
         }
     })
     .catch(err => {
         console.error('Update user error:', err);
         alert('❌ Error: ' + err.message);
-        button.disabled = false;
-        button.textContent = 'Update User';
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Update User';
+        }
     });
 }
 
@@ -440,9 +460,15 @@ function uploadCSV(event) {
     event.preventDefault();
     
     const formData = new FormData(event.target);
-    const button = event.target.querySelector('button[type="submit"]');
-    button.disabled = true;
-    button.textContent = 'Uploading...';
+    
+    // v1.20.0: Button is now in modal-footer, not inside form
+    const modal = document.getElementById('uploadCSVModal');
+    const button = modal.querySelector('.modal-footer .btn-primary');
+    
+    if (button) {
+        button.disabled = true;
+        button.textContent = 'Uploading...';
+    }
     
     fetch('/case/{{ case_id }}/known_users/upload_csv', {
         method: 'POST',
@@ -466,15 +492,19 @@ function uploadCSV(event) {
             window.location.reload();
         } else {
             alert('❌ Error: ' + (data.error || 'Failed to upload CSV'));
-            button.disabled = false;
-            button.textContent = 'Upload & Import';
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Upload & Import';
+            }
         }
     })
     .catch(err => {
         console.error('Upload CSV error:', err);
         alert('❌ Error: ' + err.message);
-        button.disabled = false;
-        button.textContent = 'Upload & Import';
+        if (button) {
+            button.disabled = false;
+            button.textContent = 'Upload & Import';
+        }
     });
 }
 </script>
