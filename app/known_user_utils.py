@@ -70,6 +70,7 @@ def check_known_user(username: str, case_id: int) -> Dict[str, any]:
             - 'is_known': bool (True if user exists in database for this case)
             - 'compromised': bool (True if user is marked as compromised)
             - 'user_type': str ('domain', 'local', or '-')
+            - 'active': bool (True if user is currently active) # v1.20.0
     """
     try:
         from models import KnownUser
@@ -84,13 +85,15 @@ def check_known_user(username: str, case_id: int) -> Dict[str, any]:
             return {
                 'is_known': True,
                 'compromised': known_user.compromised,
-                'user_type': known_user.user_type
+                'user_type': known_user.user_type,
+                'active': known_user.active  # v1.20.0
             }
         else:
             return {
                 'is_known': False,
                 'compromised': False,
-                'user_type': None
+                'user_type': None,
+                'active': None  # v1.20.0
             }
     
     except Exception as e:
@@ -98,7 +101,8 @@ def check_known_user(username: str, case_id: int) -> Dict[str, any]:
         return {
             'is_known': False,
             'compromised': False,
-            'user_type': None
+            'user_type': None,
+            'active': None  # v1.20.0
         }
 
 
@@ -115,6 +119,7 @@ def enrich_login_records(login_records: list, case_id: int) -> list:
             - 'is_known_user': bool
             - 'is_compromised': bool
             - 'user_type': str or None
+            - 'is_active': bool or None  # v1.20.0
             - 'is_ioc': bool
             - 'ioc_threat_level': str or None
     """
@@ -139,6 +144,7 @@ def enrich_login_records(login_records: list, case_id: int) -> list:
             enriched_record['is_known_user'] = user_info['is_known']
             enriched_record['is_compromised'] = user_info['compromised']
             enriched_record['user_type'] = user_info['user_type']
+            enriched_record['is_active'] = user_info['active']  # v1.20.0
             enriched_record['is_ioc'] = ioc_info['is_ioc']
             enriched_record['ioc_threat_level'] = ioc_info['threat_level']
             
@@ -149,8 +155,9 @@ def enrich_login_records(login_records: list, case_id: int) -> list:
         known = sum(1 for r in enriched if r['is_known_user'])
         compromised = sum(1 for r in enriched if r['is_compromised'])
         iocs = sum(1 for r in enriched if r['is_ioc'])
+        active = sum(1 for r in enriched if r['is_active'])  # v1.20.0
         
-        logger.info(f"[KNOWN_USER_ENRICH] Enriched {total} records for case {case_id}: {known} known users, {compromised} compromised, {iocs} IOCs")
+        logger.info(f"[KNOWN_USER_ENRICH] Enriched {total} records for case {case_id}: {known} known users ({active} active), {compromised} compromised, {iocs} IOCs")
         
         return enriched
     

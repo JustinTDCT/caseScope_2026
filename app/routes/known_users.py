@@ -49,6 +49,8 @@ def list_known_users(case_id):
     domain_users = KnownUser.query.filter_by(case_id=case_id, user_type='domain').count()
     local_users = KnownUser.query.filter_by(case_id=case_id, user_type='local').count()
     compromised_users = KnownUser.query.filter_by(case_id=case_id, compromised=True).count()
+    active_users = KnownUser.query.filter_by(case_id=case_id, active=True).count()  # v1.20.0
+    inactive_users = KnownUser.query.filter_by(case_id=case_id, active=False).count()  # v1.20.0
     
     return render_template('known_users.html',
                          case=case,
@@ -59,7 +61,9 @@ def list_known_users(case_id):
                          total_users=total_users,
                          domain_users=domain_users,
                          local_users=local_users,
-                         compromised_users=compromised_users)
+                         compromised_users=compromised_users,
+                         active_users=active_users,
+                         inactive_users=inactive_users)
 
 
 @known_users_bp.route('/case/<int:case_id>/known_users/add', methods=['POST'])
@@ -82,6 +86,7 @@ def add_known_user(case_id):
         username = request.form.get('username', '').strip()
         user_type = request.form.get('user_type', '-').strip()
         compromised = request.form.get('compromised') == 'true'
+        active = request.form.get('active', 'true') == 'true'  # v1.20.0: Default to active=true
         
         if not username:
             return jsonify({'success': False, 'error': 'Username is required'}), 400
@@ -101,6 +106,7 @@ def add_known_user(case_id):
             username=username,
             user_type=user_type,
             compromised=compromised,
+            active=active,
             added_method='manual',
             added_by=current_user.id
         )
@@ -115,7 +121,8 @@ def add_known_user(case_id):
                       'case_id': case_id,
                       'case_name': case.name,
                       'user_type': user_type,
-                      'compromised': compromised
+                      'compromised': compromised,
+                      'active': active
                   })
         
         flash(f'Known user added: {username}', 'success')
@@ -171,9 +178,13 @@ def update_known_user(case_id, user_id):
         old_username = known_user.username
         old_type = known_user.user_type
         old_compromised = known_user.compromised
+        old_active = known_user.active
         
         if 'compromised' in request.form:
             known_user.compromised = request.form['compromised'] == 'true'
+        
+        if 'active' in request.form:  # v1.20.0: Handle active field
+            known_user.active = request.form['active'] == 'true'
         
         db.session.commit()
         
@@ -188,6 +199,8 @@ def update_known_user(case_id, user_id):
             changes['user_type'] = {'old': old_type, 'new': known_user.user_type}
         if old_compromised != known_user.compromised:
             changes['compromised'] = {'old': old_compromised, 'new': known_user.compromised}
+        if old_active != known_user.active:
+            changes['active'] = {'old': old_active, 'new': known_user.active}
         log_action('update_known_user', resource_type='known_user', resource_id=user_id,
                   resource_name=known_user.username,
                   details={
@@ -301,10 +314,12 @@ def upload_csv(case_id):
                 username_col = header_map.get('username')
                 type_col = header_map.get('type')
                 compromised_col = header_map.get('compromised')
+                active_col = header_map.get('active')  # v1.20.0: Active field
                 
                 username = row.get(username_col, '').strip() if username_col else ''
                 user_type = row.get(type_col, '-').strip().lower() if type_col else '-'
                 compromised_str = row.get(compromised_col, 'false').strip().lower() if compromised_col else 'false'
+                active_str = row.get(active_col, 'true').strip().lower() if active_col else 'true'  # v1.20.0: Default to active
                 
                 if not username:
                     skipped_count += 1
@@ -316,6 +331,9 @@ def upload_csv(case_id):
                 
                 # Parse compromised
                 compromised = compromised_str in ['true', 't', 'yes', 'y', '1']
+                
+                # Parse active (v1.20.0)
+                active = active_str in ['true', 't', 'yes', 'y', '1']
                 
                 # Check for duplicate within this case
                 existing = KnownUser.query.filter_by(case_id=case_id, username=username).first()
@@ -329,6 +347,7 @@ def upload_csv(case_id):
                     username=username,
                     user_type=user_type,
                     compromised=compromised,
+                    active=active,
                     added_method='csv',
                     added_by=current_user.id
                 )
@@ -407,7 +426,7 @@ def export_csv(case_id):
         writer = csv.writer(output)
         
         # Write header
-        writer.writerow(['Username', 'Type', 'Compromised', 'Added Method', 'Added By', 'Date Added'])
+        writer.writerow(['Username', 'Type', 'Compromised', 'Active', 'Added Method', 'Added By', 'Date Added'])
         
         # Write data
         for ku in known_users:
@@ -418,6 +437,7 @@ def export_csv(case_id):
                 ku.username,
                 ku.user_type,
                 'true' if ku.compromised else 'false',
+                'true' if ku.active else 'false',  # v1.20.0: Include active status
                 ku.added_method,
                 creator_name,
                 ku.created_at.strftime('%Y-%m-%d %H:%M:%S') if ku.created_at else ''

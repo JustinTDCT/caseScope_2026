@@ -1674,10 +1674,13 @@ function getKnownUserBadges(record) {
     else if (!record.is_known_user) {
         badges += ` <a href="${knownUsersUrl}" style="display: inline-block; background: var(--color-warning); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px; text-decoration: none; cursor: pointer;" title="View Known Users">❓ UNKNOWN</a>`;
     }
-    // Known user with type indicator (clickable link)
+    // Known user with type indicator and active status (clickable link) - v1.20.0
     else if (record.user_type) {
         const typeLabel = record.user_type === 'domain' ? '🏢 Domain' : record.user_type === 'local' ? '💻 Local' : '✓ Known';
-        badges += ` <a href="${knownUsersUrl}" style="display: inline-block; background: var(--color-success); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px; text-decoration: none; cursor: pointer;" title="View Known Users">${typeLabel}</a>`;
+        const isActive = record.is_active !== false;  // Default to true if undefined
+        const activeLabel = isActive ? '' : ' (INACTIVE)';
+        const bgColor = isActive ? 'var(--color-success)' : '#808080';  // Gray for inactive
+        badges += ` <a href="${knownUsersUrl}" style="display: inline-block; background: ${bgColor}; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 6px; text-decoration: none; cursor: pointer;" title="View Known Users">${typeLabel}${activeLabel}</a>`;
     }
     
     return badges;

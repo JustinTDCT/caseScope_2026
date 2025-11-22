@@ -210,6 +210,7 @@ class KnownUser(db.Model):
     username = db.Column(db.String(255), nullable=False, index=True)
     user_type = db.Column(db.String(20), nullable=False, default='-')  # 'domain', 'local', or '-'
     compromised = db.Column(db.Boolean, default=False, nullable=False)
+    active = db.Column(db.Boolean, default=True, nullable=False)  # v1.20.0: Track if user is currently active
     
     # Tracking metadata
     added_method = db.Column(db.String(20), nullable=False)  # 'manual' or 'csv'
