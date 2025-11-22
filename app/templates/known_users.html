@@ -180,7 +180,7 @@
 </div>
 
 <!-- Add User Modal (v1.20.0: Standardized) -->
-<div id="addUserModal" class="modal-overlay">
+<div id="addUserModal" class="modal-overlay" style="display: none;">
     <div class="modal-container">
         <div class="modal-header">
             <h2 class="modal-title">➕ Add Known User</h2>
@@ -219,7 +219,7 @@
 </div>
 
 <!-- Edit User Modal (v1.20.0: Standardized) -->
-<div id="editUserModal" class="modal-overlay">
+<div id="editUserModal" class="modal-overlay" style="display: none;">
     <div class="modal-container">
         <div class="modal-header">
             <h2 class="modal-title">✏️ Edit Known User</h2>
@@ -260,7 +260,7 @@
 </div>
 
 <!-- Upload CSV Modal (v1.20.0: Standardized) -->
-<div id="uploadCSVModal" class="modal-overlay">
+<div id="uploadCSVModal" class="modal-overlay" style="display: none;">
     <div class="modal-container">
         <div class="modal-header">
             <h2 class="modal-title">📤 Upload CSV</h2>
@@ -315,9 +315,9 @@ function closeModal(modalId) {
     document.getElementById(modalId).style.display = 'none';
 }
 
-// Close modals when clicking outside
+// Close modals when clicking outside (v1.20.0: Updated for modal-overlay)
 window.onclick = function(event) {
-    if (event.target.classList.contains('modal')) {
+    if (event.target.classList.contains('modal-overlay')) {
         event.target.style.display = 'none';
     }
 }
