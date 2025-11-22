@@ -90,6 +90,9 @@ def build_search_query(
                 "analyze_wildcard": True,
                 "lenient": True  # Prevents errors from type mismatches
                 # NOTE: No "fields" parameter = searches all fields (including nested)
+                # v1.19.9: With 50k+ fields from forensic extraction, queries with multiple
+                # NOT operators can hit max_clause_count limit (default 10,000)
+                # Solution: Increase indices.query.bool.max_clause_count in opensearch.yml
             }
         })
     
