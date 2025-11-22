@@ -90,7 +90,8 @@ def sync_ioc_to_user(case_id, username, ioc_id, current_user_id, threat_level='m
         
         if existing_user:
             # User exists - update compromised status if needed
-            if threat_level in ['high', 'critical'] and not existing_user.compromised:
+            # v1.21.1: Username IOCs should ALWAYS mark user as compromised (regardless of threat level)
+            if not existing_user.compromised:
                 existing_user.compromised = True
                 db.session.commit()
                 logger.info(f"[IOC → KNOWN USER] Updated user '{username}' (ID: {existing_user.id}) to compromised (from IOC ID: {ioc_id})")
@@ -107,7 +108,7 @@ def sync_ioc_to_user(case_id, username, ioc_id, current_user_id, threat_level='m
             username=username,
             user_type='unknown',  # v1.21.0: Don't assume domain/local without evidence
             user_sid=None,  # No SID from IOC alone
-            compromised=(threat_level in ['high', 'critical']),  # Auto-flag if high/critical threat
+            compromised=True,  # v1.21.1: Username IOCs ALWAYS indicate compromise
             active=True,  # Assume active unless evidence otherwise
             added_method='ioc_sync',  # v1.21.0: Track that this came from IOC
             added_by=current_user_id
