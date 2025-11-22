@@ -308,6 +308,15 @@ def upload_csv(case_id):
         skipped_count = 0
         errors = []
         
+        # v1.20.1: Track usernames seen in this CSV to prevent duplicates within the file
+        seen_usernames = set()
+        
+        # v1.20.1: Pre-load existing usernames for this case (case-insensitive)
+        existing_usernames = set()
+        existing_users = KnownUser.query.filter_by(case_id=case_id).all()
+        for user in existing_users:
+            existing_usernames.add(user.username.lower())
+        
         for row_num, row in enumerate(csv_reader, start=2):  # start=2 because row 1 is headers
             try:
                 # Extract data using case-insensitive mapping
@@ -335,11 +344,14 @@ def upload_csv(case_id):
                 # Parse active (v1.20.0)
                 active = active_str in ['true', 't', 'yes', 'y', '1']
                 
-                # Check for duplicate within this case
-                existing = KnownUser.query.filter_by(case_id=case_id, username=username).first()
-                if existing:
+                # v1.20.1: Check for duplicate (case-insensitive) in DB or already seen in this CSV
+                username_lower = username.lower()
+                if username_lower in existing_usernames or username_lower in seen_usernames:
                     skipped_count += 1
                     continue
+                
+                # Track this username as seen
+                seen_usernames.add(username_lower)
                 
                 # Create known user
                 known_user = KnownUser(
