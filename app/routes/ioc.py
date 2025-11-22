@@ -50,6 +50,7 @@ def add_ioc(case_id):
         return jsonify({'success': False, 'error': 'Read-only users cannot add IOCs'}), 403
     
     from main import db, Case, IOC
+    from known_user_ioc_sync import sync_ioc_to_user  # v1.21.0: Known User integration
     
     case = db.session.get(Case, case_id)
     if not case:
@@ -85,20 +86,40 @@ def add_ioc(case_id):
         # Store IOC ID for background processing
         ioc_id_for_background = ioc.id
         
+        # v1.21.0: If IOC is a username, auto-create Known User
+        user_created = False
+        if ioc_type == 'username':
+            success, user_id, msg = sync_ioc_to_user(
+                case_id=case_id,
+                username=ioc_value,
+                ioc_id=ioc.id,
+                current_user_id=current_user.id,
+                threat_level=threat_level
+            )
+            user_created = success and user_id is not None
+        
         # Audit log
         from audit_logger import log_ioc_action
         log_ioc_action('add_ioc', ioc.id, ioc_value, details={
             'case_id': case_id,
             'case_name': case.name,
             'ioc_type': ioc_type,
-            'threat_level': threat_level
+            'threat_level': threat_level,
+            'user_created': user_created  # v1.21.0: Track if Known User was created
         })
         
-        flash(f'IOC added: {ioc_value}', 'success')
+        flash_msg = f'IOC added: {ioc_value}'
+        if user_created:
+            flash_msg += ' (Known User created automatically)'
+        flash(flash_msg, 'success')
         
         # Return success immediately, then do enrichment in background
         # This prevents slow OpenCTI/DFIR-IRIS from blocking the UI
-        response = jsonify({'success': True, 'ioc_id': ioc.id})
+        response = jsonify({
+            'success': True,
+            'ioc_id': ioc.id,
+            'user_created': user_created  # v1.21.0
+        })
         
         # Schedule background enrichment/sync (non-blocking)
         from threading import Thread

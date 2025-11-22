@@ -208,7 +208,8 @@ class KnownUser(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     case_id = db.Column(db.Integer, db.ForeignKey('case.id'), nullable=False, index=True)
     username = db.Column(db.String(255), nullable=False, index=True)
-    user_type = db.Column(db.String(20), nullable=False, default='-')  # 'domain', 'local', or '-'
+    user_type = db.Column(db.String(20), nullable=False, default='unknown')  # v1.21.0: 'domain', 'local', 'unknown', 'invalid'
+    user_sid = db.Column(db.String(255), nullable=True, index=True)  # v1.21.0: Windows Security Identifier (optional)
     compromised = db.Column(db.Boolean, default=False, nullable=False)
     active = db.Column(db.Boolean, default=True, nullable=False)  # v1.20.0: Track if user is currently active
     

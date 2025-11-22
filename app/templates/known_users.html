@@ -179,7 +179,7 @@
     </div>
 </div>
 
-<!-- Add User Modal (v1.20.1: Redesigned with dropdowns) -->
+<!-- Add User Modal (v1.21.0: Added user_sid field, updated types) -->
 <div id="addUserModal" class="modal-overlay" style="display: none;">
     <div class="modal-container">
         <div class="modal-header">
@@ -198,8 +198,20 @@
                     <select id="user_type" name="user_type" class="form-input">
                         <option value="domain">Domain User</option>
                         <option value="local">Local User</option>
-                        <option value="-" selected>Unknown</option>
+                        <option value="unknown" selected>Unknown</option>
+                        <option value="invalid">Invalid (should not exist)</option>
                     </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="user_sid" class="form-label">
+                        User SID 
+                        <span style="color: var(--color-text-muted); font-size: 0.875rem;">(optional)</span>
+                    </label>
+                    <input type="text" id="user_sid" name="user_sid" class="form-input" placeholder="S-1-5-21-XXXXXXXXXX-XXXXXXXXXX-XXXXXXXXXX-XXXX">
+                    <small style="color: var(--color-text-muted); display: block; margin-top: 4px;">
+                        Windows Security Identifier for precise tracking
+                    </small>
                 </div>
                 
                 <div class="form-group">
@@ -208,6 +220,9 @@
                         <option value="false" selected>Not Compromised</option>
                         <option value="true">Compromised</option>
                     </select>
+                    <small style="color: var(--color-info); display: block; margin-top: 4px;">
+                        ℹ️ Marking as compromised will auto-create a username IOC
+                    </small>
                 </div>
                 
                 <div class="form-group">
@@ -227,7 +242,7 @@
     </div>
 </div>
 
-<!-- Edit User Modal (v1.20.1: Redesigned with dropdowns) -->
+<!-- Edit User Modal (v1.21.0: Added user_sid field, updated types) -->
 <div id="editUserModal" class="modal-overlay" style="display: none;">
     <div class="modal-container">
         <div class="modal-header">
@@ -248,8 +263,20 @@
                     <select id="edit_user_type" name="user_type" class="form-input">
                         <option value="domain">Domain User</option>
                         <option value="local">Local User</option>
-                        <option value="-">Unknown</option>
+                        <option value="unknown">Unknown</option>
+                        <option value="invalid">Invalid (should not exist)</option>
                     </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_user_sid" class="form-label">
+                        User SID 
+                        <span style="color: var(--color-text-muted); font-size: 0.875rem;">(optional)</span>
+                    </label>
+                    <input type="text" id="edit_user_sid" name="user_sid" class="form-input" placeholder="S-1-5-21-XXXXXXXXXX-XXXXXXXXXX-XXXXXXXXXX-XXXX">
+                    <small style="color: var(--color-text-muted); display: block; margin-top: 4px;">
+                        Windows Security Identifier for precise tracking
+                    </small>
                 </div>
                 
                 <div class="form-group">
@@ -258,6 +285,9 @@
                         <option value="false">Not Compromised</option>
                         <option value="true">Compromised</option>
                     </select>
+                    <small style="color: var(--color-info); display: block; margin-top: 4px;">
+                        ℹ️ Marking as compromised will auto-create a username IOC
+                    </small>
                 </div>
                 
                 <div class="form-group">
@@ -291,17 +321,19 @@
             
             <div style="background: var(--color-background-secondary); padding: var(--spacing-md); border-radius: var(--border-radius); margin-bottom: var(--spacing-md);">
             <h4 style="margin-bottom: var(--spacing-sm);">CSV Format:</h4>
-            <pre style="background: var(--color-background); padding: var(--spacing-sm); border-radius: var(--border-radius); overflow-x: auto;"><code>Username,Type,Compromised,Active
-jdoe,domain,false,true
-admin,local,true,false
-backup,domain,false,true</code></pre>
+            <pre style="background: var(--color-background); padding: var(--spacing-sm); border-radius: var(--border-radius); overflow-x: auto;"><code>Username,Type,Compromised,Active,UserSID
+jdoe,domain,false,true,S-1-5-21-3623811015-3361044348-30300820-1013
+admin,local,true,false,
+backup,domain,false,true,S-1-5-21-3623811015-3361044348-30300820-2045</code></pre>
             <ul style="margin-top: var(--spacing-sm); padding-left: var(--spacing-lg); color: var(--color-text-muted); font-size: 0.875rem;">
-                <li><strong>Type</strong>: Must be "domain", "local", or will default to "-"</li>
+                <li><strong>Type</strong>: Must be "domain", "local", "unknown", or "invalid" (defaults to "unknown")</li>
                 <li><strong>Compromised</strong>: Must be "true" or "false" (case-insensitive)</li>
                 <li><strong>Active</strong>: Must be "true" or "false" (defaults to "true" if omitted)</li>
+                <li><strong>UserSID</strong>: Optional Windows Security Identifier (e.g., S-1-5-21-...)</li>
                 <li>Duplicate usernames will be skipped</li>
+                <li>✨ Compromised users will automatically create username IOCs</li>
             </ul>
-        </div>
+            </div>
             
             <form id="uploadCSVForm" onsubmit="uploadCSV(event)">
                 <div class="form-group">
@@ -392,9 +424,10 @@ function editUser(userId) {
                 const user = data.user;
                 document.getElementById('edit_user_id').value = userId;
                 document.getElementById('edit_username').value = user.username;
-                document.getElementById('edit_user_type').value = user.user_type || '-';
+                document.getElementById('edit_user_type').value = user.user_type || 'unknown';  // v1.21.0: Default to 'unknown'
+                document.getElementById('edit_user_sid').value = user.user_sid || '';  // v1.21.0: SID field
                 
-                // v1.20.1: Set dropdown values (not checkboxes)
+                // v1.21.0: Set dropdown values (not checkboxes)
                 document.getElementById('edit_compromised_status').value = user.compromised ? 'true' : 'false';
                 document.getElementById('edit_active_status').value = user.active ? 'true' : 'false';
                 

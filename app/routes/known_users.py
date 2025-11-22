@@ -76,6 +76,7 @@ def add_known_user(case_id):
     
     from main import db
     from models import KnownUser, Case
+    from known_user_ioc_sync import sync_user_to_ioc  # v1.21.0: IOC integration
     
     # Verify case exists
     case = db.session.get(Case, case_id)
@@ -84,19 +85,23 @@ def add_known_user(case_id):
     
     try:
         username = request.form.get('username', '').strip()
-        user_type = request.form.get('user_type', '-').strip()
+        user_type = request.form.get('user_type', 'unknown').strip()  # v1.21.0: Default to 'unknown'
+        user_sid = request.form.get('user_sid', '').strip() or None  # v1.21.0: Optional SID
         compromised = request.form.get('compromised') == 'true'
-        active = request.form.get('active', 'true') == 'true'  # v1.20.0: Default to active=true
+        active = request.form.get('active', 'true') == 'true'
         
         if not username:
             return jsonify({'success': False, 'error': 'Username is required'}), 400
         
-        # Validate user_type
-        if user_type not in ['domain', 'local', '-']:
-            user_type = '-'
+        # v1.21.0: Validate user_type (domain, local, unknown, invalid)
+        if user_type not in ['domain', 'local', 'unknown', 'invalid']:
+            user_type = 'unknown'
         
-        # Check for duplicate within this case
-        existing = KnownUser.query.filter_by(case_id=case_id, username=username).first()
+        # Check for duplicate within this case (case-insensitive)
+        existing = KnownUser.query.filter(
+            KnownUser.case_id == case_id,
+            db.func.lower(KnownUser.username) == username.lower()
+        ).first()
         if existing:
             return jsonify({'success': False, 'error': f'User "{username}" already exists in this case'}), 400
         
@@ -105,6 +110,7 @@ def add_known_user(case_id):
             case_id=case_id,
             username=username,
             user_type=user_type,
+            user_sid=user_sid,  # v1.21.0
             compromised=compromised,
             active=active,
             added_method='manual',
@@ -112,6 +118,18 @@ def add_known_user(case_id):
         )
         db.session.add(known_user)
         db.session.commit()
+        
+        # v1.21.0: If user is compromised, auto-create IOC
+        ioc_created = False
+        if compromised:
+            success, ioc_id, msg = sync_user_to_ioc(
+                case_id=case_id,
+                username=username,
+                user_id=known_user.id,
+                current_user_id=current_user.id,
+                description=f'Compromised user added manually (SID: {user_sid or "N/A"})'
+            )
+            ioc_created = success and ioc_id is not None
         
         # Audit log
         from audit_logger import log_action
@@ -121,12 +139,22 @@ def add_known_user(case_id):
                       'case_id': case_id,
                       'case_name': case.name,
                       'user_type': user_type,
+                      'user_sid': user_sid,
                       'compromised': compromised,
-                      'active': active
+                      'active': active,
+                      'ioc_created': ioc_created  # v1.21.0: Track if IOC was created
                   })
         
-        flash(f'Known user added: {username}', 'success')
-        return jsonify({'success': True, 'user_id': known_user.id})
+        flash_msg = f'Known user added: {username}'
+        if ioc_created:
+            flash_msg += ' (IOC created automatically)'
+        flash(flash_msg, 'success')
+        
+        return jsonify({
+            'success': True,
+            'user_id': known_user.id,
+            'ioc_created': ioc_created  # v1.21.0: Inform frontend
+        })
     
     except Exception as e:
         db.session.rollback()
@@ -155,6 +183,7 @@ def get_known_user(case_id, user_id):
                 'id': known_user.id,
                 'username': known_user.username,
                 'user_type': known_user.user_type,
+                'user_sid': known_user.user_sid,  # v1.21.0
                 'compromised': known_user.compromised,
                 'active': known_user.active
             }
@@ -174,6 +203,7 @@ def update_known_user(case_id, user_id):
     
     from main import db
     from models import KnownUser
+    from known_user_ioc_sync import sync_user_to_ioc  # v1.21.0: IOC integration
     
     try:
         known_user = db.session.get(KnownUser, user_id)
@@ -184,16 +214,23 @@ def update_known_user(case_id, user_id):
         if known_user.case_id != case_id:
             return jsonify({'success': False, 'error': 'User does not belong to this case'}), 403
         
+        # Track old values for IOC sync and audit logging
+        old_username = known_user.username
+        old_type = known_user.user_type
+        old_compromised = known_user.compromised
+        old_active = known_user.active
+        old_sid = known_user.user_sid
+        
         # Update fields
         if 'username' in request.form:
             new_username = request.form['username'].strip()
             if not new_username:
                 return jsonify({'success': False, 'error': 'Username cannot be empty'}), 400
             
-            # Check for duplicate within this case (excluding current user)
+            # Check for duplicate within this case (excluding current user, case-insensitive)
             existing = KnownUser.query.filter(
                 KnownUser.case_id == case_id,
-                KnownUser.username == new_username,
+                db.func.lower(KnownUser.username) == new_username.lower(),
                 KnownUser.id != user_id
             ).first()
             if existing:
@@ -203,19 +240,62 @@ def update_known_user(case_id, user_id):
         
         if 'user_type' in request.form:
             user_type = request.form['user_type'].strip()
-            if user_type in ['domain', 'local', '-']:
+            # v1.21.0: Support new types (domain, local, unknown, invalid)
+            if user_type in ['domain', 'local', 'unknown', 'invalid']:
                 known_user.user_type = user_type
         
-        old_username = known_user.username
-        old_type = known_user.user_type
-        old_compromised = known_user.compromised
-        old_active = known_user.active
+        if 'user_sid' in request.form:  # v1.21.0: Optional SID
+            user_sid = request.form['user_sid'].strip() or None
+            known_user.user_sid = user_sid
         
         if 'compromised' in request.form:
             known_user.compromised = request.form['compromised'] == 'true'
         
-        if 'active' in request.form:  # v1.20.0: Handle active field
+        if 'active' in request.form:
             known_user.active = request.form['active'] == 'true'
+        
+        db.session.commit()
+        
+        # v1.21.0: IOC synchronization when compromised status changes
+        ioc_created = False
+        if not old_compromised and known_user.compromised:
+            # User became compromised → Create IOC
+            success, ioc_id, msg = sync_user_to_ioc(
+                case_id=case_id,
+                username=known_user.username,
+                user_id=known_user.id,
+                current_user_id=current_user.id,
+                description=f'User marked compromised (Type: {known_user.user_type}, SID: {known_user.user_sid or "N/A"})'
+            )
+            ioc_created = success and ioc_id is not None
+        
+        # Audit log
+        from audit_logger import log_action
+        log_action('update_known_user', resource_type='known_user', resource_id=user_id,
+                  resource_name=known_user.username,
+                  details={
+                      'case_id': case_id,
+                      'username': {'old': old_username, 'new': known_user.username},
+                      'user_type': {'old': old_type, 'new': known_user.user_type},
+                      'user_sid': {'old': old_sid, 'new': known_user.user_sid},  # v1.21.0
+                      'compromised': {'old': old_compromised, 'new': known_user.compromised},
+                      'active': {'old': old_active, 'new': known_user.active},
+                      'ioc_created': ioc_created  # v1.21.0
+                  })
+        
+        flash_msg = 'Known user updated'
+        if ioc_created:
+            flash_msg += ' (IOC created automatically)'
+        flash(flash_msg, 'success')
+        
+        return jsonify({
+            'success': True,
+            'ioc_created': ioc_created  # v1.21.0
+        })
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
         
         db.session.commit()
         
@@ -304,6 +384,7 @@ def upload_csv(case_id):
     
     from main import db
     from models import KnownUser, Case
+    from known_user_ioc_sync import sync_user_to_ioc  # v1.21.0: IOC integration
     
     # Verify case exists
     case = db.session.get(Case, case_id)
@@ -337,12 +418,13 @@ def upload_csv(case_id):
         
         added_count = 0
         skipped_count = 0
+        iocs_created_count = 0  # v1.21.0: Track IOCs created
         errors = []
         
-        # v1.20.1: Track usernames seen in this CSV to prevent duplicates within the file
+        # Track usernames seen in this CSV to prevent duplicates within the file
         seen_usernames = set()
         
-        # v1.20.1: Pre-load existing usernames for this case (case-insensitive)
+        # Pre-load existing usernames for this case (case-insensitive)
         existing_usernames = set()
         existing_users = KnownUser.query.filter_by(case_id=case_id).all()
         for user in existing_users:
@@ -354,28 +436,30 @@ def upload_csv(case_id):
                 username_col = header_map.get('username')
                 type_col = header_map.get('type')
                 compromised_col = header_map.get('compromised')
-                active_col = header_map.get('active')  # v1.20.0: Active field
+                active_col = header_map.get('active')
+                usersid_col = header_map.get('usersid')  # v1.21.0: SID field
                 
                 username = row.get(username_col, '').strip() if username_col else ''
-                user_type = row.get(type_col, '-').strip().lower() if type_col else '-'
+                user_type = row.get(type_col, 'unknown').strip().lower() if type_col else 'unknown'  # v1.21.0: Default to 'unknown'
                 compromised_str = row.get(compromised_col, 'false').strip().lower() if compromised_col else 'false'
-                active_str = row.get(active_col, 'true').strip().lower() if active_col else 'true'  # v1.20.0: Default to active
+                active_str = row.get(active_col, 'true').strip().lower() if active_col else 'true'
+                user_sid = row.get(usersid_col, '').strip() if usersid_col else None  # v1.21.0
                 
                 if not username:
                     skipped_count += 1
                     continue
                 
-                # Validate user_type
-                if user_type not in ['domain', 'local']:
-                    user_type = '-'
+                # v1.21.0: Validate user_type (domain, local, unknown, invalid)
+                if user_type not in ['domain', 'local', 'unknown', 'invalid']:
+                    user_type = 'unknown'
                 
                 # Parse compromised
                 compromised = compromised_str in ['true', 't', 'yes', 'y', '1']
                 
-                # Parse active (v1.20.0)
+                # Parse active
                 active = active_str in ['true', 't', 'yes', 'y', '1']
                 
-                # v1.20.1: Check for duplicate (case-insensitive) in DB or already seen in this CSV
+                # Check for duplicate (case-insensitive) in DB or already seen in this CSV
                 username_lower = username.lower()
                 if username_lower in existing_usernames or username_lower in seen_usernames:
                     skipped_count += 1
@@ -389,13 +473,27 @@ def upload_csv(case_id):
                     case_id=case_id,
                     username=username,
                     user_type=user_type,
+                    user_sid=user_sid if user_sid else None,  # v1.21.0
                     compromised=compromised,
                     active=active,
                     added_method='csv',
                     added_by=current_user.id
                 )
                 db.session.add(known_user)
+                db.session.flush()  # Get ID before IOC sync
                 added_count += 1
+                
+                # v1.21.0: If user is compromised, create IOC
+                if compromised:
+                    success, ioc_id, msg = sync_user_to_ioc(
+                        case_id=case_id,
+                        username=username,
+                        user_id=known_user.id,
+                        current_user_id=current_user.id,
+                        description=f'Compromised user from CSV import (SID: {user_sid or "N/A"})'
+                    )
+                    if success and ioc_id:
+                        iocs_created_count += 1
                 
             except Exception as row_error:
                 errors.append(f"Row {row_num}: {str(row_error)}")
@@ -412,12 +510,15 @@ def upload_csv(case_id):
                       'case_name': case.name,
                       'added_count': added_count,
                       'skipped_count': skipped_count,
+                      'iocs_created_count': iocs_created_count,  # v1.21.0
                       'filename': file.filename,
                       'errors': errors[:5] if errors else []  # Log first 5 errors
                   })
         
         # Build result message
         message = f'CSV import complete: {added_count} users added'
+        if iocs_created_count > 0:
+            message += f' ({iocs_created_count} IOCs created automatically)'
         if skipped_count > 0:
             message += f', {skipped_count} skipped (duplicates or invalid)'
         
@@ -429,6 +530,7 @@ def upload_csv(case_id):
             'success': True,
             'added': added_count,
             'skipped': skipped_count,
+            'iocs_created': iocs_created_count,  # v1.21.0
             'errors': errors
         })
     
@@ -468,8 +570,8 @@ def export_csv(case_id):
         output = io.StringIO()
         writer = csv.writer(output)
         
-        # Write header
-        writer.writerow(['Username', 'Type', 'Compromised', 'Active', 'Added Method', 'Added By', 'Date Added'])
+        # Write header (v1.21.0: Added UserSID column)
+        writer.writerow(['Username', 'Type', 'Compromised', 'Active', 'UserSID', 'Added Method', 'Added By', 'Date Added'])
         
         # Write data
         for ku in known_users:
@@ -480,7 +582,8 @@ def export_csv(case_id):
                 ku.username,
                 ku.user_type,
                 'true' if ku.compromised else 'false',
-                'true' if ku.active else 'false',  # v1.20.0: Include active status
+                'true' if ku.active else 'false',
+                ku.user_sid or '',  # v1.21.0: Include SID (empty if None)
                 ku.added_method,
                 creator_name,
                 ku.created_at.strftime('%Y-%m-%d %H:%M:%S') if ku.created_at else ''
