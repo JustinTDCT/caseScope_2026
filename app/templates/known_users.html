@@ -179,7 +179,7 @@
     </div>
 </div>
 
-<!-- Add User Modal (v1.20.0: Standardized) -->
+<!-- Add User Modal (v1.20.1: Redesigned with dropdowns) -->
 <div id="addUserModal" class="modal-overlay" style="display: none;">
     <div class="modal-container">
         <div class="modal-header">
@@ -196,24 +196,26 @@
                 <div class="form-group">
                     <label for="user_type" class="form-label">Type</label>
                     <select id="user_type" name="user_type" class="form-input">
-                        <option value="domain">Domain</option>
-                        <option value="local">Local</option>
+                        <option value="domain">Domain User</option>
+                        <option value="local">Local User</option>
                         <option value="-" selected>Unknown</option>
                     </select>
                 </div>
                 
                 <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
-                        <input type="checkbox" id="compromised" name="compromised" value="true">
-                        <span>Mark as Compromised</span>
-                    </label>
+                    <label for="compromised_status" class="form-label">Compromised Status</label>
+                    <select id="compromised_status" name="compromised" class="form-input">
+                        <option value="false" selected>Not Compromised</option>
+                        <option value="true">Compromised</option>
+                    </select>
                 </div>
                 
                 <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
-                        <input type="checkbox" id="active" name="active" value="true" checked>
-                        <span>Mark as Active</span>
-                    </label>
+                    <label for="active_status" class="form-label">Active Status</label>
+                    <select id="active_status" name="active" class="form-input">
+                        <option value="true" selected>Active</option>
+                        <option value="false">Inactive</option>
+                    </select>
                 </div>
             </div>
             
@@ -225,7 +227,7 @@
     </div>
 </div>
 
-<!-- Edit User Modal (v1.20.0: Standardized) -->
+<!-- Edit User Modal (v1.20.1: Redesigned with dropdowns) -->
 <div id="editUserModal" class="modal-overlay" style="display: none;">
     <div class="modal-container">
         <div class="modal-header">
@@ -244,24 +246,26 @@
                 <div class="form-group">
                     <label for="edit_user_type" class="form-label">Type</label>
                     <select id="edit_user_type" name="user_type" class="form-input">
-                        <option value="domain">Domain</option>
-                        <option value="local">Local</option>
+                        <option value="domain">Domain User</option>
+                        <option value="local">Local User</option>
                         <option value="-">Unknown</option>
                     </select>
                 </div>
                 
                 <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
-                        <input type="checkbox" id="edit_compromised" name="compromised" value="true">
-                        <span>Mark as Compromised</span>
-                    </label>
+                    <label for="edit_compromised_status" class="form-label">Compromised Status</label>
+                    <select id="edit_compromised_status" name="compromised" class="form-input">
+                        <option value="false">Not Compromised</option>
+                        <option value="true">Compromised</option>
+                    </select>
                 </div>
                 
                 <div class="form-group">
-                    <label style="display: flex; align-items: center; gap: var(--spacing-sm); cursor: pointer;">
-                        <input type="checkbox" id="edit_active" name="active" value="true">
-                        <span>Mark as Active</span>
-                    </label>
+                    <label for="edit_active_status" class="form-label">Active Status</label>
+                    <select id="edit_active_status" name="active" class="form-input">
+                        <option value="true">Active</option>
+                        <option value="false">Inactive</option>
+                    </select>
                 </div>
             </div>
             
@@ -380,15 +384,31 @@ function addUser(event) {
 
 // Edit user
 function editUser(userId) {
-    // For now, fetch user data via API (you could add a GET endpoint)
-    // For simplicity, we'll open the modal and let user re-enter data
-    const modal = document.getElementById('editUserModal');
-    document.getElementById('edit_user_id').value = userId;
-    
-    // You could fetch current values here via AJAX
-    // For now, user will see empty form
-    
-    modal.style.display = 'flex';
+    // Fetch user data and populate the edit modal
+    fetch(`/case/{{ case_id }}/known_users/${userId}/get`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const user = data.user;
+                document.getElementById('edit_user_id').value = userId;
+                document.getElementById('edit_username').value = user.username;
+                document.getElementById('edit_user_type').value = user.user_type || '-';
+                
+                // v1.20.1: Set dropdown values (not checkboxes)
+                document.getElementById('edit_compromised_status').value = user.compromised ? 'true' : 'false';
+                document.getElementById('edit_active_status').value = user.active ? 'true' : 'false';
+                
+                document.getElementById('editUserModal').style.display = 'flex';
+            } else {
+                alert('❌ Error loading user data');
+            }
+        })
+        .catch(err => {
+            console.error('Load user error:', err);
+            // Fallback: Just open the modal empty
+            document.getElementById('edit_user_id').value = userId;
+            document.getElementById('editUserModal').style.display = 'flex';
+        });
 }
 
 function updateUser(event) {

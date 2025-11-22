@@ -133,6 +133,37 @@ def add_known_user(case_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@known_users_bp.route('/case/<int:case_id>/known_users/<int:user_id>/get', methods=['GET'])
+@login_required
+def get_known_user(case_id, user_id):
+    """Get single known user data for editing - Case-specific"""
+    from main import db
+    from models import KnownUser
+    
+    try:
+        known_user = db.session.get(KnownUser, user_id)
+        if not known_user:
+            return jsonify({'success': False, 'error': 'Known user not found'}), 404
+        
+        # Verify user belongs to this case
+        if known_user.case_id != case_id:
+            return jsonify({'success': False, 'error': 'User does not belong to this case'}), 403
+        
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': known_user.id,
+                'username': known_user.username,
+                'user_type': known_user.user_type,
+                'compromised': known_user.compromised,
+                'active': known_user.active
+            }
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @known_users_bp.route('/case/<int:case_id>/known_users/<int:user_id>/update', methods=['POST'])
 @login_required
 def update_known_user(case_id, user_id):
